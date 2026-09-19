@@ -11,6 +11,8 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import app.turp.chat.AppContainer
+import app.turp.chat.BuildConfig
+import app.turp.chat.demo.DemoModeController
 import app.turp.chat.data.AttachmentEntity
 import app.turp.chat.data.AutomationSettingsEntity
 import app.turp.chat.data.ConversationEntity
@@ -986,6 +988,27 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
             importing.value = false
         }
         val effectiveMode = mode ?: if (container.repository.activeStream(id) != null) SendMode.QUEUE else SendMode.SEND_NOW
+        if (container.demoMode.handlesConversation(id)) {
+            runCatching { container.demoMode.submit(id, text, attachments.map { it.id }, effectiveMode) }
+                .onSuccess { assistantId ->
+                    setDraft("")
+                    withContext(Dispatchers.IO) { container.composerDrafts.remove(id) }
+                    stagedAttachments.value = emptyList()
+                    if (assistantId != null) {
+                        viewModelScope.launch {
+                            runCatching { container.demoMode.completeResponse(id, assistantId) }
+                                .onFailure { notices.emit("Demo response failed: " + it.readableMessage()) }
+                        }
+                    }
+                }
+                .onFailure { error ->
+                    setDraft(text)
+                    stagedAttachments.value = attachments
+                    notices.emit("Could not send demo message: " + error.readableMessage())
+                }
+            return@launch
+        }
+
         runCatching { container.scheduler.submit(id, text, attachments.map { it.id }, effectiveMode) }
             .onSuccess {
                 setDraft("")
@@ -1000,7 +1023,12 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
     }
 
     fun resume(message: MessageEntity) = launchAction {
-        container.scheduler.resume(message.conversationId, message.nodeId)
+        if (container.demoMode.handlesConversation(message.conversationId)) {
+            container.repository.markStreaming(message.nodeId)
+            container.demoMode.completeResponse(message.conversationId, message.nodeId)
+        } else {
+            container.scheduler.resume(message.conversationId, message.nodeId)
+        }
     }
 
     fun stop() = launchAction {
@@ -1017,7 +1045,11 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
             container.repository.markInterrupted(active.nodeId, "Replaced by an edited message")
         }
         val assistantId = container.repository.editUserMessage(message.nodeId, revised)
-        container.scheduler.start(message.conversationId, assistantId, continuation = false)
+        if (container.demoMode.handlesConversation(message.conversationId)) {
+            container.demoMode.completeResponse(message.conversationId, assistantId)
+        } else {
+            container.scheduler.start(message.conversationId, assistantId, continuation = false)
+        }
     }
 
     fun activateBranch(message: MessageEntity) = launchAction {
@@ -1037,7 +1069,11 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
             container.repository.markInterrupted(active.nodeId, "Replaced by retry")
         }
         val assistantId = container.repository.retryAssistant(message.nodeId)
-        container.scheduler.start(message.conversationId, assistantId, continuation = false)
+        if (container.demoMode.handlesConversation(message.conversationId)) {
+            container.demoMode.completeResponse(message.conversationId, assistantId)
+        } else {
+            container.scheduler.start(message.conversationId, assistantId, continuation = false)
+        }
     }
 
     fun submitWidgetResponse(text: String) {
@@ -1407,6 +1443,55 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
     fun setGeneratedRepairMaxAttempts(value: Int) = container.appPreferences.setGeneratedRepairMaxAttempts(value)
     fun updateDeveloperSettings(transform: (app.turp.chat.settings.DeveloperSettings) -> app.turp.chat.settings.DeveloperSettings) =
         container.appPreferences.updateDeveloperSettings(transform)
+
+    fun setDemoModeEnabled(enabled: Boolean, openWalkthrough: Boolean = false) = launchAction {
+        if (!BuildConfig.DEBUG) return@launchAction
+        val selectedWasDemo = DemoModeController.isDemoConversationId(selectedConversationId.value)
+        container.demoMode.setEnabled(enabled)
+        _credentialRevision.value++
+
+        if (enabled && openWalkthrough) {
+            setupActive.value = false
+            setupDismissed.value = true
+            setupTemporarilyAway.value = false
+            showArchived.value = false
+            selectedProjectId.value = null
+            val id = DemoModeController.WALKTHROUGH_CHAT_ID
+            container.repository.repairActiveMessagePath(id)
+            switchDraftContext(id)
+            draftConversation.value = null
+            newDraftConversationId.value = null
+            focusedMessageNodeId.value = null
+            focusedMessageIndex.value = null
+            selectedConversationId.value = id
+            screen.value = Screen.CHAT
+            container.repository.markRead(id)
+            stagedAttachments.value = container.database.attachmentDao().stagedForConversation(id)
+        } else if (!enabled && selectedWasDemo) {
+            selectedConversationId.value = null
+            val fallback = container.repository.conversations.first()
+                .firstOrNull { !DemoModeController.isDemoConversationId(it.conversation.id) }
+                ?.conversation
+            if (fallback != null) {
+                switchDraftContext(fallback.id)
+                draftConversation.value = null
+                newDraftConversationId.value = null
+                focusedMessageNodeId.value = null
+                focusedMessageIndex.value = null
+                selectedConversationId.value = fallback.id
+                screen.value = Screen.CHAT
+                container.repository.markRead(fallback.id)
+                stagedAttachments.value = container.database.attachmentDao().stagedForConversation(fallback.id)
+            } else {
+                openEmptyDraft()
+            }
+        }
+
+        notices.emit(if (enabled) "Demo mode enabled" else "Demo mode disabled")
+    }
+
+    fun activateDemoModeFromOnboarding() =
+        setDemoModeEnabled(enabled = true, openWalkthrough = true)
 
     fun clearContextSummary() = launchAction {
         val id = selectedConversationId.value
