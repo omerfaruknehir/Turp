@@ -86,11 +86,18 @@ class DemoModeController(
     ): String? {
         check(BuildConfig.DEBUG) { "Demo mode is debug-only" }
         check(handlesConversation(conversationId)) { "Conversation is not using a demo provider" }
-        return if (mode == SendMode.QUEUE) {
-            repository.submit(conversationId, text, attachmentIds, SendMode.QUEUE)
-            null
-        } else {
-            repository.createExchange(conversationId, text, attachmentIds)
+        return when (mode) {
+            SendMode.QUEUE -> {
+                repository.submit(conversationId, text, attachmentIds, SendMode.QUEUE)
+                null
+            }
+            SendMode.STEER -> {
+                repository.activeStreams(conversationId).forEach {
+                    repository.markInterrupted(it.nodeId, "Steered by a new demo message")
+                }
+                repository.createExchange(conversationId, text, attachmentIds)
+            }
+            SendMode.SEND_NOW -> repository.createExchange(conversationId, text, attachmentIds)
         }
     }
 
