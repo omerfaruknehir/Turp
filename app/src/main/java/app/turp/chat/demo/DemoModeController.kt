@@ -40,7 +40,8 @@ class DemoModeController(
             preferences.updateDeveloperSettings { it.copy(demoModeEnabled = false) }
             return
         }
-        if (preferences.developerSettings.value.demoModeEnabled) seed() else clearSeededData()
+        if (preferences.developerSettings.value.demoModeEnabled) seed()
+        else clearSeededDataAndRestoreSelections()
     }
 
     suspend fun setEnabled(enabled: Boolean) {
@@ -53,7 +54,7 @@ class DemoModeController(
             preferences.updateDeveloperSettings { it.copy(enabled = true, demoModeEnabled = true) }
         } else {
             preferences.updateDeveloperSettings { it.copy(demoModeEnabled = false) }
-            clearSeededData()
+            clearSeededDataAndRestoreSelections()
         }
     }
 
@@ -158,8 +159,43 @@ class DemoModeController(
         }
     }
 
-    private suspend fun clearSeededData() {
-        database.withTransaction { clearSeededDataInTransaction() }
+    private suspend fun clearSeededDataAndRestoreSelections() {
+        var fallbackProviderId: String? = null
+        var fallbackModelId: String? = null
+        database.withTransaction {
+            val providers = database.catalogDao().allProviders()
+                .filterNot { isDemoProviderId(it.id) }
+            val models = database.catalogDao().allModels()
+                .filterNot { isDemoProviderId(it.providerId) }
+            val fallback = providers.asSequence()
+                .mapNotNull { provider ->
+                    models.firstOrNull { it.providerId == provider.id }?.let { provider.id to it.modelId }
+                }
+                .firstOrNull()
+            fallbackProviderId = fallback?.first
+            fallbackModelId = fallback?.second
+            if (fallback != null) {
+                database.conversationDao().replaceDemoModelSelections(
+                    demoConversationPrefix = "demo-chat-",
+                    demoProviderPrefix = DEMO_PROVIDER_PREFIX,
+                    providerId = fallback.first,
+                    modelId = fallback.second,
+                )
+            }
+            clearSeededDataInTransaction()
+        }
+
+        val defaults = preferences.newChatDefaults.value
+        if (isDemoProviderId(defaults.selectedProviderId) &&
+            fallbackProviderId != null && fallbackModelId != null
+        ) {
+            preferences.setNewChatDefaults(
+                defaults.copy(
+                    selectedProviderId = fallbackProviderId!!,
+                    selectedModelId = fallbackModelId!!,
+                ),
+            )
+        }
     }
 
     private suspend fun clearSeededDataInTransaction() {
