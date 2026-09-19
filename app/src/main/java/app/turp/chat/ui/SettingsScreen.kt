@@ -1905,7 +1905,7 @@ private val ColorPalette.displayName: String
 
 private val ColorPalette.description: String
     get() = when (this) {
-        ColorPalette.TURP -> "Radish red, leafy green, and warm root-toned surfaces"
+        ColorPalette.TURP -> "Neutral graphite surfaces with a focused radish accent"
         ColorPalette.ARBOR -> "The original natural green Turp palette"
         ColorPalette.SYSTEM -> "Colors generated from your wallpaper on Android 12+"
         ColorPalette.GRAPHITE -> "Restrained blue-gray palette"
