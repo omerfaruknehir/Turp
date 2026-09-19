@@ -1411,6 +1411,28 @@ private fun DeveloperSettingsPage(
         onCheckedChange = { enabled -> viewModel.updateDeveloperSettings { it.copy(enabled = enabled) } },
     )
 
+    if (BuildConfig.DEBUG) {
+        HorizontalDivider()
+        SectionTitle(
+            "Demo mode",
+            "Populate Turp with deterministic local fixture data for UI and interaction testing. Demo providers never make network requests.",
+        )
+        SettingsSwitch(
+            label = "Enable demo mode",
+            checked = settings.demoModeEnabled,
+            onCheckedChange = viewModel::setDemoModeEnabled,
+        )
+        Text(
+            if (settings.demoModeEnabled) {
+                "Active: 5 providers, 100 models, 3 projects, and 12 seeded chats. Turning this off removes only demo-prefixed data."
+            } else {
+                "Debug builds only. You can also activate it by triple-tapping the large Turp logo on the Welcome screen."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+
     HorizontalDivider()
     SectionTitle(
         "Tool diagnostics",
