@@ -1420,7 +1420,7 @@ private fun DeveloperSettingsPage(
         SettingsSwitch(
             label = "Enable demo mode",
             checked = settings.demoModeEnabled,
-            onCheckedChange = viewModel::setDemoModeEnabled,
+            onCheckedChange = { enabled -> viewModel.setDemoModeEnabled(enabled) },
         )
         Text(
             if (settings.demoModeEnabled) {
