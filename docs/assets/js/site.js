@@ -17,12 +17,12 @@
 
   const appIconPalettes = {
     turp: {
-      backgroundStart: '#fff0d7',
-      backgroundEnd: '#fde1bd',
-      markStart: '#78bf43',
-      markEnd: '#28722e',
-      leaf: '#ef2e52',
-      secondStroke: '#f5a0b0',
+      backgroundStart: '#24171c',
+      backgroundEnd: '#5a2335',
+      markStart: '#ffb0c5',
+      markEnd: '#f06a91',
+      leaf: '#c3c8c3',
+      secondStroke: '#f7e7ec',
     },
     arbor: {
       backgroundStart: '#e7f4ea',
@@ -75,8 +75,8 @@
   };
 
   const appPrimaryToIconPalette = new Map([
-    ['#a51d45', 'turp'],
-    ['#ffb1c5', 'turp'],
+    ['#9f244a', 'turp'],
+    ['#ffb0c5', 'turp'],
     ['#286448', 'arbor'],
     ['#99d5b1', 'arbor'],
     ['#425f86', 'graphite'],
