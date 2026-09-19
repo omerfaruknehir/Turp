@@ -12,6 +12,7 @@ import app.turp.chat.agent.WebSearchClient
 import app.turp.chat.data.TurpDatabase
 import app.turp.chat.data.DefaultCatalog
 import app.turp.chat.data.ProviderKind
+import app.turp.chat.demo.DemoModeController
 import app.turp.chat.files.AttachmentStore
 import app.turp.chat.files.OcrEngine
 import app.turp.chat.generation.GenerationScheduler
@@ -105,6 +106,7 @@ class TurpApplication : Application() {
             container.database.automationSettingsDao().upsert(
                 container.database.automationSettingsDao().get() ?: app.turp.chat.data.AutomationSettingsEntity(),
             )
+            if (BuildConfig.DEBUG) container.demoMode.reconcileAtStartup()
             container.markCatalogReady()
             } catch (error: Throwable) {
                 container.markCatalogFailed()
@@ -142,6 +144,7 @@ class AppContainer(val application: Application, val crashReporter: CrashReporte
     val secureStore = SecureStore(application)
     val database = TurpDatabase.create(application, secureStore.databasePassphrase())
     val repository = ChatRepository(database)
+    val demoMode = DemoModeController(database, repository, appPreferences)
     val openAiOAuth = OpenAiOAuthManager(application, secureStore)
     val providers = ProviderRegistry(openAiOAuth)
     val modelDiscovery = AlibabaCloudModelDiscoveryService(openAiOAuth)
