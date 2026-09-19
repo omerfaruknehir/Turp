@@ -84,6 +84,9 @@ interface ConversationDao {
     @Query("DELETE FROM conversations WHERE id = :id")
     suspend fun delete(id: String)
 
+    @Query("DELETE FROM conversations WHERE id LIKE :prefix || '%'")
+    suspend fun deleteByIdPrefix(prefix: String)
+
     @Query("""
         DELETE FROM conversations
         WHERE NOT EXISTS (SELECT 1 FROM messages m WHERE m.conversationId = conversations.id)
@@ -136,6 +139,9 @@ interface ProjectDao {
 
     @Query("DELETE FROM projects WHERE id = :id")
     suspend fun delete(id: String)
+
+    @Query("DELETE FROM projects WHERE id LIKE :prefix || '%'")
+    suspend fun deleteByIdPrefix(prefix: String)
 }
 
 @Dao
@@ -361,6 +367,12 @@ interface CatalogDao {
 
     @Query("DELETE FROM models WHERE providerId = :providerId")
     suspend fun deleteModels(providerId: String)
+
+    @Query("DELETE FROM models WHERE providerId LIKE :prefix || '%'")
+    suspend fun deleteModelsByProviderPrefix(prefix: String)
+
+    @Query("DELETE FROM providers WHERE id LIKE :prefix || '%'")
+    suspend fun deleteProvidersByIdPrefix(prefix: String)
 
     @Transaction
     suspend fun mergeModels(values: List<ModelEntity>) {
