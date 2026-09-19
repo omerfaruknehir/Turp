@@ -805,7 +805,7 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
         if (target == null) {
             val value = restoredNewDraft ?: container.repository.newConversationDraft(
                 projectId = selectedProjectId.value.takeUnless { showArchived.value },
-                defaults = newChatDefaults.value,
+                defaults = container.demoMode.effectiveNewChatDefaults(newChatDefaults.value),
             ).also { container.repository.persistConversationDraft(it) }
             selectedConversationId.value = null
             newDraftConversationId.value = value.id
@@ -835,7 +835,7 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
         selectedConversationId.value?.let { return it }
         val value = draftConversation.value ?: container.repository.newConversationDraft(
             projectId = selectedProjectId.value.takeUnless { showArchived.value },
-            defaults = newChatDefaults.value,
+            defaults = container.demoMode.effectiveNewChatDefaults(newChatDefaults.value),
         )
         container.repository.persistConversationDraft(value)
         persistCurrentDraft()
@@ -851,7 +851,7 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
         val existing = newDraftConversationId.value?.let { container.repository.conversationNow(it) }
         val value = existing ?: container.repository.newConversationDraft(
             projectId = selectedProjectId.value.takeUnless { showArchived.value },
-            defaults = newChatDefaults.value,
+            defaults = container.demoMode.effectiveNewChatDefaults(newChatDefaults.value),
         ).also { container.repository.persistConversationDraft(it) }
         selectedConversationId.value = null
         newDraftConversationId.value = value.id
