@@ -125,9 +125,9 @@ body .rail-appearance {
 }
 
 .palette-choice {
-  --preview-primary: #ffb1c5;
-  --preview-secondary: #b5ccb6;
-  --preview-tertiary: #d8c68b;
+  --preview-primary: #ffb0c5;
+  --preview-secondary: #c3c8c3;
+  --preview-tertiary: #c6c5d3;
   display: grid;
   min-width: 0;
   min-height: 62px;
@@ -150,9 +150,9 @@ body .rail-appearance {
 }
 
 .palette-choice[data-scheme-choice='turp'] {
-  --preview-primary: #ffb1c5;
-  --preview-secondary: #b5ccb6;
-  --preview-tertiary: #d8c68b;
+  --preview-primary: #ffb0c5;
+  --preview-secondary: #c3c8c3;
+  --preview-tertiary: #c6c5d3;
 }
 
 .palette-choice[data-scheme-choice='arbor'] {
