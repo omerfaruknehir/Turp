@@ -760,37 +760,14 @@ internal fun MarkdownBlock(
     var pendingReference by remember(key) { mutableStateOf<LinkReferencePreview?>(null) }
     val renderedMarkdown = remember(markdown) { renderMarkdownLinksLiterally(markdown) }
     when {
-        // Never feed an actively growing table to Markwon. Its TablePlugin assumes
-        // the parser has already produced a complete alignment/cell matrix and can
-        // throw from TableRowSpan when a provider update ends mid-row. The bounded
-        // native grid is still a rendered table and is cheap enough to refresh at
-        // the 250 ms streaming cadence used by RichMessage.
-        horizontallyScrollable && streaming -> {
-            StreamingTablePreviewText(markdown = markdown, streaming = true)
-        }
-        horizontallyScrollable && shouldUseLightweightTableRenderer(markdown, streaming = false) -> {
-            StreamingTablePreviewText(markdown = markdown, streaming = false)
-        }
+        // Keep every Markdown table on Turp's native grid renderer. Markwon's
+        // TablePlugin draws table spans inside a TextView; on some Android
+        // layouts that can leave the original pipe-delimited source visible
+        // alongside the table borders. The native grid is deterministic,
+        // selectable, horizontally scrollable, and already handles both
+        // streaming fragments and bounded large-table previews.
         horizontallyScrollable -> {
-            val tableViewportDp = with(LocalDensity.current) {
-                LocalWindowInfo.current.containerSize.width.toDp().value.roundToInt()
-            }.minus(48).coerceAtLeast(240)
-            val tableWidth = remember(markdown, tableViewportDp) {
-                estimateMarkdownTableWidthDp(markdown, tableViewportDp).dp
-            }
-            LowSensitivityHorizontalScroll(Modifier.fillMaxWidth()) {
-                MarkdownAndroidView(
-                    markwon = markwon,
-                    markdown = renderedMarkdown,
-                    textColor = color,
-                    linkColor = linkColor,
-                    pillBackground = pillBackground,
-                    pillForeground = pillForeground,
-                    selectionColor = selectionColor,
-                    onReference = { pendingReference = it },
-                    modifier = Modifier.width(tableWidth),
-                )
-            }
+            StreamingTablePreviewText(markdown = markdown, streaming = streaming)
         }
         else -> {
             MarkdownAndroidView(
