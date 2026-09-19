@@ -203,11 +203,13 @@ Outro""",
         assertTrue(containsMarkdownTableCandidate("| A | B |\n| --- | --- |"))
     }
 
-    @Test fun completedSmallTablesCanUseMarkwonButStreamingTablesUseTheSafeGrid() {
+    @Test fun completedSmallTablesRenderWithoutRawMarkdownDelimiters() {
         val small = "| A | B |\n| --- | --- |\n| 1 | 2 |"
-        // RichMessage routes every live table to StreamingTablePreviewText before
-        // consulting this size helper. Completed small tables can still use Markwon.
-        assertFalse(shouldUseLightweightTableRenderer(small, streaming = false))
+        val rendered = renderStreamingTableGrid(small)
+        assertTrue(rendered.text.startsWith("┌"))
+        assertTrue("│ A" in rendered.text)
+        assertTrue("│ 1" in rendered.text)
+        assertFalse("| --- |" in rendered.text)
     }
 
     @Test fun oversizedStreamingTablesUseTheBoundedRenderer() {
