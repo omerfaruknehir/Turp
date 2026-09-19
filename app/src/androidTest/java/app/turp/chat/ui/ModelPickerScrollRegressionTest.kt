@@ -1,8 +1,10 @@
 package app.turp.chat.ui
 
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipe
 import androidx.compose.ui.test.swipeDown
 import app.turp.chat.data.ModelEntity
 import app.turp.chat.data.ProviderEntity
@@ -102,7 +104,13 @@ class ModelPickerScrollRegressionTest {
         }
 
         composeRule.onNodeWithTag("model_picker_drag_handle").assertExists()
-        composeRule.onNodeWithTag("model_picker_drag_handle").performTouchInput { swipeDown() }
+        composeRule.onNodeWithTag("model_picker_drag_handle").performTouchInput {
+            swipe(
+                start = center,
+                end = Offset(center.x, center.y + 600f),
+                durationMillis = 450,
+            )
+        }
 
         composeRule.waitUntil(timeoutMillis = 3_000) { dismissCount.get() > 0 }
         composeRule.runOnIdle { assertEquals(1, dismissCount.get()) }
