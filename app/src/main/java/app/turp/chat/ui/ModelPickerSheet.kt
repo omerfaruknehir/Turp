@@ -4,6 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -246,9 +247,9 @@ internal fun ModelPickerSheet(
         sheetState = sheetState,
         sheetGesturesEnabled = true,
         dragHandle = {
-            BottomSheetDefaults.DragHandle(
-                modifier = Modifier.testTag("model_picker_drag_handle"),
-            )
+            Box(Modifier.testTag("model_picker_drag_handle")) {
+                BottomSheetDefaults.DragHandle()
+            }
         },
     ) {
         Column(
