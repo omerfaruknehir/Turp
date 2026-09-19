@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.CheckCircle
@@ -23,6 +24,7 @@ import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -44,6 +46,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -189,6 +195,30 @@ internal fun ModelPickerSheet(
     }
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val listState = rememberLazyListState()
+    val listBoundaryGuard = remember(listState) {
+        object : NestedScrollConnection {
+            private fun consumeDownwardAtTop(available: Offset, source: NestedScrollSource): Offset =
+                if (
+                    source == NestedScrollSource.UserInput &&
+                    available.y > 0f &&
+                    !listState.canScrollBackward
+                ) {
+                    Offset(0f, available.y)
+                } else {
+                    Offset.Zero
+                }
+
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset =
+                consumeDownwardAtTop(available, source)
+
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource,
+            ): Offset = consumeDownwardAtTop(available, source)
+        }
+    }
     val scope = rememberCoroutineScope()
     var dismissing by remember { mutableStateOf(false) }
 
@@ -214,8 +244,12 @@ internal fun ModelPickerSheet(
     ModalBottomSheet(
         onDismissRequest = ::dismissSheet,
         sheetState = sheetState,
-        sheetGesturesEnabled = false,
-        dragHandle = null,
+        sheetGesturesEnabled = true,
+        dragHandle = {
+            BottomSheetDefaults.DragHandle(
+                modifier = Modifier.testTag("model_picker_drag_handle"),
+            )
+        },
     ) {
         Column(
             Modifier
@@ -337,10 +371,12 @@ internal fun ModelPickerSheet(
                 }
                 HorizontalDivider()
                 LazyColumn(
-                    Modifier
+                    modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
+                        .nestedScroll(listBoundaryGuard)
                         .testTag("model_picker_list"),
+                    state = listState,
                 ) {
                     items(
                         items = choices,
