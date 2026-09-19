@@ -15,6 +15,7 @@ import app.turp.chat.data.ProviderKind
 import app.turp.chat.data.SendMode
 import app.turp.chat.data.TurpDatabase
 import app.turp.chat.settings.AppPreferences
+import app.turp.chat.settings.NewChatDefaults
 import kotlinx.coroutines.delay
 import kotlin.math.roundToLong
 
@@ -26,6 +27,8 @@ class DemoModeController(
     companion object {
         const val DEMO_PREFIX = "demo-"
         const val DEMO_PROVIDER_PREFIX = "demo-provider-"
+        const val DEFAULT_PROVIDER_ID = "demo-provider-northstar"
+        const val DEFAULT_MODEL_ID = "nova-12"
         const val WALKTHROUGH_CHAT_ID = "demo-chat-walkthrough"
 
         fun isDemoProviderId(providerId: String?): Boolean =
@@ -57,6 +60,17 @@ class DemoModeController(
             clearSeededDataAndRestoreSelections()
         }
     }
+
+    fun effectiveNewChatDefaults(base: NewChatDefaults): NewChatDefaults =
+        if (BuildConfig.DEBUG && preferences.developerSettings.value.demoModeEnabled) {
+            base.copy(
+                selectedProviderId = DEFAULT_PROVIDER_ID,
+                selectedModelId = DEFAULT_MODEL_ID,
+                thinkingEnabled = true,
+            )
+        } else {
+            base
+        }
 
     suspend fun handlesConversation(conversationId: String): Boolean {
         if (!BuildConfig.DEBUG || !preferences.developerSettings.value.demoModeEnabled) return false
