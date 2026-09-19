@@ -71,12 +71,12 @@ class LegalWebsiteIntegrationTest {
         assertTrue(site.contains("function iconPaletteFor(schemePreference)"))
         assertTrue(site.contains("return appPrimaryToIconPalette.get(appPrimary) || 'system'"))
 
-        assertTrue(site.contains("backgroundStart: '#fff0d7'"))
-        assertTrue(site.contains("backgroundEnd: '#fde1bd'"))
-        assertTrue(site.contains("markStart: '#78bf43'"))
-        assertTrue(site.contains("markEnd: '#28722e'"))
-        assertTrue(site.contains("leaf: '#ef2e52'"))
-        assertTrue(site.contains("secondStroke: '#f5a0b0'"))
+        assertTrue(site.contains("backgroundStart: '#24171c'"))
+        assertTrue(site.contains("backgroundEnd: '#5a2335'"))
+        assertTrue(site.contains("markStart: '#ffb0c5'"))
+        assertTrue(site.contains("markEnd: '#f06a91'"))
+        assertTrue(site.contains("leaf: '#c3c8c3'"))
+        assertTrue(site.contains("secondStroke: '#f7e7ec'"))
 
         assertTrue(site.contains("backgroundStart: '#293b52'"))
         assertTrue(site.contains("backgroundEnd: '#67507e'"))
