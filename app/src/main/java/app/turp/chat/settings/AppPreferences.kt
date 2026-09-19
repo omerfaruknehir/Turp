@@ -2,6 +2,7 @@ package app.turp.chat.settings
 
 import android.content.Context
 import androidx.core.content.edit
+import app.turp.chat.BuildConfig
 import app.turp.chat.data.ConversationEntity
 import app.turp.chat.data.ReasoningVisibility
 import app.turp.chat.data.ThinkingEffort
@@ -60,6 +61,7 @@ enum class PerformanceOverlayPosition { TOP_START, TOP_END, BOTTOM_START, BOTTOM
 
 data class DeveloperSettings(
     val enabled: Boolean = false,
+    val demoModeEnabled: Boolean = false,
     val toolDiagnosticsEnabled: Boolean = false,
     val performanceOverlayEnabled: Boolean = false,
     val diagnosticProfilerEnabled: Boolean = false,
@@ -73,6 +75,7 @@ data class DeveloperSettings(
     val blurBoundaryDebugThicknessDp: Float = 3f,
 ) {
     fun normalized() = copy(
+        demoModeEnabled = BuildConfig.DEBUG && demoModeEnabled,
         performanceUpdateIntervalMs = performanceUpdateIntervalMs.coerceIn(250, 2_000),
         performanceOverlayBackgroundOpacity = performanceOverlayBackgroundOpacity.coerceIn(0f, 1f),
         performanceOverlayTextOpacity = performanceOverlayTextOpacity.coerceIn(0f, 1f),
@@ -338,6 +341,7 @@ class AppPreferences(context: Context) {
         _developerSettings.value = normalized
         preferences.edit {
             putBoolean(KEY_DEVELOPER_ENABLED, normalized.enabled)
+            putBoolean(KEY_DEMO_MODE_ENABLED, normalized.demoModeEnabled)
             putBoolean(KEY_TOOL_DIAGNOSTICS_ENABLED, normalized.toolDiagnosticsEnabled)
             putBoolean(KEY_PERFORMANCE_OVERLAY_ENABLED, normalized.performanceOverlayEnabled)
             putBoolean(KEY_DIAGNOSTIC_PROFILER_ENABLED, normalized.diagnosticProfilerEnabled)
@@ -400,6 +404,7 @@ class AppPreferences(context: Context) {
 
     private fun readDeveloperSettings() = DeveloperSettings(
         enabled = preferences.getBoolean(KEY_DEVELOPER_ENABLED, false),
+        demoModeEnabled = BuildConfig.DEBUG && preferences.getBoolean(KEY_DEMO_MODE_ENABLED, false),
         toolDiagnosticsEnabled = preferences.getBoolean(KEY_TOOL_DIAGNOSTICS_ENABLED, false),
         performanceOverlayEnabled = preferences.getBoolean(KEY_PERFORMANCE_OVERLAY_ENABLED, false),
         diagnosticProfilerEnabled = preferences.getBoolean(KEY_DIAGNOSTIC_PROFILER_ENABLED, false),
@@ -474,6 +479,7 @@ class AppPreferences(context: Context) {
         const val KEY_DEFAULTS_INITIALIZED = "new_chat_defaults_initialized"
         const val KEY_GENERATED_REPAIR_ATTEMPTS = "generated_repair_max_attempts"
         const val KEY_DEVELOPER_ENABLED = "developer_settings_enabled"
+        const val KEY_DEMO_MODE_ENABLED = "demo_mode_enabled"
         const val KEY_TOOL_DIAGNOSTICS_ENABLED = "tool_diagnostics_enabled"
         const val KEY_PERFORMANCE_OVERLAY_ENABLED = "performance_overlay_enabled"
         const val KEY_DIAGNOSTIC_PROFILER_ENABLED = "diagnostic_profiler_enabled"
