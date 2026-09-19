@@ -6,12 +6,20 @@
 
   const palettes = {
     turp: {
-      backgroundStart: '#fff0d7',
-      backgroundEnd: '#fde1bd',
-      markStart: '#78bf43',
-      markEnd: '#28722e',
-      leaf: '#ef2e52',
-      secondStroke: '#f5a0b0',
+      backgroundStart: '#24171c',
+      backgroundEnd: '#5a2335',
+      markStart: '#ffb0c5',
+      markEnd: '#f06a91',
+      leaf: '#c3c8c3',
+      secondStroke: '#f7e7ec',
+    },
+    arbor: {
+      backgroundStart: '#e7f4ea',
+      backgroundEnd: '#b5f1cc',
+      markStart: '#286448',
+      markEnd: '#0d5033',
+      leaf: '#3d6472',
+      secondStroke: '#c1eafb',
     },
     system: {
       backgroundStart: '#293b52',
@@ -56,8 +64,10 @@
   };
 
   const primaryToPalette = new Map([
-    ['#286448', 'turp'],
-    ['#99d5b1', 'turp'],
+    ['#9f244a', 'turp'],
+    ['#ffb0c5', 'turp'],
+    ['#286448', 'arbor'],
+    ['#99d5b1', 'arbor'],
     ['#425f86', 'graphite'],
     ['#a9c7f8', 'graphite'],
     ['#00677a', 'ocean'],
