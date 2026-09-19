@@ -88,6 +88,19 @@ interface ConversationDao {
     suspend fun deleteByIdPrefix(prefix: String)
 
     @Query("""
+        UPDATE conversations
+        SET selectedProviderId = :providerId, selectedModelId = :modelId
+        WHERE id NOT LIKE :demoConversationPrefix || '%'
+          AND selectedProviderId LIKE :demoProviderPrefix || '%'
+    """)
+    suspend fun replaceDemoModelSelections(
+        demoConversationPrefix: String,
+        demoProviderPrefix: String,
+        providerId: String,
+        modelId: String,
+    )
+
+    @Query("""
         DELETE FROM conversations
         WHERE NOT EXISTS (SELECT 1 FROM messages m WHERE m.conversationId = conversations.id)
           AND NOT EXISTS (SELECT 1 FROM attachments a WHERE a.conversationId = conversations.id)
