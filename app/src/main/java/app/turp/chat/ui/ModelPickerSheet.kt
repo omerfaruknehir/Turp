@@ -44,6 +44,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -213,11 +214,14 @@ internal fun ModelPickerSheet(
     ModalBottomSheet(
         onDismissRequest = ::dismissSheet,
         sheetState = sheetState,
+        sheetGesturesEnabled = false,
+        dragHandle = null,
     ) {
         Column(
             Modifier
                 .fillMaxWidth()
                 .fillMaxHeight(0.94f)
+                .testTag("model_picker_sheet")
                 .navigationBarsPadding()
                 .imePadding()
                 .padding(horizontal = 16.dp, vertical = 12.dp),
@@ -332,7 +336,12 @@ internal fun ModelPickerSheet(
                     }
                 }
                 HorizontalDivider()
-                LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
+                LazyColumn(
+                    Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .testTag("model_picker_list"),
+                ) {
                     items(
                         items = choices,
                         key = { choice -> modelPreferenceKey(choice.provider.id, choice.model.modelId) },
