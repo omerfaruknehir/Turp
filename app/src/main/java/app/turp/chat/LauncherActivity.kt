@@ -28,7 +28,6 @@ open class LauncherActivity : Activity() {
         val palette = preferences.palette.value
         val themeMode = preferences.themeMode.value
         val amoled = preferences.amoled.value
-        val matchIcon = preferences.matchLauncherIconToPalette.value
         val colors = resolvedTurpColorScheme(this, palette, themeMode, amoled)
         val dark = resolvedDarkMode(this, themeMode)
 
@@ -44,7 +43,7 @@ open class LauncherActivity : Activity() {
         val density = resources.displayMetrics.density
         val iconSize = (104f * density).toInt()
         val icon = ImageView(this).apply {
-            setImageResource(LauncherIconManager.iconResource(matchIcon, palette))
+            setImageResource(LauncherIconManager.appliedIconResource(this@LauncherActivity))
             scaleType = ImageView.ScaleType.FIT_CENTER
             contentDescription = getString(R.string.app_name)
         }
