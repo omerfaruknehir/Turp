@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.CheckCircle
@@ -51,6 +52,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -197,6 +202,7 @@ internal fun ModelPickerSheet(
     }
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     var dismissing by remember { mutableStateOf(false) }
     var pullDownPx by remember { mutableFloatStateOf(0f) }
@@ -223,6 +229,46 @@ internal fun ModelPickerSheet(
 
     val pullDownState = rememberDraggableState { delta ->
         pullDownPx = (pullDownPx + delta).coerceAtLeast(0f)
+    }
+    val listTopPullPx = remember { floatArrayOf(0f) }
+    val listTopPullConnection = remember(listState, pullDismissThresholdPx) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (source == NestedScrollSource.UserInput && available.y < 0f) {
+                    listTopPullPx[0] = 0f
+                }
+                return Offset.Zero
+            }
+
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource,
+            ): Offset {
+                if (
+                    source != NestedScrollSource.UserInput ||
+                    available.y <= 0f ||
+                    listState.canScrollBackward
+                ) {
+                    return Offset.Zero
+                }
+
+                listTopPullPx[0] += available.y
+                if (listTopPullPx[0] >= pullDismissThresholdPx) {
+                    listTopPullPx[0] = 0f
+                    dismissSheet()
+                }
+                return Offset(0f, available.y)
+            }
+
+            override suspend fun onPostFling(
+                consumed: androidx.compose.ui.unit.Velocity,
+                available: androidx.compose.ui.unit.Velocity,
+            ): androidx.compose.ui.unit.Velocity {
+                listTopPullPx[0] = 0f
+                return androidx.compose.ui.unit.Velocity.Zero
+            }
+        }
     }
 
     ModalBottomSheet(
@@ -377,7 +423,9 @@ internal fun ModelPickerSheet(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
+                        .nestedScroll(listTopPullConnection)
                         .testTag("model_picker_list"),
+                    state = listState,
                 ) {
                     items(
                         items = choices,
