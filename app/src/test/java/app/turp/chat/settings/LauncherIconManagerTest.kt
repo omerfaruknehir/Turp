@@ -81,6 +81,27 @@ class LauncherIconManagerTest {
         assertFalse(application.contains("flushPending"))
     }
 
+
+    @Test
+    fun `launcher icon changes wait for explicit apply restart`() {
+        val viewModel = File("src/main/java/app/turp/chat/ui/ChatViewModel.kt").readText()
+        val setPalette = viewModel.substringAfter("fun setPalette(")
+            .substringBefore("fun setMatchLauncherIconToPalette(")
+        val setMatch = viewModel.substringAfter("fun setMatchLauncherIconToPalette(")
+            .substringBefore("fun setThemeMode(")
+        val reconcile = viewModel.substringAfter("fun reconcileLauncherIcon()")
+            .substringBefore("fun setChromeBlurStrength(")
+
+        assertFalse(setPalette.contains("requestLauncherRestartIfNeeded"))
+        assertFalse(setMatch.contains("requestLauncherRestartIfNeeded"))
+        assertTrue(reconcile.contains("requestLauncherRestartIfNeeded"))
+
+        val settings = File("src/main/java/app/turp/chat/ui/SettingsScreen.kt").readText()
+        assertTrue(settings.contains("LauncherIconManager.needsChange"))
+        assertTrue(settings.contains("Restart the app to apply"))
+        assertTrue(settings.contains("onClick = viewModel::reconcileLauncherIcon"))
+    }
+
     @Test
     fun `isolated icon switching is atomic and relaunches the saved session`() {
         val source = File("src/main/java/app/turp/chat/settings/LauncherIconManager.kt").readText()
