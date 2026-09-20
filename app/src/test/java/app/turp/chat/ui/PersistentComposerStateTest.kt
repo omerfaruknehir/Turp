@@ -33,10 +33,10 @@ class PersistentComposerStateTest {
     }
 
     @Test
-    fun `launcher splash uses the active app palette and icon`() {
+    fun `launcher splash uses active theme colors and the actually applied icon`() {
         val launcher = File("src/main/java/app/turp/chat/LauncherActivity.kt").readText()
         assertTrue(launcher.contains("resolvedTurpColorScheme"))
-        assertTrue(launcher.contains("LauncherIconManager.iconResource"))
+        assertTrue(launcher.contains("LauncherIconManager.appliedIconResource"))
         assertTrue(launcher.contains("setBackgroundColor"))
     }
 }
