@@ -1530,6 +1530,15 @@ private fun MessageCard(
         attachments.isEmpty() &&
         !showRecoveryState
     ) return
+    val developerSettings by viewModel.developerSettings.collectAsStateWithLifecycle()
+    val sourceControlsEnabled =
+        developerSettings.enabled && developerSettings.showMessageSourceEnabled
+    var sourceVisible by rememberSaveable("message-source-${message.nodeId}") {
+        mutableStateOf(false)
+    }
+    LaunchedEffect(sourceControlsEnabled) {
+        if (!sourceControlsEnabled) sourceVisible = false
+    }
     var editing by remember(message.nodeId) { mutableStateOf(false) }
     var editedText by remember(message.nodeId) { mutableStateOf(message.content) }
     var copied by remember(message.nodeId) { mutableStateOf(false) }
@@ -1601,66 +1610,75 @@ private fun MessageCard(
                         }
                     }
                 }
-                if (deepResearchResponse && researchState != null) {
-                    StreamingFade(
-                        transitionKey = "${message.nodeId}:research-roadmap",
-                        enabled = animateStreaming,
-                        modifier = Modifier.padding(bottom = 8.dp),
-                    ) {
-                        ReportedResearchRoadmap(
-                            state = researchState,
-                            streaming = animateStreaming,
-                        )
-                    }
-                }
-                if (timeline.isNotEmpty()) {
-                    OrderedMessageTimeline(
-                        messageKey = message.nodeId,
-                        events = timeline,
-                        attachments = attachments,
-                        working = working,
-                        animateStreaming = animateStreaming,
-                        visibility = reasoningVisibility,
-                        viewModel = viewModel,
-                        workingCardViewport = workingCardViewport,
+                if (sourceControlsEnabled && sourceVisible) {
+                    CodeSourcePanel(
+                        language = "markdown",
+                        code = message.content,
+                        title = "MESSAGE SOURCE",
+                        live = animateStreaming,
                     )
                 } else {
-                    LegacyWorkingBlock(
-                        messageKey = message.nodeId,
-                        text = displayReasoning,
-                        toolTraceJson = message.toolTraceJson,
-                        working = working,
-                        animateStreaming = animateStreaming,
-                        visibility = reasoningVisibility,
-                        viewModel = viewModel,
-                        workingCardViewport = workingCardViewport,
-                    )
-                    if (displayContent.isNotBlank() || animateStreaming) RichMessage(
-                        operationScope = message.nodeId,
-                        text = displayContent,
-                        streaming = animateStreaming,
-                        staticContent = user,
-                        onRunPython = viewModel::executePython,
-                        onRunUbuntu = viewModel::executeUbuntu,
-                        onReviewPythonPackages = viewModel::reviewPythonPackages,
-                        onInstallPackages = viewModel::installPythonPackagesAndContinue,
-                        onReviewUbuntuPackages = viewModel::reviewUbuntuPackages,
-                        onInstallUbuntuPackages = viewModel::installUbuntuPackagesAndContinue,
-                        onWidgetSubmit = viewModel::submitWidgetResponse,
-                        onReviewWidgetSecurity = viewModel::reviewWidgetSecurity,
-                        onRepairGeneratedBlock = viewModel::repairGeneratedBlock,
-                        onAcceptGeneratedEdit = viewModel::acceptGeneratedBlockEdit,
-                        workingCardViewport = workingCardViewport,
-                    )
-                }
-                if (
-                    animateStreaming &&
-                    message.content.isBlank() &&
-                    timeline.isEmpty() &&
-                    displayReasoning.isBlank() &&
-                    message.toolTraceJson.isBlank()
-                ) {
-                    StreamingTokenPulse(visible = true, label = "Working")
+                    if (deepResearchResponse && researchState != null) {
+                        StreamingFade(
+                            transitionKey = "${message.nodeId}:research-roadmap",
+                            enabled = animateStreaming,
+                            modifier = Modifier.padding(bottom = 8.dp),
+                        ) {
+                            ReportedResearchRoadmap(
+                                state = researchState,
+                                streaming = animateStreaming,
+                            )
+                        }
+                    }
+                    if (timeline.isNotEmpty()) {
+                        OrderedMessageTimeline(
+                            messageKey = message.nodeId,
+                            events = timeline,
+                            attachments = attachments,
+                            working = working,
+                            animateStreaming = animateStreaming,
+                            visibility = reasoningVisibility,
+                            viewModel = viewModel,
+                            workingCardViewport = workingCardViewport,
+                        )
+                    } else {
+                        LegacyWorkingBlock(
+                            messageKey = message.nodeId,
+                            text = displayReasoning,
+                            toolTraceJson = message.toolTraceJson,
+                            working = working,
+                            animateStreaming = animateStreaming,
+                            visibility = reasoningVisibility,
+                            viewModel = viewModel,
+                            workingCardViewport = workingCardViewport,
+                        )
+                        if (displayContent.isNotBlank() || animateStreaming) RichMessage(
+                            operationScope = message.nodeId,
+                            text = displayContent,
+                            streaming = animateStreaming,
+                            staticContent = user,
+                            onRunPython = viewModel::executePython,
+                            onRunUbuntu = viewModel::executeUbuntu,
+                            onReviewPythonPackages = viewModel::reviewPythonPackages,
+                            onInstallPackages = viewModel::installPythonPackagesAndContinue,
+                            onReviewUbuntuPackages = viewModel::reviewUbuntuPackages,
+                            onInstallUbuntuPackages = viewModel::installUbuntuPackagesAndContinue,
+                            onWidgetSubmit = viewModel::submitWidgetResponse,
+                            onReviewWidgetSecurity = viewModel::reviewWidgetSecurity,
+                            onRepairGeneratedBlock = viewModel::repairGeneratedBlock,
+                            onAcceptGeneratedEdit = viewModel::acceptGeneratedBlockEdit,
+                            workingCardViewport = workingCardViewport,
+                        )
+                    }
+                    if (
+                        animateStreaming &&
+                        message.content.isBlank() &&
+                        timeline.isEmpty() &&
+                        displayReasoning.isBlank() &&
+                        message.toolTraceJson.isBlank()
+                    ) {
+                        StreamingTokenPulse(visible = true, label = "Working")
+                    }
                 }
                 Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
                     val tokens = message.inputTokens + message.outputTokens
@@ -1688,6 +1706,21 @@ private fun MessageCard(
                             options = branchOptions,
                             onActivate = viewModel::activateBranch,
                         )
+                    }
+                    if (sourceControlsEnabled) {
+                        TextButton(
+                            onClick = {
+                                haptics.selection()
+                                sourceVisible = !sourceVisible
+                            },
+                        ) {
+                            Icon(Icons.Outlined.Code, null, Modifier.size(16.dp))
+                            Text(
+                                if (sourceVisible) "Rendered" else "Source",
+                                Modifier.padding(start = 4.dp),
+                                style = MaterialTheme.typography.labelMedium,
+                            )
+                        }
                     }
                     IconButton(onClick = {
                         haptics.selection()
