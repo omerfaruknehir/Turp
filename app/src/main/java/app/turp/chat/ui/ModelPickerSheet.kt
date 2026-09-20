@@ -47,9 +47,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import app.turp.chat.data.ModelEntity
 import app.turp.chat.data.ProviderEntity
@@ -193,6 +198,37 @@ internal fun ModelPickerSheet(
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val listState = rememberLazyListState()
+    // The sheet's native nested-scroll connection is useful at the top boundary:
+    // a downward drag that the list cannot consume should pull the sheet down.
+    // At the bottom boundary, however, the opposite leftover motion must not be
+    // handed to the sheet. Doing so makes the expanded sheet fight the LazyColumn
+    // over the same drag/fling and can create an endless scroll/correction bounce.
+    val listBoundaryGuard = remember(listState) {
+        object : NestedScrollConnection {
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource,
+            ): Offset {
+                return if (available.y < 0f) {
+                    Offset(x = 0f, y = available.y)
+                } else {
+                    Offset.Zero
+                }
+            }
+
+            override suspend fun onPostFling(
+                consumed: Velocity,
+                available: Velocity,
+            ): Velocity {
+                return if (available.y < 0f) {
+                    Velocity(x = 0f, y = available.y)
+                } else {
+                    Velocity.Zero
+                }
+            }
+        }
+    }
     val scope = rememberCoroutineScope()
     var dismissing by remember { mutableStateOf(false) }
 
@@ -351,6 +387,7 @@ internal fun ModelPickerSheet(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
+                        .nestedScroll(listBoundaryGuard)
                         .testTag("model_picker_list"),
                     state = listState,
                 ) {
