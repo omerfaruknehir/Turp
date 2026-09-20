@@ -1454,7 +1454,7 @@ private fun DeveloperSettingsPage(
         "Expose the exact stored message content so rendered Markdown can be compared with its raw source.",
     )
     SettingsSwitch(
-        label = "Show source for messages",
+        label = "Show source",
         checked = settings.showMessageSourceEnabled,
         onCheckedChange = { enabled ->
             viewModel.updateDeveloperSettings { it.copy(showMessageSourceEnabled = enabled) }
