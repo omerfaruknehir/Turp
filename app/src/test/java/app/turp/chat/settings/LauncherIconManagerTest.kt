@@ -59,6 +59,8 @@ class LauncherIconManagerTest {
 
         val trampoline = File("src/main/java/app/turp/chat/LauncherActivity.kt").readText()
         expectedTargets.forEach { target -> assertTrue(trampoline.contains("class ${target.removePrefix(".")}")) }
+        assertTrue(trampoline.contains("LauncherIconManager.appliedIconResource"))
+        assertFalse(trampoline.contains("iconResource(matchIcon"))
         assertTrue(trampoline.contains("Intent(this, MainActivity::class.java)"))
         assertTrue(trampoline.contains("finish()"))
     }
