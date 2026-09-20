@@ -1450,6 +1450,25 @@ private fun DeveloperSettingsPage(
 
     HorizontalDivider()
     SectionTitle(
+        "Message source",
+        "Expose the exact stored message content so rendered Markdown can be compared with its raw source.",
+    )
+    SettingsSwitch(
+        label = "Show source for messages",
+        checked = settings.showMessageSourceEnabled,
+        onCheckedChange = { enabled ->
+            viewModel.updateDeveloperSettings { it.copy(showMessageSourceEnabled = enabled) }
+        },
+        enabled = settings.enabled,
+    )
+    Text(
+        "Adds a Source / Rendered control to every message. Source mode shows the raw stored message.content without Markdown rendering.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+
+    HorizontalDivider()
+    SectionTitle(
         "Tool diagnostics",
         "Shows raw tool inputs, outputs, source paths, and copyable failure diagnostics inside Working.",
     )
