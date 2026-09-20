@@ -1,6 +1,9 @@
 package app.turp.chat.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
@@ -10,12 +13,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.CheckCircle
@@ -41,16 +44,14 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Text as MaterialText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -196,32 +197,10 @@ internal fun ModelPickerSheet(
     }
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val listState = rememberLazyListState()
-    val listBoundaryGuard = remember(listState) {
-        object : NestedScrollConnection {
-            private fun consumeDownwardAtTop(available: Offset, source: NestedScrollSource): Offset =
-                if (
-                    source == NestedScrollSource.UserInput &&
-                    available.y > 0f &&
-                    !listState.canScrollBackward
-                ) {
-                    Offset(0f, available.y)
-                } else {
-                    Offset.Zero
-                }
-
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset =
-                consumeDownwardAtTop(available, source)
-
-            override fun onPostScroll(
-                consumed: Offset,
-                available: Offset,
-                source: NestedScrollSource,
-            ): Offset = consumeDownwardAtTop(available, source)
-        }
-    }
     val scope = rememberCoroutineScope()
     var dismissing by remember { mutableStateOf(false) }
+    var pullDownPx by remember { mutableFloatStateOf(0f) }
+    val pullDismissThresholdPx = with(LocalDensity.current) { 64.dp.toPx() }
 
     fun dismissSheet() {
         if (dismissing) return
@@ -242,12 +221,35 @@ internal fun ModelPickerSheet(
         }
     }
 
+    val pullDownState = rememberDraggableState { delta ->
+        pullDownPx = (pullDownPx + delta).coerceAtLeast(0f)
+    }
+
     ModalBottomSheet(
         onDismissRequest = ::dismissSheet,
         sheetState = sheetState,
-        sheetGesturesEnabled = true,
+        // Keep sheet-wide gestures disabled so the LazyColumn can never hand a
+        // boundary drag to the sheet. Pull-to-dismiss belongs only to this handle.
+        sheetGesturesEnabled = false,
         dragHandle = {
-            Box(Modifier.testTag("model_picker_drag_handle")) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(36.dp)
+                    .testTag("model_picker_drag_handle")
+                    .draggable(
+                        state = pullDownState,
+                        orientation = Orientation.Vertical,
+                        onDragStarted = { pullDownPx = 0f },
+                        onDragStopped = { velocity ->
+                            val shouldDismiss =
+                                pullDownPx >= pullDismissThresholdPx || velocity > 1_600f
+                            pullDownPx = 0f
+                            if (shouldDismiss) dismissSheet()
+                        },
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
                 BottomSheetDefaults.DragHandle()
             }
         },
@@ -375,9 +377,7 @@ internal fun ModelPickerSheet(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
-                        .nestedScroll(listBoundaryGuard)
                         .testTag("model_picker_list"),
-                    state = listState,
                 ) {
                     items(
                         items = choices,
