@@ -103,8 +103,8 @@ class ModelPickerScrollRegressionTest {
             }
         }
 
-        composeRule.onNodeWithTag("model_picker_drag_handle").assertExists()
-        composeRule.onNodeWithTag("model_picker_drag_handle").performTouchInput {
+        composeRule.onNodeWithTag("model_picker_drag_handle", useUnmergedTree = true).assertExists()
+        composeRule.onNodeWithTag("model_picker_drag_handle", useUnmergedTree = true).performTouchInput {
             swipe(
                 start = center,
                 end = Offset(center.x, center.y + 600f),
