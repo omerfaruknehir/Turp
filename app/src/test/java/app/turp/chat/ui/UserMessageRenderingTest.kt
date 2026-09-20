@@ -14,6 +14,21 @@ class UserMessageRenderingTest {
     }
 
     @Test
+    fun `developer message source view uses exact stored content`() {
+        val chat = File("src/main/java/app/turp/chat/ui/ChatScreen.kt").readText()
+        val settings = File("src/main/java/app/turp/chat/ui/SettingsScreen.kt").readText()
+        val preferences = File("src/main/java/app/turp/chat/settings/AppPreferences.kt").readText()
+
+        assertTrue(settings.contains("Show source for messages"))
+        assertTrue(preferences.contains("showMessageSourceEnabled"))
+        assertTrue(preferences.contains("KEY_SHOW_MESSAGE_SOURCE_ENABLED"))
+        assertTrue(chat.contains("developerSettings.enabled && developerSettings.showMessageSourceEnabled"))
+        assertTrue(chat.contains("code = message.content"))
+        assertTrue(chat.contains("title = \"MESSAGE SOURCE\""))
+        assertTrue(chat.contains("if (sourceVisible) \"Rendered\" else \"Source\""))
+    }
+
+    @Test
     fun `markdown view displays the complete fallback until parsing finishes`() {
         val rich = File("src/main/java/app/turp/chat/ui/RichMessage.kt").readText()
         assertTrue(rich.contains("remember(markwon, markdown)"))
