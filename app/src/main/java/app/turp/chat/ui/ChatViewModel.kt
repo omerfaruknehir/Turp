@@ -1419,12 +1419,10 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
 
     fun setPalette(value: app.turp.chat.settings.ColorPalette) {
         container.appPreferences.setPalette(value)
-        requestLauncherRestartIfNeeded()
     }
 
     fun setMatchLauncherIconToPalette(enabled: Boolean) {
         container.appPreferences.setMatchLauncherIconToPalette(enabled)
-        requestLauncherRestartIfNeeded()
     }
 
     fun setThemeMode(value: app.turp.chat.settings.ThemeMode) = container.appPreferences.setThemeMode(value)
