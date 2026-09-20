@@ -143,6 +143,7 @@ import app.turp.chat.provider.effectiveThinkingEnabled
 import app.turp.chat.settings.CHROME_EDGE_SOFTNESS_FLAT_SNAP_POINT
 import app.turp.chat.settings.CHROME_EDGE_SOFTNESS_ROUNDED_SNAP_POINT
 import app.turp.chat.settings.ColorPalette
+import app.turp.chat.settings.LauncherIconManager
 import app.turp.chat.settings.DeveloperSettings
 import app.turp.chat.settings.PerformanceOverlayPosition
 import app.turp.chat.settings.NewChatDefaults
@@ -1019,8 +1020,12 @@ private fun AppearanceSettingsPage(
     chromeOverlayOpacity: Float,
     viewModel: ChatViewModel,
 ) = SettingsPage {
+    val context = LocalContext.current
     val appName = stringResource(R.string.app_name)
     val appNamePossessive = stringResource(R.string.app_name_possessive)
+    val launcherIconNeedsApply = remember(context, matchLauncherIconToPalette, palette) {
+        LauncherIconManager.needsChange(context, matchLauncherIconToPalette, palette)
+    }
     SectionTitle("Theme mode", "Choose whether $appName follows Android or stays light or dark.")
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         ThemeMode.entries.forEach { option ->
@@ -1074,9 +1079,9 @@ private fun AppearanceSettingsPage(
                 Text("Match launcher icon to palette", fontWeight = FontWeight.SemiBold)
                 Text(
                     if (matchLauncherIconToPalette) {
-                        "Changing the launcher icon briefly restarts Turp after saving the open page, chat drafts and files, and current scroll positions. Android themed icons can still override app-selected colors."
+                        "Use the selected palette for the launcher icon. Icon changes stay pending until you restart Turp with the button below. Android themed icons can still override app-selected colors."
                     } else {
-                        "Keep the classic Turp green icon regardless of the selected palette."
+                        "Keep the classic Turp green icon regardless of the selected palette. If the current icon differs, apply the change with the restart button below."
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1086,6 +1091,16 @@ private fun AppearanceSettingsPage(
                 checked = matchLauncherIconToPalette,
                 onCheckedChange = viewModel::setMatchLauncherIconToPalette,
             )
+        }
+    }
+    if (launcherIconNeedsApply) {
+        FilledTonalButton(
+            onClick = viewModel::reconcileLauncherIcon,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Icon(Icons.Outlined.Refresh, null)
+            Spacer(Modifier.width(8.dp))
+            Text("Restart the app to apply")
         }
     }
     Text(
