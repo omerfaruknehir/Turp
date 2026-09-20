@@ -198,35 +198,24 @@ internal fun ModelPickerSheet(
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val listState = rememberLazyListState()
-    // The sheet's native nested-scroll connection is useful at the top boundary:
-    // a downward drag that the list cannot consume should pull the sheet down.
-    // At the bottom boundary, however, the opposite leftover motion must not be
-    // handed to the sheet. Doing so makes the expanded sheet fight the LazyColumn
-    // over the same drag/fling and can create an endless scroll/correction bounce.
+    // Preserve Material's native drag handoff, especially the useful top-boundary
+    // pull-to-dismiss behavior. Only swallow non-user scroll animation that is left
+    // after the model list reaches a boundary. Propagating that leftover fling into
+    // an already-expanded sheet can make the sheet and LazyColumn bounce against
+    // each other indefinitely.
     val listBoundaryGuard = remember(listState) {
         object : NestedScrollConnection {
             override fun onPostScroll(
                 consumed: Offset,
                 available: Offset,
                 source: NestedScrollSource,
-            ): Offset {
-                return if (available.y < 0f) {
-                    Offset(x = 0f, y = available.y)
-                } else {
-                    Offset.Zero
-                }
-            }
+            ): Offset =
+                if (source == NestedScrollSource.SideEffect) available else Offset.Zero
 
             override suspend fun onPostFling(
                 consumed: Velocity,
                 available: Velocity,
-            ): Velocity {
-                return if (available.y < 0f) {
-                    Velocity(x = 0f, y = available.y)
-                } else {
-                    Velocity.Zero
-                }
-            }
+            ): Velocity = available
         }
     }
     val scope = rememberCoroutineScope()
