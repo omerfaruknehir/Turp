@@ -1677,7 +1677,7 @@ internal fun codeBlockContentWidthDp(
     val safeViewport = viewportDp.coerceAtLeast(160)
     val longestLineCharacters = code.lineSequence()
         .maxOfOrNull { line ->
-            line.sumOf { if (it == '\t') 4 else 1 }
+            line.fold(0) { width, char -> width + if (char == '\t') 4 else 1 }
         }
         ?: 0
     // bodyMedium monospace is roughly 8–9 dp per glyph at the app's default
