@@ -25,7 +25,7 @@ class OpenCodeUsageParserTest {
 
         assertEquals(12.5, snapshot.rolling?.usedPercent ?: -1.0, 0.001)
         assertEquals("ok", snapshot.rolling?.status)
-        assertEquals(1_758_456_000L, snapshot.rolling?.resetsAtEpochSeconds)
+        assertEquals(1_789_992_000L, snapshot.rolling?.resetsAtEpochSeconds)
         assertEquals(100.0, snapshot.weekly?.usedPercent ?: -1.0, 0.001)
         assertEquals("rate-limited", snapshot.weekly?.status)
         assertEquals(54.2, snapshot.monthly?.usedPercent ?: -1.0, 0.001)
