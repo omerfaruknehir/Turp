@@ -224,16 +224,16 @@ internal fun ModelPickerSheet(
                 consumed: Offset,
                 available: Offset,
                 source: NestedScrollSource,
-            ): Offset = when {
-                source == NestedScrollSource.SideEffect -> available
-                source == NestedScrollSource.UserInput &&
+            ): Offset =
+                if (
+                    source == NestedScrollSource.UserInput &&
                     available.y < 0f &&
-                    !listState.canScrollForward -> available
-                source == NestedScrollSource.UserInput &&
-                    available.y > 0f &&
-                    listState.canScrollBackward -> available
-                else -> Offset.Zero
-            }
+                    !listState.canScrollForward
+                ) {
+                    available
+                } else {
+                    Offset.Zero
+                }
 
             override suspend fun onPreFling(available: Velocity): Velocity =
                 if (available.y < 0f && !listState.canScrollForward) available else Velocity.Zero
@@ -241,11 +241,8 @@ internal fun ModelPickerSheet(
             override suspend fun onPostFling(
                 consumed: Velocity,
                 available: Velocity,
-            ): Velocity = when {
-                available.y < 0f && !listState.canScrollForward -> available
-                available.y > 0f && listState.canScrollBackward -> available
-                else -> Velocity.Zero
-            }
+            ): Velocity =
+                if (available.y < 0f && !listState.canScrollForward) available else Velocity.Zero
         }
     }
     val scope = rememberCoroutineScope()
