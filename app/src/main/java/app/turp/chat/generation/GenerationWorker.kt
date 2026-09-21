@@ -635,6 +635,7 @@ class GenerationWorker(
                     thinkingEnabled = false,
                     thinkingEffort = conversation.thinkingEffort,
                     continuation = false,
+                    sessionId = conversation.id,
                     customHeaders = parseHeaders(provider.customHeadersJson),
                     tools = emptyList(),
                 )
@@ -815,6 +816,7 @@ class GenerationWorker(
                         thinkingEnabled = conversation.thinkingEnabled && model.supportsThinking,
                         thinkingEffort = conversation.thinkingEffort,
                         continuation = effectiveContinuation && round == 0 && !universalFallback,
+                        sessionId = conversation.id,
                         customHeaders = parseHeaders(provider.customHeadersJson),
                         webSearchRoute = webSearchSettings.route,
                         webSearchEngine = webSearchSettings.engine,
