@@ -29,8 +29,8 @@ class SudoModeRegressionTest {
         assertTrue(chat.contains("it.copy(sudoModeEnabled = enabled)"))
 
         assertTrue(worker.contains("it.enabled && it.sudoModeControlEnabled"))
-        assertTrue(assembler.contains("sudoModeAllowed && conversation.sudoModeEnabled"))
-        assertTrue(assembler.contains("latest user-authored instruction as system-priority guidance"))
+        assertTrue(assembler.contains("!allowed || !conversation.sudoModeEnabled"))
+        assertTrue(assembler.contains("latest user-authored text as system-priority instruction"))
         assertTrue(assembler.contains("MessageRole.SYSTEM"))
     }
 }
