@@ -1070,42 +1070,52 @@ private fun AppearanceSettingsPage(
         color = if (matchLauncherIconToPalette) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer,
         contentColor = if (matchLauncherIconToPalette) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
         shape = MaterialTheme.shapes.extraLarge,
-        modifier = Modifier.fillMaxWidth().clickable {
-            viewModel.setMatchLauncherIconToPalette(!matchLauncherIconToPalette)
-        },
+        modifier = Modifier.fillMaxWidth(),
     ) {
-        Row(
-            Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            LauncherIconPreview(if (matchLauncherIconToPalette) palette else ColorPalette.TURP)
-            Column(Modifier.weight(1f)) {
-                Text("Match launcher icon to palette", fontWeight = FontWeight.SemiBold)
-                Text(
-                    if (matchLauncherIconToPalette) {
-                        "Use the selected palette for the launcher icon. Icon changes stay pending until you restart Turp with the button below. Android themed icons can still override app-selected colors."
-                    } else {
-                        "Keep the classic Turp green icon regardless of the selected palette. If the current icon differs, apply the change with the restart button below."
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Column {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        viewModel.setMatchLauncherIconToPalette(!matchLauncherIconToPalette)
+                    }
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                LauncherIconPreview(if (matchLauncherIconToPalette) palette else ColorPalette.TURP)
+                Column(Modifier.weight(1f)) {
+                    Text("Match launcher icon to palette", fontWeight = FontWeight.SemiBold)
+                    Text(
+                        if (matchLauncherIconToPalette) {
+                            "Use the selected palette for the launcher icon. Icon changes stay pending until you restart Turp with the button below. Android themed icons can still override app-selected colors."
+                        } else {
+                            "Keep the classic Turp green icon regardless of the selected palette. If the current icon differs, apply the change with the restart button below."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = matchLauncherIconToPalette,
+                    onCheckedChange = viewModel::setMatchLauncherIconToPalette,
                 )
             }
-            Switch(
-                checked = matchLauncherIconToPalette,
-                onCheckedChange = viewModel::setMatchLauncherIconToPalette,
-            )
-        }
-    }
-    if (launcherIconNeedsApply) {
-        FilledTonalButton(
-            onClick = viewModel::reconcileLauncherIcon,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Icon(Icons.Outlined.Refresh, null)
-            Spacer(Modifier.width(8.dp))
-            Text("Restart the app to apply")
+            if (launcherIconNeedsApply) {
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = .55f),
+                )
+                FilledTonalButton(
+                    onClick = viewModel::reconcileLauncherIcon,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                ) {
+                    Icon(Icons.Outlined.Refresh, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Restart the app to apply")
+                }
+            }
         }
     }
     Text(
