@@ -22,6 +22,7 @@ import app.turp.chat.provider.AlibabaCloudModelPolicy
 import app.turp.chat.provider.ModelRequestPolicy
 import app.turp.chat.provider.HybridTokenCounter
 import app.turp.chat.provider.OpenAiOAuthManager
+import app.turp.chat.provider.OpenCodeManager
 import app.turp.chat.sandbox.PythonSandbox
 import app.turp.chat.sandbox.UbuntuRuntime
 import app.turp.chat.sandbox.PackageApprovalService
@@ -146,6 +147,7 @@ class AppContainer(val application: Application, val crashReporter: CrashReporte
     val repository = ChatRepository(database)
     val demoMode = DemoModeController(database, repository, appPreferences)
     val openAiOAuth = OpenAiOAuthManager(application, secureStore)
+    val openCode = OpenCodeManager(secureStore)
     val providers = ProviderRegistry(openAiOAuth)
     val modelDiscovery = AlibabaCloudModelDiscoveryService(openAiOAuth)
     val tokenCounter = HybridTokenCounter()
