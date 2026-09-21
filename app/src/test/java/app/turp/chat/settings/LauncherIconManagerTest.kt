@@ -128,9 +128,10 @@ class LauncherIconManagerTest {
         assertTrue(background.contains("@android:color/system_accent1_800"))
         assertTrue(background.contains("@android:color/system_accent2_700"))
         assertTrue(foreground.contains("@android:color/system_accent1_200"))
-        assertTrue(foreground.contains("@android:color/system_accent3_200"))
-        assertTrue(inAppMark.contains("@android:color/system_accent1_800"))
-        assertTrue(inAppMark.contains("@android:color/system_accent3_200"))
+        assertTrue(foreground.contains("@android:color/system_accent3_100"))
+        assertTrue(inAppMark.contains("@android:color/system_accent1_200"))
+        assertTrue(inAppMark.contains("@android:color/system_accent3_100"))
+        assertTrue(inAppMark.contains("@android:color/system_accent3_50"))
 
         val adaptiveIcon = File("src/main/res/mipmap-anydpi/ic_launcher_system.xml").readText()
         assertFalse(adaptiveIcon.contains("<monochrome"))
