@@ -203,13 +203,20 @@ Outro""",
         assertTrue(containsMarkdownTableCandidate("| A | B |\n| --- | --- |"))
     }
 
-    @Test fun completedSmallTablesRenderWithoutRawMarkdownDelimiters() {
+    @Test fun completedSmallTablesUseNativeCellRowsInsteadOfBoxDrawingText() {
         val small = "| A | B |\n| --- | --- |\n| 1 | 2 |"
-        val rendered = renderStreamingTableGrid(small)
-        assertTrue(rendered.text.startsWith("┌"))
-        assertTrue("│ A" in rendered.text)
-        assertTrue("│ 1" in rendered.text)
-        assertFalse("| --- |" in rendered.text)
+        val rows = parseMarkdownTableRows(small)
+        assertEquals(listOf(listOf("A", "B"), listOf("1", "2")), rows)
+
+        val widths = markdownTableColumnWidthsDp(rows, viewportDp = 360)
+        assertEquals(2, widths.size)
+        assertTrue(widths.sum() >= 360)
+    }
+
+    @Test fun codeBlocksUseIntrinsicWidthInsideHorizontalScroller() {
+        val source = java.io.File("src/main/java/app/turp/chat/ui/RichMessage.kt").readText()
+        assertTrue(source.contains("modifier = Modifier.width(IntrinsicSize.Max)"))
+        assertTrue(source.contains("LowSensitivityHorizontalScroll("))
     }
 
     @Test fun oversizedStreamingTablesUseTheBoundedRenderer() {
