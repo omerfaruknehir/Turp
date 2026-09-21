@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
@@ -67,18 +68,31 @@ internal fun LauncherIconPreview(
     size: Dp = 54.dp,
     modifier: Modifier = Modifier,
 ) {
+    val foregroundInset = size * (22f / 108f)
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHighest,
         shape = MaterialTheme.shapes.large,
         tonalElevation = 1.dp,
         modifier = modifier.size(size),
     ) {
-        Box(Modifier.background(MaterialTheme.colorScheme.surfaceContainerHighest)) {
+        Box(
+            Modifier
+                .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                .clip(MaterialTheme.shapes.large),
+        ) {
             Image(
-                painter = painterResource(palette.launcherIconDrawable),
+                painter = painterResource(palette.launcherBackgroundDrawable),
+                contentDescription = null,
+                contentScale = ContentScale.FillBounds,
+                modifier = Modifier.matchParentSize(),
+            )
+            Image(
+                painter = painterResource(palette.launcherForegroundDrawable),
                 contentDescription = null,
                 contentScale = ContentScale.Fit,
-                modifier = Modifier.matchParentSize().clip(MaterialTheme.shapes.large),
+                modifier = Modifier
+                    .matchParentSize()
+                    .padding(foregroundInset),
             )
         }
     }
@@ -96,15 +110,26 @@ internal val ColorPalette.turpMarkDrawable: Int
         ColorPalette.SUNSET -> R.drawable.ic_turp_mark_sunset
     }
 
+@get:DrawableRes
+internal val ColorPalette.launcherBackgroundDrawable: Int
+    get() = when (this) {
+        ColorPalette.TURP -> R.drawable.ic_turp_background
+        ColorPalette.ARBOR -> R.drawable.ic_turp_background
+        ColorPalette.SYSTEM -> R.drawable.ic_turp_background_system
+        ColorPalette.GRAPHITE -> R.drawable.ic_turp_background_graphite
+        ColorPalette.OCEAN -> R.drawable.ic_turp_background_ocean
+        ColorPalette.VIOLET -> R.drawable.ic_turp_background_violet
+        ColorPalette.SUNSET -> R.drawable.ic_turp_background_sunset
+    }
 
 @get:DrawableRes
-internal val ColorPalette.launcherIconDrawable: Int
+internal val ColorPalette.launcherForegroundDrawable: Int
     get() = when (this) {
-        ColorPalette.TURP -> R.mipmap.ic_launcher
-        ColorPalette.ARBOR -> R.mipmap.ic_launcher
-        ColorPalette.SYSTEM -> R.mipmap.ic_launcher_system
-        ColorPalette.GRAPHITE -> R.mipmap.ic_launcher_graphite
-        ColorPalette.OCEAN -> R.mipmap.ic_launcher_ocean
-        ColorPalette.VIOLET -> R.mipmap.ic_launcher_violet
-        ColorPalette.SUNSET -> R.mipmap.ic_launcher_sunset
+        ColorPalette.TURP -> R.drawable.ic_turp_foreground
+        ColorPalette.ARBOR -> R.drawable.ic_turp_foreground
+        ColorPalette.SYSTEM -> R.drawable.ic_turp_foreground_system
+        ColorPalette.GRAPHITE -> R.drawable.ic_turp_foreground_graphite
+        ColorPalette.OCEAN -> R.drawable.ic_turp_foreground_ocean
+        ColorPalette.VIOLET -> R.drawable.ic_turp_foreground_violet
+        ColorPalette.SUNSET -> R.drawable.ic_turp_foreground_sunset
     }
