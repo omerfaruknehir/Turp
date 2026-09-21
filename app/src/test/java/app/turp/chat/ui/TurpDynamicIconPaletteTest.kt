@@ -15,7 +15,8 @@ class TurpDynamicIconPaletteTest {
         )
         expected.forEach { (name, colors) ->
             val source = File("src/main/res/drawable/ic_turp_foreground_$name.xml").readText()
-            assertTrue(name, source.contains("M45.355735,12.06325"))\n            assertTrue(name, source.contains("M54,24.484818"))
+            assertTrue(name, source.contains("M45.355735,12.06325"))
+            assertTrue(name, source.contains("M54,24.484818"))
             colors.forEach { color -> assertTrue("$name missing $color", source.contains(color)) }
         }
     }
