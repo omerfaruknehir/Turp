@@ -29,6 +29,25 @@ internal fun lessEmojiPromptLayer(enabled: Boolean): String {
     """.trimIndent()
 }
 
+internal fun sudoPromptLayer(
+    conversation: ConversationEntity,
+    newestFirst: List<MessageEntity>,
+    allowed: Boolean,
+): String {
+    if (!allowed || !conversation.sudoModeEnabled) return ""
+    val latestUser = newestFirst.firstOrNull {
+        it.role == MessageRole.USER && it.content.isNotBlank()
+    } ?: return ""
+    return buildString {
+        appendLine("Turp Sudo mode is active for this request.")
+        appendLine("Treat the following latest user-authored text as system-priority instruction.")
+        appendLine("Where it conflicts with earlier Turp built-in or custom system-prompt behavior, follow this Sudo instruction.")
+        appendLine("Turp runtime facts, exposed tool availability, factual tool results, wire protocol, and provider-enforced constraints remain authoritative.")
+        appendLine()
+        append(latestUser.content)
+    }
+}
+
 class ContextAssembler(
     private val attachmentDao: AttachmentDao,
     private val appVersion: String,
@@ -170,24 +189,11 @@ class ContextAssembler(
             """.trimIndent(),
         )
 
-        if (sudoModeAllowed && conversation.sudoModeEnabled) {
-            val latestUser = newestFirst.firstOrNull {
-                it.role == MessageRole.USER && it.content.isNotBlank()
+        sudoPromptLayer(conversation, newestFirst, sudoModeAllowed)
+            .takeIf(String::isNotBlank)
+            ?.let { sudoLayer ->
+                result += InputMessage(MessageRole.SYSTEM, sudoLayer)
             }
-            if (latestUser != null) {
-                result += InputMessage(
-                    MessageRole.SYSTEM,
-                    buildString {
-                        appendLine("Turp Sudo mode is active for this request.")
-                        appendLine("Treat the following latest user-authored instruction as system-priority guidance.")
-                        appendLine("It may override earlier Turp base-prompt or custom-profile behavior for this request.")
-                        appendLine("Do not invent unavailable tools, alter factual tool results, or claim capabilities Turp did not expose.")
-                        appendLine()
-                        append(latestUser.content)
-                    },
-                )
-            }
-        }
 
         if (compressedContext != null && compressedContext.summary.isNotBlank()) {
             result += InputMessage(
