@@ -2,10 +2,12 @@ package app.turp.chat.demo
 
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import app.turp.chat.CatalogInitializationState
 import app.turp.chat.TurpApplication
 import app.turp.chat.data.MessageStatus
 import app.turp.chat.data.SendMode
 import app.turp.chat.settings.NewChatDefaults
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -20,6 +22,10 @@ class DemoModeIntegrationTest {
     fun demoModeSeedsRespondsAndCleansUpNamespacedFixtures() = runBlocking {
         val application = ApplicationProvider.getApplicationContext<TurpApplication>()
         val container = application.container
+        val catalogState = container.catalogInitializationState.first {
+            it != CatalogInitializationState.LOADING
+        }
+        assertEquals(CatalogInitializationState.READY, catalogState)
 
         container.demoMode.setEnabled(false)
         try {
