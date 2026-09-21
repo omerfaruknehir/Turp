@@ -213,10 +213,11 @@ Outro""",
         assertTrue(widths.sum() >= 360)
     }
 
-    @Test fun codeBlocksUseIntrinsicWidthInsideHorizontalScroller() {
+    @Test fun codeBlocksUseExplicitOverflowWidthInsideHorizontalScroller() {
         val source = java.io.File("src/main/java/app/turp/chat/ui/RichMessage.kt").readText()
-        assertTrue(source.contains("modifier = Modifier.width(IntrinsicSize.Max)"))
-        assertTrue(source.contains("LowSensitivityHorizontalScroll("))
+        assertTrue(source.contains("codeBlockContentWidthDp(code, codeViewportDp)"))
+        assertTrue(source.contains(".width(codeContentWidthDp.dp)"))
+        assertTrue(source.contains("LowSensitivityHorizontalScroll(Modifier.fillMaxWidth())"))
     }
 
     @Test fun smallStreamingTablesStayOnNativeCellRenderer() {
