@@ -137,6 +137,8 @@ import app.turp.chat.provider.OpenAiOAuthState
 import app.turp.chat.provider.OpenAiOAuthUsageSnapshot
 import app.turp.chat.provider.OpenAiOAuthUsageState
 import app.turp.chat.provider.OpenAiOAuthUsageWindow
+import app.turp.chat.provider.OpenCodeUsageState
+import app.turp.chat.provider.OpenCodeUsageWindow
 import app.turp.chat.provider.supportedThinkingLevels
 import app.turp.chat.provider.defaultThinkingEffort
 import app.turp.chat.provider.effectiveThinkingEnabled
@@ -186,6 +188,7 @@ fun SettingsScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
     val credentialRevision by viewModel.credentialRevision.collectAsStateWithLifecycle()
     val openAiOAuthStates by viewModel.openAiOAuthStates.collectAsStateWithLifecycle()
     val openAiOAuthUsageStates by viewModel.openAiOAuthUsageStates.collectAsStateWithLifecycle()
+    val openCodeUsageStates by viewModel.openCodeUsageStates.collectAsStateWithLifecycle()
     val amoled by viewModel.amoled.collectAsState()
     val palette by viewModel.palette.collectAsState()
     val themeMode by viewModel.themeMode.collectAsState()
@@ -321,6 +324,7 @@ fun SettingsScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
                             conversationProviderId = null,
                             openAiOAuthStates = openAiOAuthStates,
                             openAiOAuthUsageStates = openAiOAuthUsageStates,
+                            openCodeUsageStates = openCodeUsageStates,
                             viewModel = viewModel,
                         )
                         SettingsRoute.ABOUT -> AboutSettingsPage(
@@ -2251,6 +2255,7 @@ private fun ProviderSettings(
     conversationProviderId: String?,
     openAiOAuthStates: Map<String, OpenAiOAuthState>,
     openAiOAuthUsageStates: Map<String, OpenAiOAuthUsageState>,
+    openCodeUsageStates: Map<String, OpenCodeUsageState>,
     viewModel: ChatViewModel,
 ) {
     var selectedId by remember { mutableStateOf<String?>(null) }
@@ -2295,6 +2300,12 @@ private fun ProviderSettings(
         val provider = selected?.takeIf { it.kind == ProviderKind.OPENAI_OAUTH } ?: return@LaunchedEffect
         if (selectedOAuthState is OpenAiOAuthState.SignedIn) viewModel.ensureChatGptUsage(provider.id)
     }
+    val selectedOpenCodeUsageState = selected?.takeIf(ModelRequestPolicy::isOpenCodeGo)
+        ?.let { openCodeUsageStates[it.id] } ?: OpenCodeUsageState.Unavailable
+    LaunchedEffect(selected?.id, apiKey) {
+        val provider = selected?.takeIf(ModelRequestPolicy::isOpenCodeGo) ?: return@LaunchedEffect
+        if (apiKey.isNotBlank()) viewModel.ensureOpenCodeUsage(provider.id)
+    }
     LaunchedEffect(selected?.id, selectedModels, apiKey, headers, baseUrl) {
         val provider = selected ?: return@LaunchedEffect
         if (!ModelRequestPolicy.isOpenRouter(provider) || provider.kind == ProviderKind.OPENAI_OAUTH) return@LaunchedEffect
@@ -2321,6 +2332,8 @@ private fun ProviderSettings(
             "anthropic" to "Anthropic",
             "gemini" to "Gemini",
             "openrouter" to "OpenRouter",
+            "opencode-go" to "OpenCode Go",
+            "opencode-zen" to "OpenCode Zen",
             "deepseek" to "DeepSeek",
             "groq" to "Groq",
             "mistral" to "Mistral",
@@ -2426,7 +2439,11 @@ private fun ProviderSettings(
                                             is OpenAiOAuthState.Error -> "ChatGPT OAuth • Needs attention"
                                             else -> "ChatGPT OAuth • Disconnected"
                                         }
-                                    } else providerKindLabel(provider.kind),
+                                    } else when {
+                                        ModelRequestPolicy.isOpenCodeGo(provider) -> "OpenCode Go • API key"
+                                        ModelRequestPolicy.isOpenCodeZen(provider) -> "OpenCode Zen • API key"
+                                        else -> providerKindLabel(provider.kind)
+                                    },
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -2482,6 +2499,13 @@ private fun ProviderSettings(
                     }
                     modelSyncStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
+            }
+            when {
+                ModelRequestPolicy.isOpenCodeGo(provider) -> OpenCodeUsagePanel(
+                    state = selectedOpenCodeUsageState,
+                    onRefresh = { viewModel.refreshOpenCodeUsage(provider.id) },
+                )
+                ModelRequestPolicy.isOpenCodeZen(provider) -> OpenCodeZenBalanceNote()
             }
             ModelCatalogEditor(provider, viewModel)
         }
@@ -2790,6 +2814,135 @@ private fun ChatGptOAuthCard(
                 Icon(Icons.Outlined.DeleteOutline, null, tint = MaterialTheme.colorScheme.error)
                 Text(" Remove provider", color = MaterialTheme.colorScheme.error)
             }
+        }
+    }
+}
+
+@Composable
+private fun OpenCodeUsagePanel(
+    state: OpenCodeUsageState,
+    onRefresh: () -> Unit,
+) {
+    val snapshot = when (state) {
+        is OpenCodeUsageState.Loaded -> state.snapshot
+        is OpenCodeUsageState.Loading -> state.previous
+        is OpenCodeUsageState.Error -> state.previous
+        OpenCodeUsageState.Unavailable -> null
+    }
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = .72f),
+        shape = MaterialTheme.shapes.large,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("OpenCode Go usage", fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "Server-reported subscription windows",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (state is OpenCodeUsageState.Loading) {
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                }
+                IconButton(onClick = onRefresh, enabled = state !is OpenCodeUsageState.Loading) {
+                    Icon(Icons.Outlined.Refresh, "Refresh OpenCode usage")
+                }
+            }
+            if (snapshot == null) {
+                when (state) {
+                    is OpenCodeUsageState.Error -> Text(
+                        state.message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    OpenCodeUsageState.Unavailable -> Text(
+                        "Add an OpenCode Go API key to load usage limits.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    else -> LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
+            } else {
+                snapshot.rolling?.let { OpenCodeUsageWindowRow("5-hour limit", it) }
+                snapshot.weekly?.let { OpenCodeUsageWindowRow("Weekly limit", it) }
+                snapshot.monthly?.let { OpenCodeUsageWindowRow("Monthly limit", it) }
+                if (state is OpenCodeUsageState.Error) {
+                    Text(
+                        "Refresh failed • " + state.message,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OpenCodeUsageWindowRow(label: String, window: OpenCodeUsageWindow) {
+    val used = window.usedPercent.coerceIn(0.0, 100.0)
+    val left = (100.0 - used).coerceIn(0.0, 100.0)
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(label, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+            Text(
+                left.roundToInt().toString() + "% left",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (left <= 10.0 || window.status.equals("rate-limited", true)) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
+            )
+        }
+        LinearProgressIndicator(
+            progress = { (used / 100.0).toFloat() },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        val resetAt = window.resetsAtEpochSeconds
+        var nowEpochSeconds by remember(resetAt) { mutableLongStateOf(System.currentTimeMillis() / 1_000L) }
+        LaunchedEffect(resetAt) {
+            if (resetAt != null) {
+                while (true) {
+                    delay(1_000L)
+                    nowEpochSeconds = System.currentTimeMillis() / 1_000L
+                }
+            }
+        }
+        val reset = resetAt?.let { usageResetText(it, nowEpochSeconds) }
+        Text(
+            buildString {
+                append(used.roundToInt()).append("% used")
+                if (reset != null) append(" • ").append(reset)
+                if (window.status.equals("rate-limited", true)) append(" • rate limited")
+            },
+            style = MaterialTheme.typography.labelSmall,
+            color = if (window.status.equals("rate-limited", true)) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+        )
+    }
+}
+
+@Composable
+private fun OpenCodeZenBalanceNote() {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = .72f),
+        shape = MaterialTheme.shapes.large,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("OpenCode Zen billing", fontWeight = FontWeight.SemiBold)
+            Text(
+                "Zen is pay-as-you-go. OpenCode does not currently expose wallet balance through API-key authentication, so Turp will not display an estimated balance.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
