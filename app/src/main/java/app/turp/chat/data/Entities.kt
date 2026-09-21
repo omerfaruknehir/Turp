@@ -48,6 +48,7 @@ data class ConversationEntity(
     @ColumnInfo(defaultValue = "0") val deepResearchEnabled: Boolean = false,
     @ColumnInfo(defaultValue = "0") val sudoModeEnabled: Boolean = false,
     @ColumnInfo(defaultValue = "0") val hybridTokenCountingEnabled: Boolean = false,
+    @ColumnInfo(defaultValue = "0") val sudoModeEnabled: Boolean = false,
     val archived: Boolean = false,
     @ColumnInfo(defaultValue = "0") val pinned: Boolean = false,
     val projectId: String? = null,
