@@ -1070,6 +1070,13 @@ internal fun markdownTableColumnWidthsDp(
     return widths
 }
 
+internal fun markdownTableTotalWidthDp(
+    widths: List<Int>,
+    viewportDp: Int,
+): Int =
+    (widths.sum() + (widths.size - 1).coerceAtLeast(0))
+        .coerceAtLeast(viewportDp.coerceAtLeast(240))
+
 @Composable
 private fun NativeMarkdownTable(
     markwon: Markwon,
@@ -1086,8 +1093,9 @@ private fun NativeMarkdownTable(
         LocalWindowInfo.current.containerSize.width.toDp().value.roundToInt()
     }.minus(48).coerceAtLeast(240)
     val widths = remember(rows, viewportDp) { markdownTableColumnWidthsDp(rows, viewportDp) }
-    val dividerWidthDp = (widths.size - 1).coerceAtLeast(0)
-    val totalWidth = (widths.sum() + dividerWidthDp).coerceAtLeast(viewportDp)
+    val totalWidth = remember(widths, viewportDp) {
+        markdownTableTotalWidthDp(widths, viewportDp)
+    }
 
     val textColor = MaterialTheme.colorScheme.onSurface.toArgbCompat()
     val linkColor = MaterialTheme.colorScheme.primary.toArgbCompat()
