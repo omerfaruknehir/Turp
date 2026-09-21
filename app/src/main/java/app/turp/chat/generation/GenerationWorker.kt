@@ -230,6 +230,9 @@ class GenerationWorker(
             memoryEnabled = automationSettings.memoryEnabled,
             memoryAutoSave = automationSettings.memoryAutoSave,
             lessEmojiEnabled = container.appPreferences.lessEmojiEnabled.value,
+            sudoModeAllowed = container.appPreferences.developerSettings.value.let {
+                it.enabled && it.sudoModeControlEnabled
+            },
         ).toMutableList()
         var nativeToolsDisabled = false
         val effectiveContinuation = continuation || initial.streamOffset > 0
