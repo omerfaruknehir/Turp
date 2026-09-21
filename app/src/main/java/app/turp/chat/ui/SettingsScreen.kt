@@ -1488,6 +1488,25 @@ private fun DeveloperSettingsPage(
 
     HorizontalDivider()
     SectionTitle(
+        "Sudo mode",
+        "Expose a per-chat Sudo control that can promote the latest user turn to system priority for debugging prompt behavior.",
+    )
+    SettingsSwitch(
+        label = "Enable Sudo control",
+        checked = settings.sudoModeControlEnabled,
+        onCheckedChange = { enabled ->
+            viewModel.updateDeveloperSettings { it.copy(sudoModeControlEnabled = enabled) }
+        },
+        enabled = settings.enabled,
+    )
+    Text(
+        "Off by default. When exposed, Sudo is still disabled per chat until you turn it on from Add to chat → Tools.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+
+    HorizontalDivider()
+    SectionTitle(
         "Tool diagnostics",
         "Shows raw tool inputs, outputs, source paths, and copyable failure diagnostics inside Working.",
     )
