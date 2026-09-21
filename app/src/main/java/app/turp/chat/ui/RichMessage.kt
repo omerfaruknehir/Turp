@@ -37,6 +37,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.ContentCopy
@@ -1161,6 +1162,57 @@ private fun NativeMarkdownTable(
     }
 }
 
+private data class ComposeTablePreview(
+    val rows: List<List<String>?>,
+    val columnWidthsDp: List<Int>,
+)
+
+internal fun composeTablePreview(
+    markdown: String,
+    startOffset: Int = 0,
+    maxChars: Int = CompletedTablePreviewMaxChars,
+    maxLines: Int = CompletedTablePreviewMaxLines,
+    viewportDp: Int = 320,
+    maxCellCharacters: Int = 120,
+): ComposeTablePreview {
+    val bounded = boundedTablePreviewTextRange(markdown, startOffset, maxChars, maxLines)
+    val rows = mutableListOf<List<String>?>()
+    bounded.lineSequence().forEach { rawLine ->
+        when {
+            rawLine.contains("hidden from the inline preview") -> rows += null
+            markdownTableSeparatorColumns(rawLine) != null -> Unit
+            else -> splitMarkdownTableCells(rawLine)?.let { cells ->
+                rows += cells.map { cell ->
+                    cell.trim()
+                        .replace("\\|", "|")
+                        .replace(MarkdownTableFormatting, "")
+                        .replace(Regex("\\s+"), " ")
+                        .take(maxCellCharacters.coerceAtLeast(8))
+                }
+            }
+        }
+    }
+    val concrete = rows.filterNotNull()
+    val columnCount = concrete.maxOfOrNull { it.size }?.coerceAtMost(24) ?: 0
+    if (columnCount == 0) return ComposeTablePreview(rows, emptyList())
+
+    val widths = MutableList(columnCount) { column ->
+        val longest = concrete.maxOfOrNull { it.getOrNull(column)?.length ?: 0 } ?: 0
+        (longest * 8 + 28).coerceIn(96, 320)
+    }
+    val total = widths.sum()
+    if (total < viewportDp) {
+        var remaining = viewportDp - total
+        var index = 0
+        while (remaining > 0 && widths.isNotEmpty()) {
+            widths[index] += 1
+            remaining--
+            index = (index + 1) % widths.size
+        }
+    }
+    return ComposeTablePreview(rows, widths)
+}
+
 @Composable
 private fun StreamingTablePreviewText(
     markdown: String,
@@ -1169,49 +1221,73 @@ private fun StreamingTablePreviewText(
 ) {
     val maxChars = if (streaming) StreamingTablePreviewMaxChars else CompletedTablePreviewMaxChars
     val maxLines = if (streaming) StreamingTablePreviewMaxLines else CompletedTablePreviewMaxLines
-    val rendered = remember(markdown, startOffset, maxChars, maxLines) {
-        renderStreamingTableGrid(markdown, startOffset, maxChars, maxLines)
-    }
     val viewportDp = with(LocalDensity.current) {
         LocalWindowInfo.current.containerSize.width.toDp().value.roundToInt()
     }.minus(48).coerceAtLeast(240)
-    val widthDp = (rendered.widestLineCharacters * 8 + 20).coerceIn(viewportDp, 2_400)
-    val color = MaterialTheme.colorScheme.onSurface.toArgbCompat()
-    val background = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .34f).toArgbCompat()
-    val selectionColor = MaterialTheme.colorScheme.primary.copy(alpha = .32f).toArgbCompat()
-    val textSizeSp = MaterialTheme.typography.bodySmall.fontSize.value
+    val table = remember(markdown, startOffset, maxChars, maxLines, viewportDp) {
+        composeTablePreview(markdown, startOffset, maxChars, maxLines, viewportDp)
+    }
 
+    if (table.columnWidthsDp.isEmpty()) {
+        LightweightTableText(markdown = markdown, streaming = streaming)
+        return
+    }
+
+    val divider = MaterialTheme.colorScheme.outlineVariant
+    val totalWidthDp = table.columnWidthsDp.sum().coerceAtLeast(viewportDp)
     LowSensitivityHorizontalScroll(Modifier.fillMaxWidth()) {
-        AndroidView(
-            factory = { context ->
-                TurpMarkdownTextView(context).apply {
-                    setTextIsSelectable(true)
-                    setTextClassifier(TextClassifier.NO_OP)
-                    includeFontPadding = false
-                    typeface = Typeface.MONOSPACE
-                    setHorizontallyScrolling(false)
-                    setLineSpacing(0f, 1.04f)
-                    setPadding(10, 8, 10, 8)
+        Surface(
+            modifier = Modifier.width(totalWidthDp.dp),
+            shape = RoundedCornerShape(10.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
+            border = BorderStroke(1.dp, divider),
+        ) {
+            Column {
+                table.rows.forEachIndexed { rowIndex, cells ->
+                    if (cells == null) {
+                        SelectionContainer {
+                            Text(
+                                "… omitted table rows from inline preview …",
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    } else {
+                        val header = table.rows.take(rowIndex).none { it != null }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(IntrinsicSize.Min),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            table.columnWidthsDp.forEachIndexed { column, width ->
+                                if (column > 0) VerticalDivider(color = divider)
+                                Box(
+                                    modifier = Modifier
+                                        .width(width.dp)
+                                        .fillMaxHeight()
+                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    contentAlignment = Alignment.CenterStart,
+                                ) {
+                                    SelectionContainer {
+                                        Text(
+                                            cells.getOrNull(column).orEmpty(),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = if (header) FontWeight.SemiBold else FontWeight.Normal,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (rowIndex != table.rows.lastIndex) {
+                        HorizontalDivider(color = divider)
+                    }
                 }
-            },
-            onReset = { it.resetForReuse() },
-            onRelease = { it.resetForReuse() },
-            update = { view ->
-                val appearanceKey = (((color * 31) + background) * 31 + selectionColor) * 31 + textSizeSp.toBits()
-                if (view.appliedStyleKey != appearanceKey) {
-                    view.setTextColor(color)
-                    view.setBackgroundColor(background)
-                    view.highlightColor = selectionColor
-                    view.setTextSize(TypedValue.COMPLEX_UNIT_SP, textSizeSp)
-                    view.appliedStyleKey = appearanceKey
-                }
-                if (view.renderedSource != rendered.text) {
-                    view.setText(rendered.text, TextView.BufferType.SPANNABLE)
-                    view.renderedSource = rendered.text
-                }
-            },
-            modifier = Modifier.width(widthDp.dp),
-        )
+            }
+        }
     }
 }
 
