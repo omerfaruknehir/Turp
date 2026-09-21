@@ -129,9 +129,21 @@ class ModelDiscoveryService(
             .take(MAX_MODELS)
         val merged = if (kind == ProviderKind.OPENAI_COMPATIBLE) {
             val withOfficialOpenAi = ModelRequestPolicy.mergeOfficialOpenAiCatalog(baseUrl, distinct)
+            val withOpenCodeMetadata = if (
+                ModelRequestPolicy.isOpenCodeGoBaseUrl(baseUrl) ||
+                ModelRequestPolicy.isOpenCodeZenBaseUrl(baseUrl)
+            ) {
+                withOfficialOpenAi.map { model ->
+                    ModelRequestPolicy.enrichOpenCodeModel(providerId, baseUrl, model)
+                }
+            } else {
+                withOfficialOpenAi
+            }
             if (ModelRequestPolicy.matchesPresetId(providerId, "qwen-cloud") || ModelRequestPolicy.isQwenCloudBaseUrl(baseUrl)) {
-                ModelRequestPolicy.mergeQwenCloudCatalog(providerId ?: "qwen-cloud", withOfficialOpenAi)
-            } else withOfficialOpenAi
+                ModelRequestPolicy.mergeQwenCloudCatalog(providerId ?: "qwen-cloud", withOpenCodeMetadata)
+            } else {
+                withOpenCodeMetadata
+            }
         } else distinct
         merged.ifEmpty { throw IllegalStateException("The provider returned no usable models") }
     }
