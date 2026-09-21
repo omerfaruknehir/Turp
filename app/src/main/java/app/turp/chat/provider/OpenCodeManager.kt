@@ -89,7 +89,7 @@ class OpenCodeManager(
         _usageStates.update { it - providerId }
     }
 
-    private fun fetch(apiKey: String): OpenCodeUsageSnapshot {
+    private suspend fun fetch(apiKey: String): OpenCodeUsageSnapshot {
         val request = Request.Builder()
             .url(GO_USAGE_ENDPOINT)
             .header("Authorization", "Bearer " + apiKey)
