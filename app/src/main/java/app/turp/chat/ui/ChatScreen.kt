@@ -62,6 +62,7 @@ import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Security
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material.icons.outlined.TravelExplore
 import androidx.compose.material.icons.outlined.Tune
