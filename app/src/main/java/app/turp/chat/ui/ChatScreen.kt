@@ -2870,6 +2870,7 @@ private fun Composer(
     val chromeBlurStrength by viewModel.chromeBlurStrength.collectAsStateWithLifecycle()
     val chromeEdgeSoftness by viewModel.chromeEdgeSoftness.collectAsStateWithLifecycle()
     val chromeOverlayOpacity by viewModel.chromeOverlayOpacity.collectAsStateWithLifecycle()
+    val developerSettings by viewModel.developerSettings.collectAsStateWithLifecycle()
     val draft by viewModel.draft.collectAsState()
     val staged by viewModel.stagedAttachments.collectAsState()
     val importing by viewModel.importing.collectAsState()
@@ -3191,6 +3192,17 @@ private fun Composer(
                             viewModel.updateConversation { it.copy(agentUbuntuEnabled = enabled) }
                         },
                     )
+                    if (developerSettings.enabled && developerSettings.sudoModeControlEnabled) {
+                        ComposerToggleRow(
+                            icon = Icons.Outlined.Security,
+                            title = "Sudo mode",
+                            subtitle = "Promote the latest user turn to system priority for the next request",
+                            checked = current.sudoModeEnabled,
+                            onCheckedChange = { enabled ->
+                                viewModel.updateConversation { it.copy(sudoModeEnabled = enabled) }
+                            },
+                        )
+                    }
                     if (!linuxInstalled) {
                         TextButton(
                             onClick = {
