@@ -46,7 +46,7 @@ private fun PaletteDot(color: Color, modifier: Modifier = Modifier) {
 /** Palette used by every in-app Turp icon. It mirrors the launcher alias exactly. */
 internal val LocalTurpIconPalette = staticCompositionLocalOf { ColorPalette.TURP }
 
-/** Exact drawable-backed copy of the currently selected launcher icon artwork. */
+/** Palette-matched Turp foreground mark used inside the app. */
 @Composable
 internal fun TurpMark(
     modifier: Modifier = Modifier,
@@ -54,7 +54,7 @@ internal fun TurpMark(
 ) {
     val palette = LocalTurpIconPalette.current
     Image(
-        painter = painterResource(palette.launcherPreviewDrawable),
+        painter = painterResource(palette.turpMarkDrawable),
         contentDescription = contentDescription,
         contentScale = ContentScale.Fit,
         modifier = modifier,
@@ -75,7 +75,7 @@ internal fun LauncherIconPreview(
     ) {
         Box(Modifier.background(MaterialTheme.colorScheme.surfaceContainerHighest)) {
             Image(
-                painter = painterResource(palette.launcherPreviewDrawable),
+                painter = painterResource(palette.launcherIconDrawable),
                 contentDescription = null,
                 contentScale = ContentScale.Fit,
                 modifier = Modifier.matchParentSize().clip(MaterialTheme.shapes.large),
@@ -85,7 +85,7 @@ internal fun LauncherIconPreview(
 }
 
 @get:DrawableRes
-internal val ColorPalette.launcherPreviewDrawable: Int
+internal val ColorPalette.turpMarkDrawable: Int
     get() = when (this) {
         ColorPalette.TURP -> R.drawable.ic_turp_mark
         ColorPalette.ARBOR -> R.drawable.ic_turp_mark
@@ -94,4 +94,17 @@ internal val ColorPalette.launcherPreviewDrawable: Int
         ColorPalette.OCEAN -> R.drawable.ic_turp_mark_ocean
         ColorPalette.VIOLET -> R.drawable.ic_turp_mark_violet
         ColorPalette.SUNSET -> R.drawable.ic_turp_mark_sunset
+    }
+
+
+@get:DrawableRes
+internal val ColorPalette.launcherIconDrawable: Int
+    get() = when (this) {
+        ColorPalette.TURP -> R.mipmap.ic_launcher
+        ColorPalette.ARBOR -> R.mipmap.ic_launcher
+        ColorPalette.SYSTEM -> R.mipmap.ic_launcher_system
+        ColorPalette.GRAPHITE -> R.mipmap.ic_launcher_graphite
+        ColorPalette.OCEAN -> R.mipmap.ic_launcher_ocean
+        ColorPalette.VIOLET -> R.mipmap.ic_launcher_violet
+        ColorPalette.SUNSET -> R.mipmap.ic_launcher_sunset
     }
