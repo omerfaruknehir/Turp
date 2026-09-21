@@ -41,7 +41,7 @@ class LauncherIconSafeZoneTest {
         wrappers.forEach { name ->
             val xml = source("src/main/res/drawable/$name")
             listOf("Left", "Top", "Right", "Bottom").forEach { edge ->
-                assertTrue(name, xml.contains("android:inset$edge=\"10dp\""))
+                assertTrue(name, xml.contains("android:inset$edge=\"18dp\""))
             }
         }
     }
