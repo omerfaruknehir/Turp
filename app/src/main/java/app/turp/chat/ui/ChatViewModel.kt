@@ -38,6 +38,7 @@ import app.turp.chat.provider.effectiveThinkingEnabled
 import app.turp.chat.provider.OpenAiOAuthManager
 import app.turp.chat.provider.OpenAiOAuthState
 import app.turp.chat.provider.OpenAiOAuthUsageState
+import app.turp.chat.provider.OpenCodeUsageState
 import app.turp.chat.provider.parseHeaders
 import app.turp.chat.sandbox.ExecutionResult
 import app.turp.chat.sandbox.ExecutionProgress
@@ -223,6 +224,7 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
     val credentialRevision: StateFlow<Long> = _credentialRevision
     val openAiOAuthStates: StateFlow<Map<String, OpenAiOAuthState>> = container.openAiOAuth.accountStates
     val openAiOAuthUsageStates: StateFlow<Map<String, OpenAiOAuthUsageState>> = container.openAiOAuth.usageStates
+    val openCodeUsageStates: StateFlow<Map<String, OpenCodeUsageState>> = container.openCode.usageStates
     private val conversationSettingsMutex = Mutex()
     private val automationSettingsMutex = Mutex()
     private val initializationMutex = Mutex()
@@ -1167,6 +1169,7 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
     fun removeProvider(provider: ProviderEntity) = launchAction {
         if (provider.kind == ProviderKind.OPENAI_OAUTH) container.openAiOAuth.signOut(provider.id)
         container.secureStore.setApiKey(provider.id, "")
+        if (ModelRequestPolicy.isOpenCode(provider)) container.openCode.clear(provider.id)
         container.repository.saveProvider(provider.copy(registered = false))
         _credentialRevision.value++
         notices.emit("Removed ${provider.displayName} credentials")
@@ -1267,6 +1270,19 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
         viewModelScope.launch {
             runCatching { container.openAiOAuth.usage(providerId, forceRefresh = true) }
                 .onFailure { notices.emit(it.message ?: "ChatGPT usage could not be refreshed") }
+        }
+    }
+
+    fun ensureOpenCodeUsage(providerId: String) {
+        viewModelScope.launch {
+            runCatching { container.openCode.usage(providerId, forceRefresh = false) }
+        }
+    }
+
+    fun refreshOpenCodeUsage(providerId: String) {
+        viewModelScope.launch {
+            runCatching { container.openCode.usage(providerId, forceRefresh = true) }
+                .onFailure { notices.emit(it.message ?: "OpenCode Go usage could not be refreshed") }
         }
     }
 
