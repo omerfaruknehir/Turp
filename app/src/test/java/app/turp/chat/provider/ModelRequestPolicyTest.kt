@@ -62,6 +62,43 @@ class ModelRequestPolicyTest {
     }
 
     @Test
+    fun openCodeZenRoutesCurrentModelFamiliesToDocumentedProtocols() {
+        val zen = ProviderEntity(
+            id = "provider-opencode-zen-test",
+            displayName = "OpenCode Zen",
+            kind = ProviderKind.OPENAI_COMPATIBLE,
+            baseUrl = "https://opencode.ai/zen/v1",
+        )
+
+        assertTrue(ModelRequestPolicy.isOpenCodeZen(zen))
+        assertFalse(ModelRequestPolicy.usesManualRequestType(zen))
+        assertEquals(OpenCodeTransport.RESPONSES, ModelRequestPolicy.openCodeTransport(zen, model("gpt-5.6-sol", false, zen.id)))
+        assertEquals(OpenCodeTransport.ANTHROPIC_MESSAGES, ModelRequestPolicy.openCodeTransport(zen, model("claude-sonnet-5", false, zen.id)))
+        assertEquals(OpenCodeTransport.ANTHROPIC_MESSAGES, ModelRequestPolicy.openCodeTransport(zen, model("qwen3.7-max", false, zen.id)))
+        assertEquals(OpenCodeTransport.GEMINI, ModelRequestPolicy.openCodeTransport(zen, model("gemini-3.8-flash", false, zen.id)))
+        assertEquals(OpenCodeTransport.CHAT_COMPLETIONS, ModelRequestPolicy.openCodeTransport(zen, model("deepseek-v4-pro", false, zen.id)))
+    }
+
+    @Test
+    fun openCodeGoRoutesCurrentModelFamiliesToDocumentedProtocols() {
+        val go = ProviderEntity(
+            id = "provider-opencode-go-test",
+            displayName = "OpenCode Go",
+            kind = ProviderKind.OPENAI_COMPATIBLE,
+            baseUrl = "https://opencode.ai/zen/go/v1",
+        )
+
+        assertTrue(ModelRequestPolicy.isOpenCodeGo(go))
+        assertFalse(ModelRequestPolicy.usesManualRequestType(go))
+        assertEquals(OpenCodeTransport.RESPONSES, ModelRequestPolicy.openCodeTransport(go, model("gpt-5.6-luna", false, go.id)))
+        assertEquals(OpenCodeTransport.RESPONSES, ModelRequestPolicy.openCodeTransport(go, model("muse-spark-1.3-contributor", false, go.id)))
+        assertEquals(OpenCodeTransport.ANTHROPIC_MESSAGES, ModelRequestPolicy.openCodeTransport(go, model("minimax-m3", false, go.id)))
+        assertEquals(OpenCodeTransport.ANTHROPIC_MESSAGES, ModelRequestPolicy.openCodeTransport(go, model("qwen3.8-max", false, go.id)))
+        assertEquals(OpenCodeTransport.CHAT_COMPLETIONS, ModelRequestPolicy.openCodeTransport(go, model("kimi-k3", false, go.id)))
+        assertEquals(OpenCodeTransport.CHAT_COMPLETIONS, ModelRequestPolicy.openCodeTransport(go, model("glm-5.3", false, go.id)))
+    }
+
+    @Test
     fun customOpenAiCompatibleProviderUsesCompactPersistedRequestType() {
         val custom = ProviderEntity(
             id = "provider-custom",
