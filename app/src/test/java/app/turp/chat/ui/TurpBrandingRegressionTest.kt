@@ -30,10 +30,16 @@ class TurpBrandingRegressionTest {
     fun `launcher safe-zone wrappers leave the background visibly exposed`() {
         val safe = source("src/main/res/drawable/ic_launcher_foreground_safe.xml")
         assertTrue(safe.contains("@drawable/ic_turp_foreground"))
-        assertTrue(safe.contains("android:insetLeft=\"18dp\""))
-        assertTrue(safe.contains("android:insetRight=\"18dp\""))
-        assertTrue(safe.contains("android:insetTop=\"18dp\""))
-        assertTrue(safe.contains("android:insetBottom=\"18dp\""))
+        assertTrue(safe.contains("android:insetLeft=\"22dp\""))
+        assertTrue(safe.contains("android:insetRight=\"22dp\""))
+        assertTrue(safe.contains("android:insetTop=\"22dp\""))
+        assertTrue(safe.contains("android:insetBottom=\"22dp\""))
+
+        listOf("", "_graphite", "_ocean", "_sunset", "_system", "_violet").forEach { suffix ->
+            val launcher = source("src/main/res/mipmap/ic_launcher$suffix.xml")
+            assertTrue("legacy launcher $suffix scaleX", launcher.contains("android:scaleX=\".60\""))
+            assertTrue("legacy launcher $suffix scaleY", launcher.contains("android:scaleY=\".60\""))
+        }
     }
 
     @Test
