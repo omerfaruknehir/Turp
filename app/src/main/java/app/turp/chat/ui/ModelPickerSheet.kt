@@ -203,24 +203,49 @@ internal fun ModelPickerSheet(
     // handoff is what causes the sheet/list rubber-band loop at the bottom.
     val listBoundaryGuard = remember(listState) {
         object : NestedScrollConnection {
+            override fun onPreScroll(
+                available: Offset,
+                source: NestedScrollSource,
+            ): Offset =
+                if (
+                    source == NestedScrollSource.UserInput &&
+                    available.y < 0f &&
+                    !listState.canScrollForward
+                ) {
+                    // The list is already at its bottom and the sheet is already fully
+                    // expanded. Consume the impossible upward overscroll before Material's
+                    // sheet connection can try to "expand" again and start a rubber-band loop.
+                    available
+                } else {
+                    Offset.Zero
+                }
+
             override fun onPostScroll(
                 consumed: Offset,
                 available: Offset,
                 source: NestedScrollSource,
             ): Offset = when {
                 source == NestedScrollSource.SideEffect -> available
-                source == NestedScrollSource.UserInput && available.y < 0f -> available
+                source == NestedScrollSource.UserInput &&
+                    available.y < 0f &&
+                    !listState.canScrollForward -> available
                 source == NestedScrollSource.UserInput &&
                     available.y > 0f &&
                     listState.canScrollBackward -> available
                 else -> Offset.Zero
             }
 
+            override suspend fun onPreFling(available: Velocity): Velocity =
+                if (available.y < 0f && !listState.canScrollForward) available else Velocity.Zero
+
             override suspend fun onPostFling(
                 consumed: Velocity,
                 available: Velocity,
-            ): Velocity =
-                if (available.y < 0f || listState.canScrollBackward) available else Velocity.Zero
+            ): Velocity = when {
+                available.y < 0f && !listState.canScrollForward -> available
+                available.y > 0f && listState.canScrollBackward -> available
+                else -> Velocity.Zero
+            }
         }
     }
     val scope = rememberCoroutineScope()
