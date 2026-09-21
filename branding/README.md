@@ -1,9 +1,12 @@
 # Turp brand assets
 
-**Turp** is pronounced **“Zy-loon.”** The name subtly references xylem and keeps the project's botanical ancestry without using a generic AI label.
+The canonical Turp mark is the radish in `turp-logo.svg`.
 
-The application and repository temporarily retain Arbor's proven A-shaped icon and Arbor banner. The namespace, application identity, product copy, protocols, release artifacts, and other internal branding remain Turp. A replacement Turp visual identity will be introduced only after its icon and banner are explicitly approved.
+The master SVG preserves the new diagonal red gradient, soft shadow, leaf/bulb gradients, and color-burn detail. Android uses the same geometry with a VectorDrawable-safe rendering: the blur is approximated with soft radial shadow overlays, while the blend result is represented by multi-stop gradients.
 
-- `arbor-banner.png`: temporary repository banner retained unchanged
-- `turp-logo.svg`: temporary Turp-named copy of the Arbor square mark
-- Android vector resources: Turp-named resources containing the temporary Arbor artwork
+Launcher palette matching keeps the same mark geometry. Turp, system, graphite, ocean, violet, and sunset variants recolor the new gradients; Android 12+ system mode uses platform accent colors.
+
+- `turp-logo.svg`: canonical square logo
+- `turp-radish.svg`: compatibility copy of the canonical logo
+- `turp-banner.svg`: repository/README banner
+- `arbor-banner.png`: retained Arbor asset

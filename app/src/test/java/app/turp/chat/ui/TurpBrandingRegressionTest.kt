@@ -13,12 +13,14 @@ class TurpBrandingRegressionTest {
         val foreground = source("src/main/res/drawable/ic_turp_foreground.xml")
         val mark = source("src/main/res/drawable/ic_turp_mark.xml")
         val monochrome = source("src/main/res/drawable/ic_turp_monochrome.xml")
-        assertTrue(foreground.contains("M734,681"))
-        assertTrue(foreground.contains("#FFFF385D"))
-        assertTrue(foreground.contains("#FF78BF43"))
-        assertTrue(mark.contains("M440,989"))
+        assertTrue(foreground.contains("M45.355735,12.06325"))
+        assertTrue(foreground.contains("M54,24.484818"))
+        assertTrue(foreground.contains("#FFD0A390"))
+        assertTrue(foreground.contains("#FFF3E4DE"))
+        assertTrue(mark.contains("M54,24.484818"))
+        assertTrue(monochrome.contains("M45.355735,12.06325"))
         assertTrue(monochrome.contains("#FFFFFFFF"))
-        assertFalse(foreground.contains("M33.549193,80.863216"))
+        assertFalse(foreground.contains("M734,681"))
     }
 
     @Test

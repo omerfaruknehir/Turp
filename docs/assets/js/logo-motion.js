@@ -5,62 +5,13 @@
   const animationDuration = 320;
 
   const palettes = {
-    turp: {
-      backgroundStart: '#24171c',
-      backgroundEnd: '#5a2335',
-      markStart: '#ffb0c5',
-      markEnd: '#f06a91',
-      leaf: '#c3c8c3',
-      secondStroke: '#f7e7ec',
-    },
-    arbor: {
-      backgroundStart: '#e7f4ea',
-      backgroundEnd: '#b5f1cc',
-      markStart: '#286448',
-      markEnd: '#0d5033',
-      leaf: '#3d6472',
-      secondStroke: '#c1eafb',
-    },
-    system: {
-      backgroundStart: '#293b52',
-      backgroundEnd: '#67507e',
-      markStart: '#a9d4ff',
-      markEnd: '#e8ddff',
-      leaf: '#ffb4a9',
-      secondStroke: '#fff8ff',
-    },
-    graphite: {
-      backgroundStart: '#162234',
-      backgroundEnd: '#425f86',
-      markStart: '#a9c7f8',
-      markEnd: '#e7f0ff',
-      leaf: '#e5bfa6',
-      secondStroke: '#f7f9ff',
-    },
-    ocean: {
-      backgroundStart: '#00363f',
-      backgroundEnd: '#00677a',
-      markStart: '#54d6f2',
-      markEnd: '#d5f7ff',
-      leaf: '#bec6ea',
-      secondStroke: '#f2fdff',
-    },
-    violet: {
-      backgroundStart: '#2e1d4f',
-      backgroundEnd: '#67508f',
-      markStart: '#d1bcff',
-      markEnd: '#f0e8ff',
-      leaf: '#efb8c8',
-      secondStroke: '#fff8ff',
-    },
-    sunset: {
-      backgroundStart: '#5c1a07',
-      backgroundEnd: '#9b4425',
-      markStart: '#ffb59c',
-      markEnd: '#ffede7',
-      leaf: '#d7c58d',
-      secondStroke: '#fff8f6',
-    },
+    turp: { backgroundStart: '#712828', backgroundEnd: '#b93838', leafStart: '#d0a390', leafMid: '#e1c5b8', leafEnd: '#f0ddd5', bulbStart: '#f3e4de', bulbMid: '#e6cbc0', bulbEnd: '#cc927a' },
+    arbor: { backgroundStart: '#e7f4ea', backgroundEnd: '#b5f1cc', leafStart: '#286448', leafMid: '#3d6472', leafEnd: '#0d5033', bulbStart: '#f4fbff', bulbMid: '#c1eafb', bulbEnd: '#3d6472' },
+    system: { backgroundStart: '#293b52', backgroundEnd: '#67507e', leafStart: '#a9d4ff', leafMid: '#c7dfff', leafEnd: '#e8ddff', bulbStart: '#ffe9e4', bulbMid: '#ffb4a9', bulbEnd: '#d47770' },
+    graphite: { backgroundStart: '#162234', backgroundEnd: '#425f86', leafStart: '#a9c7f8', leafMid: '#c8dafa', leafEnd: '#e7f0ff', bulbStart: '#fff4ed', bulbMid: '#e5bfa6', bulbEnd: '#b88769' },
+    ocean: { backgroundStart: '#00363f', backgroundEnd: '#00677a', leafStart: '#54d6f2', leafMid: '#9be8f8', leafEnd: '#d5f7ff', bulbStart: '#f3f5ff', bulbMid: '#bec6ea', bulbEnd: '#8e99cd' },
+    violet: { backgroundStart: '#2e1d4f', backgroundEnd: '#67508f', leafStart: '#d1bcff', leafMid: '#e1d4ff', leafEnd: '#f0e8ff', bulbStart: '#ffedf3', bulbMid: '#efb8c8', bulbEnd: '#c9829e' },
+    sunset: { backgroundStart: '#5c1a07', backgroundEnd: '#9b4425', leafStart: '#ffb59c', leafMid: '#ffd0bf', leafEnd: '#ffede7', bulbStart: '#fff6dd', bulbMid: '#d7c58d', bulbEnd: '#ac995e' },
   };
 
   const primaryToPalette = new Map([
@@ -130,24 +81,8 @@
   }
 
   function logoDataUrl(palette) {
-    const svg = `<svg width="512" height="512" viewBox="0 0 1536 1536" xmlns="http://www.w3.org/2000/svg">
-  <defs>
-    <linearGradient id="bg" x1="220" y1="120" x2="1340" y2="1420" gradientUnits="userSpaceOnUse">
-      <stop stop-color="${palette.backgroundStart}"/>
-      <stop offset="1" stop-color="${palette.backgroundEnd}"/>
-    </linearGradient>
-    <linearGradient id="leaf" x1="720" y1="220" x2="860" y2="680" gradientUnits="userSpaceOnUse">
-      <stop stop-color="${palette.markStart}"/>
-      <stop offset="1" stop-color="${palette.markEnd}"/>
-    </linearGradient>
-  </defs>
-  <rect width="1536" height="1536" rx="350" fill="url(#bg)"/>
-  <path d="M774 649C784 604 779 559 748 520C715 480 662 455 643 408C621 354 629 289 650 242C664 210 684 206 708 216C754 236 805 280 840 337C866 379 874 430 856 489C842 540 818 595 795 648Z" fill="url(#leaf)"/>
-  <path d="M827 674C874 624 927 570 1000 519C1060 477 1112 454 1155 466C1210 481 1260 515 1282 548C1304 579 1286 617 1260 649C1215 705 1168 732 1115 726C1078 722 1049 701 1015 684C973 663 935 656 900 670C870 682 846 690 827 674Z" fill="url(#leaf)"/>
-  <path d="M817 661C801 597 802 523 805 447C809 372 840 315 890 264C936 216 982 178 1017 176C1057 174 1090 198 1111 237C1134 281 1141 342 1137 393C1133 444 1115 489 1085 518C1054 547 1012 563 969 576C912 594 858 616 817 661Z" fill="url(#leaf)"/>
-  <path d="M734 681C686 657 633 648 586 654C519 663 463 699 428 747C399 786 389 828 400 875C406 903 421 936 440 970C458 1004 469 1035 469 1070C470 1122 449 1173 414 1219C390 1250 365 1278 378 1289C386 1296 414 1267 449 1239C491 1205 532 1181 574 1169C618 1157 669 1167 718 1161C771 1154 820 1131 858 1091C895 1053 918 1005 923 953C930 891 916 836 884 791C846 738 790 705 734 681Z" fill="${palette.leaf}"/>
-  <path d="M440 989C471 1005 500 1024 531 1048C570 1078 601 1114 631 1158C600 1159 570 1166 541 1178C499 1195 462 1223 428 1253C402 1276 382 1295 376 1290C369 1284 393 1253 415 1225C451 1179 470 1128 468 1072C468 1037 457 1006 440 989Z" fill="${palette.secondStroke}"/>
-</svg>`;
+    const palette = palette;
+    const svg = `<svg width="512" height="512" viewBox="0 0 108 108" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="bg" x1="11.896681" y1="98.103348" x2="99.103363" y2="10.896666" gradientUnits="userSpaceOnUse"><stop stop-color="${palette.backgroundStart}"/><stop offset="1" stop-color="${palette.backgroundEnd}"/></linearGradient><linearGradient id="leaf" x1="48.3456" y1="48.7232" x2="23.54455" y2="15.18682" gradientUnits="userSpaceOnUse"><stop stop-color="${palette.leafStart}"/><stop offset=".55" stop-color="${palette.leafMid}"/><stop offset="1" stop-color="${palette.leafEnd}"/></linearGradient><radialGradient id="bulb" cx="88.18859" cy="42.48624" r="92" gradientUnits="userSpaceOnUse"><stop stop-color="${palette.bulbStart}"/><stop offset=".42" stop-color="${palette.bulbMid}"/><stop offset="1" stop-color="${palette.bulbEnd}"/></radialGradient><filter id="soft-shadow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3.2"/></filter><clipPath id="clip"><rect width="108" height="108" rx="24"/></clipPath></defs><rect width="108" height="108" rx="24" fill="url(#bg)"/><g clip-path="url(#clip)"><path d="M35.482407,13.107376 a6.328125,6.328125 0,0 0,-6.621048,6.019547 c-0.408164,8.599098 0.530967,15.51428 1.941284,21.070266 c-6.729722,-1.773193 -14.868955,-2.57127 -23.310654,0.0997 a6.328125,6.328125 0,0 0,-4.1248168,7.941468 a6.328125,6.328125 0,0 0,7.9414678,4.124816 c10.399942,-3.290561 22.769933,2.310512 27.032547,4.520325 -9.260595,9.67514 -8.267305,18.917014 -1.302292,28.203415 16.604184,22.138307 34.981896,12.412517 45.540664,16.341087 2.763515,1.02822 2.659701,1.11499 2.130799,-1.785985 C82.68966,88.558844 95.480265,72.165557 76.588028,51.945007 68.591593,43.386343 59.57615,40.822081 48.289032,48.497498 a6.3287578,6.3287578 0,0 0,-0.423935,-0.485733 c0,0 -1.342276,-1.219602 -3.17189,-5.695313 C42.863593,37.84074 40.989028,30.57801 41.504013,19.728424 a6.328125,6.328125 0,0 0,-6.021606,-6.621048 z" transform="matrix(.89398215 .05493023 -.05493023 .89398215 9.9515303 2.2901164)" fill="#000" opacity=".42" filter="url(#soft-shadow)"/><path d="M45.355735,12.06325 a5.6678999,5.6678999 0,0 0,-6.249794,5.017655 c-0.837242,7.66502 -0.377422,13.898704 0.578185,18.943126 c-5.918849,-1.954868 -13.151238,-3.1155 -20.844684,-1.191404 a5.6678999,5.6678999 0,0 0,-4.1239,6.872888 a5.6678999,5.6678999 0,0 0,6.872889,4.123899 c11.65815,-2.915649 25.241827,6.358492 25.241827,6.358492 a5.6684667,5.6684667 0,0 0,7.678189,-8.240646 c0,0 -1.132965,-1.164033 -2.522755,-5.26574 c-1.38979,-4.101708 -2.666914,-10.697321 -1.610556,-20.368369 A5.6678999,5.6678999 0,0 0,45.355735,12.06325 Z" fill="url(#leaf)"/><path d="M54,24.484818 C28.27233,23.675401 18.764299,35.224655 17.750061,54 c-2.097335,38.825409 26.471295,44.93682 34.296873,58.69627 c2.048165,3.60122 1.857976,3.60101 3.906337,-0.00036 C63.779142,98.936713 92.347256,92.82507 90.249939,54 C89.235701,35.224655 79.72767,23.675401 54,24.484818 Z" transform="matrix(.51278267 -.37870208 .37870208 .51278267 13.241359 55.528951)" fill="url(#bulb)"/></g></svg>`;
     return `data:image/svg+xml,${encodeURIComponent(svg)}`;
   }
 
