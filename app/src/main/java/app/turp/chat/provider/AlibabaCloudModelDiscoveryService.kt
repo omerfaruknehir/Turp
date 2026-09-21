@@ -28,6 +28,17 @@ class AlibabaCloudModelDiscoveryService(
         )
         val isAlibaba = kind == ProviderKind.OPENAI_COMPATIBLE &&
             ModelRequestPolicy.isQwenCloudBaseUrl(rawBaseUrl)
-        return if (isAlibaba) discovered.map(AlibabaCloudModelPolicy::correct) else discovered
+        if (isAlibaba) return discovered.map(AlibabaCloudModelPolicy::correct)
+
+        val isOpenCode = kind == ProviderKind.OPENAI_COMPATIBLE &&
+            (ModelRequestPolicy.isOpenCodeGoBaseUrl(rawBaseUrl) ||
+                ModelRequestPolicy.isOpenCodeZenBaseUrl(rawBaseUrl))
+        return if (isOpenCode) {
+            discovered.map { model ->
+                ModelRequestPolicy.enrichOpenCodeModel(providerId, rawBaseUrl, model)
+            }
+        } else {
+            discovered
+        }
     }
 }
