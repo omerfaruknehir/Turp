@@ -56,8 +56,10 @@ class WebsiteSwitchPopupRegressionTest {
 
         assertTrue(logoMotion.contains("function mixPalette("))
         assertTrue(logoMotion.contains("function animateTo("))
-        assertTrue(logoMotion.contains("M734 681"))
-        assertTrue(!logoMotion.contains("M33.549193"))
+        assertTrue(logoMotion.contains("M45.355735,12.06325"))
+        assertTrue(logoMotion.contains("M54,24.484818"))
+        assertTrue(logoMotion.contains("detail: '#d15140'"))
+        assertTrue(logoMotion.contains("mix-blend-mode:color-burn"))
         assertTrue(logoMotion.contains("installDialogLogoPreview"))
         assertTrue(logoMotion.contains("turp-switch-preview"))
         assertTrue(logoMotion.contains("mixPalette(palettes[staticPaletteName], palettes[paletteNameForScheme()], progress)"))
