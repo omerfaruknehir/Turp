@@ -19,7 +19,7 @@ class UserMessageRenderingTest {
         val settings = File("src/main/java/app/turp/chat/ui/SettingsScreen.kt").readText()
         val preferences = File("src/main/java/app/turp/chat/settings/AppPreferences.kt").readText()
 
-        assertTrue(settings.contains("Show source for messages"))
+        assertTrue(settings.contains("\"Show source\""))
         assertTrue(preferences.contains("showMessageSourceEnabled"))
         assertTrue(preferences.contains("KEY_SHOW_MESSAGE_SOURCE_ENABLED"))
         assertTrue(chat.contains("developerSettings.enabled && developerSettings.showMessageSourceEnabled"))
