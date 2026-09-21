@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -51,6 +52,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.Text as MaterialText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -763,9 +765,10 @@ internal fun MarkdownBlock(
     var pendingReference by remember(key) { mutableStateOf<LinkReferencePreview?>(null) }
     val renderedMarkdown = remember(markdown) { renderMarkdownLinksLiterally(markdown) }
     when {
-        horizontallyScrollable && (streaming || shouldUseLightweightTableRenderer(markdown, streaming)) -> {
-            // Live and very large tables stay on the bounded lightweight path
-            // so token-by-token updates cannot repeatedly rebuild a full cell tree.
+        horizontallyScrollable && shouldUseLightweightTableRenderer(markdown, streaming) -> {
+            // Only genuinely oversized tables use the bounded monospaced safety
+            // preview. Normal tables, including small live tables, stay on the
+            // native cell renderer so they never look like terminal/ASCII output.
             StreamingTablePreviewText(markdown = markdown, streaming = streaming)
         }
         horizontallyScrollable -> {
@@ -1110,13 +1113,12 @@ private fun NativeMarkdownTable(
                             MaterialTheme.colorScheme.surfaceContainerLow
                         },
                     ) {
-                        Row {
+                        Row(Modifier.height(IntrinsicSize.Min)) {
                             widths.forEachIndexed { column, widthDp ->
                                 if (column > 0) {
-                                    Box(
-                                        Modifier
-                                            .width(1.dp)
-                                            .height(IntrinsicSize.Max),
+                                    VerticalDivider(
+                                        modifier = Modifier.fillMaxHeight(),
+                                        color = MaterialTheme.colorScheme.outlineVariant,
                                     )
                                 }
                                 Box(
@@ -1666,6 +1668,26 @@ private class LinkPillSpan(
     }
 }
 
+
+internal fun codeBlockContentWidthDp(
+    code: String,
+    viewportDp: Int,
+    maxWidthDp: Int = 4_800,
+): Int {
+    val safeViewport = viewportDp.coerceAtLeast(160)
+    val longestLineCharacters = code.lineSequence()
+        .maxOfOrNull { line ->
+            line.sumOf { if (it == '\t') 4 else 1 }
+        }
+        ?: 0
+    // bodyMedium monospace is roughly 8–9 dp per glyph at the app's default
+    // density. Slight over-estimation is intentional: it guarantees that long
+    // source lines produce actual horizontal overflow instead of being clipped
+    // to the viewport by an intrinsic-width measurement.
+    val estimated = longestLineCharacters.coerceAtMost(520) * 9 + 32
+    return estimated.coerceIn(safeViewport, maxWidthDp.coerceAtLeast(safeViewport))
+}
+
 @Composable
 private fun CodeBlock(
     language: String,
@@ -1681,6 +1703,12 @@ private fun CodeBlock(
     var liveProgress by remember { mutableStateOf<ExecutionProgress?>(null) }
     var result by remember { mutableStateOf<ExecutionResult?>(null) }
     var ubuntuResult by remember { mutableStateOf<UbuntuExecutionResult?>(null) }
+    val codeViewportDp = with(LocalDensity.current) {
+        LocalWindowInfo.current.containerSize.width.toDp().value.roundToInt()
+    }.minus(56).coerceAtLeast(240)
+    val codeContentWidthDp = remember(code, codeViewportDp) {
+        codeBlockContentWidthDp(code, codeViewportDp)
+    }
     Surface(color = MaterialTheme.colorScheme.surfaceContainerHighest, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
         Column {
             Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 4.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1722,18 +1750,20 @@ private fun CodeBlock(
                     copied = true
                 }) { Icon(if (copied) Icons.Outlined.Check else Icons.Outlined.ContentCopy, "Copy") }
             }
-            LowSensitivityHorizontalScroll(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-            ) {
-                HighlightedCodeText(
-                    language = language,
-                    code = code,
-                    modifier = Modifier.width(IntrinsicSize.Max),
-                    style = MaterialTheme.typography.bodyMedium,
-                    softWrap = false,
-                )
+            LowSensitivityHorizontalScroll(Modifier.fillMaxWidth()) {
+                Box(
+                    Modifier
+                        .width(codeContentWidthDp.dp)
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                ) {
+                    HighlightedCodeText(
+                        language = language,
+                        code = code,
+                        modifier = Modifier.fillMaxWidth(),
+                        style = MaterialTheme.typography.bodyMedium,
+                        softWrap = false,
+                    )
+                }
             }
             AnimatedVisibility(running, enter = streamingFadeIn(), exit = streamingFadeOut()) {
                 Column(Modifier.padding(10.dp)) {
