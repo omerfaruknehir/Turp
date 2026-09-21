@@ -52,6 +52,7 @@ data class GenerationRequestSnapshot(
     val agentPythonEnabled: Boolean = true,
     val agentUbuntuEnabled: Boolean = false,
     val deepResearchEnabled: Boolean = false,
+    val sudoModeEnabled: Boolean = false,
     val hybridTokenCountingEnabled: Boolean = false,
 ) {
     fun provider(): ProviderEntity = ProviderEntity(
@@ -106,6 +107,7 @@ data class GenerationRequestSnapshot(
             agentPythonEnabled = agentPythonEnabled,
             agentUbuntuEnabled = agentUbuntuEnabled,
             deepResearchEnabled = deepResearchEnabled,
+            sudoModeEnabled = sudoModeEnabled,
             hybridTokenCountingEnabled = hybridTokenCountingEnabled,
         )
     }
@@ -166,6 +168,7 @@ data class GenerationRequestSnapshot(
             agentPythonEnabled = conversation.agentPythonEnabled,
             agentUbuntuEnabled = conversation.agentUbuntuEnabled,
             deepResearchEnabled = conversation.deepResearchEnabled,
+            sudoModeEnabled = conversation.sudoModeEnabled,
             hybridTokenCountingEnabled = conversation.hybridTokenCountingEnabled,
         )
     }
