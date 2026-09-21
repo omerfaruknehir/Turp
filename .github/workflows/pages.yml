@@ -156,7 +156,9 @@ jobs:
           assert '#ef2e52' in banner_css
           assert '#72b442' in banner_css
           assert '#338331' in banner_css
-          assert 'M734' in logo and '681' in logo
+          assert 'M45.355735,12.06325' in logo
+          assert 'M54,24.484818' in logo
+          assert 'M734' not in logo
           PY
       - uses: actions/upload-pages-artifact@v4
         with:
