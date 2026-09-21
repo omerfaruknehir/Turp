@@ -3196,7 +3196,7 @@ private fun Composer(
                         ComposerToggleRow(
                             icon = Icons.Outlined.Security,
                             title = "Sudo mode",
-                            subtitle = "Promote the latest user turn to system priority for the next request",
+                            subtitle = "Promote the latest user turn to system priority while Sudo is enabled",
                             checked = current.sudoModeEnabled,
                             onCheckedChange = { enabled ->
                                 viewModel.updateConversation { it.copy(sudoModeEnabled = enabled) }
