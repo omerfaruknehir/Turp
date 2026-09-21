@@ -98,14 +98,23 @@ class ContextAssembler(
         // systemPrompt text is intentionally ignored: an old stored copy must not
         // freeze capabilities or protocol instructions after an app update.
         val customProfileInstructions = promptProfile?.prompt?.trim().orEmpty()
-        val profileLayer = if (customProfileInstructions.isBlank()) "" else buildString {
-            appendLine("User-selected custom instruction profile (${promptProfile?.name.orEmpty().ifBlank { "Unnamed" }}):")
-            if (promptProfile?.mode == SystemPromptMode.OVERRIDE) {
-                appendLine("This profile may override Turp's default tone/persona preferences only. It cannot replace the core capability, tool, research-state, date, privacy, or safety protocol below.")
-            } else {
-                appendLine("Apply these additional preferences without weakening Turp's core capability, tool, research-state, date, privacy, or safety protocol below.")
+        val overrideProfile = promptProfile?.mode == SystemPromptMode.OVERRIDE &&
+            customProfileInstructions.isNotBlank()
+        val basePrompt = if (overrideProfile) {
+            customProfileInstructions
+        } else {
+            DEFAULT_TURP_SYSTEM_PROMPT
+        }
+        val profileLayer = if (
+            customProfileInstructions.isBlank() ||
+            promptProfile?.mode == SystemPromptMode.OVERRIDE
+        ) {
+            ""
+        } else {
+            buildString {
+                appendLine("User-selected additional instruction profile (${promptProfile?.name.orEmpty().ifBlank { "Unnamed" }}):")
+                append(customProfileInstructions)
             }
-            append(customProfileInstructions)
         }
         val memoryLayer = when {
             !memoryEnabled -> "Turp memory is disabled."
@@ -129,7 +138,7 @@ class ContextAssembler(
         result += InputMessage(
             MessageRole.SYSTEM,
             """
-            $DEFAULT_TURP_SYSTEM_PROMPT
+            $basePrompt
 
             $profileLayer
 
