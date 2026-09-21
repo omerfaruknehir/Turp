@@ -9,6 +9,8 @@ import java.net.URI
 
 enum class ModelRequestType { CHAT, IMAGE_GENERATION }
 
+enum class OpenCodeTransport { RESPONSES, ANTHROPIC_MESSAGES, GEMINI, CHAT_COMPLETIONS }
+
 /**
  * Resolves transport from provider presets and model identity. The persisted
  * image flag is only a compact request-type override for genuinely custom
@@ -23,7 +25,10 @@ object ModelRequestPolicy {
         "gpt-image-1",
         "gpt-image-1-mini",
     )
-    private val automaticOpenAiCompatiblePresetIds = setOf("openai", "deepseek", "openrouter", "groq", "mistral", "xai", "qwen-cloud", "ollama")
+    private val automaticOpenAiCompatiblePresetIds = setOf(
+        "openai", "deepseek", "openrouter", "opencode-go", "opencode-zen",
+        "groq", "mistral", "xai", "qwen-cloud", "ollama",
+    )
     /**
      * Saved API-key connections get unique IDs so the same preset can be used more than once.
      * This helper keeps provider-specific protocol decisions attached to the preset identity
@@ -63,6 +68,79 @@ object ModelRequestPolicy {
     fun isOpenRouter(provider: ProviderEntity): Boolean =
         provider.kind == ProviderKind.OPENAI_COMPATIBLE &&
             (matchesPreset(provider, "openrouter") || isOpenRouterBaseUrl(provider.baseUrl))
+
+
+    fun isOpenCodeZenBaseUrl(rawBaseUrl: String): Boolean {
+        val uri = runCatching { URI(rawBaseUrl.trim()) }.getOrNull() ?: return false
+        return uri.scheme.equals("https", ignoreCase = true) &&
+            uri.host.equals("opencode.ai", ignoreCase = true) &&
+            uri.path?.trimEnd('/').equals("/zen/v1", ignoreCase = true)
+    }
+
+    fun isOpenCodeGoBaseUrl(rawBaseUrl: String): Boolean {
+        val uri = runCatching { URI(rawBaseUrl.trim()) }.getOrNull() ?: return false
+        return uri.scheme.equals("https", ignoreCase = true) &&
+            uri.host.equals("opencode.ai", ignoreCase = true) &&
+            uri.path?.trimEnd('/').equals("/zen/go/v1", ignoreCase = true)
+    }
+
+    fun isOpenCodeZen(provider: ProviderEntity): Boolean =
+        provider.kind == ProviderKind.OPENAI_COMPATIBLE &&
+            (matchesPreset(provider, "opencode-zen") || isOpenCodeZenBaseUrl(provider.baseUrl))
+
+    fun isOpenCodeGo(provider: ProviderEntity): Boolean =
+        provider.kind == ProviderKind.OPENAI_COMPATIBLE &&
+            (matchesPreset(provider, "opencode-go") || isOpenCodeGoBaseUrl(provider.baseUrl))
+
+    fun isOpenCode(provider: ProviderEntity): Boolean = isOpenCodeZen(provider) || isOpenCodeGo(provider)
+
+    fun openCodeTransport(provider: ProviderEntity, model: ModelEntity): OpenCodeTransport {
+        require(isOpenCode(provider)) { "OpenCode routing requested for a non-OpenCode provider" }
+        val id = model.modelId.substringAfterLast('/').lowercase()
+        return if (isOpenCodeGo(provider)) {
+            when {
+                id.startsWith("gpt-") || id.startsWith("grok-") ||
+                    id.startsWith("muse-spark-") -> OpenCodeTransport.RESPONSES
+                id.startsWith("minimax-") || id.startsWith("qwen") ->
+                    OpenCodeTransport.ANTHROPIC_MESSAGES
+                else -> OpenCodeTransport.CHAT_COMPLETIONS
+            }
+        } else {
+            when {
+                id.startsWith("claude-") || id.startsWith("qwen") ->
+                    OpenCodeTransport.ANTHROPIC_MESSAGES
+                id.startsWith("gemini-") -> OpenCodeTransport.GEMINI
+                id.startsWith("gpt-") || id.startsWith("grok-") ||
+                    id.startsWith("muse-spark-") -> OpenCodeTransport.RESPONSES
+                else -> OpenCodeTransport.CHAT_COMPLETIONS
+            }
+        }
+    }
+
+    fun enrichOpenCodeModel(providerId: String?, rawBaseUrl: String, model: DiscoveredModel): DiscoveredModel {
+        val provider = ProviderEntity(
+            id = providerId ?: if (isOpenCodeGoBaseUrl(rawBaseUrl)) "opencode-go" else "opencode-zen",
+            displayName = "OpenCode",
+            kind = ProviderKind.OPENAI_COMPATIBLE,
+            baseUrl = rawBaseUrl,
+        )
+        if (!isOpenCode(provider)) return model
+        val id = model.id.substringAfterLast('/').lowercase()
+        val reasoningFamily = listOf(
+            "gpt-", "grok-", "claude-", "qwen", "deepseek-", "glm-", "kimi-",
+            "minimax-", "muse-spark-", "mimo-",
+        ).any(id::startsWith)
+        val visionFamily = id.startsWith("gemini-") || id.startsWith("claude-") ||
+            id.startsWith("gpt-") || id.contains("vision")
+        return model.copy(
+            supportsThinking = model.supportsThinking ?: reasoningFamily,
+            supportsVision = model.supportsVision ?: visionFamily,
+            supportsTools = model.supportsTools ?: true,
+            metadataSource = model.metadataSource.ifBlank {
+                if (isOpenCodeGo(provider)) "OpenCode Go" else "OpenCode Zen"
+            },
+        )
+    }
 
     fun isQwenCloudBaseUrl(rawBaseUrl: String): Boolean {
         val uri = runCatching { URI(rawBaseUrl.trim()) }.getOrNull() ?: return false
