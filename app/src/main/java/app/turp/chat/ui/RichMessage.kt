@@ -1162,7 +1162,7 @@ private fun NativeMarkdownTable(
     }
 }
 
-private data class ComposeTablePreview(
+internal data class ComposeTablePreview(
     val rows: List<List<String>?>,
     val columnWidthsDp: List<Int>,
 )
