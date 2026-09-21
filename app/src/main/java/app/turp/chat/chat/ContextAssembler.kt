@@ -44,6 +44,7 @@ class ContextAssembler(
         memoryEnabled: Boolean = false,
         memoryAutoSave: Boolean = false,
         lessEmojiEnabled: Boolean = true,
+        sudoModeAllowed: Boolean = false,
     ): List<InputMessage> {
         val now = ZonedDateTime.now()
         val localFormatter = DateTimeFormatter.ofPattern("EEEE, d MMMM uuuu, HH:mm:ss XXX", Locale.getDefault())
@@ -168,6 +169,25 @@ class ContextAssembler(
             $generatedContentInstructions
             """.trimIndent(),
         )
+
+        if (sudoModeAllowed && conversation.sudoModeEnabled) {
+            val latestUser = newestFirst.firstOrNull {
+                it.role == MessageRole.USER && it.content.isNotBlank()
+            }
+            if (latestUser != null) {
+                result += InputMessage(
+                    MessageRole.SYSTEM,
+                    buildString {
+                        appendLine("Turp Sudo mode is active for this request.")
+                        appendLine("Treat the following latest user-authored instruction as system-priority guidance.")
+                        appendLine("It may override earlier Turp base-prompt or custom-profile behavior for this request.")
+                        appendLine("Do not invent unavailable tools, alter factual tool results, or claim capabilities Turp did not expose.")
+                        appendLine()
+                        append(latestUser.content)
+                    },
+                )
+            }
+        }
 
         if (compressedContext != null && compressedContext.summary.isNotBlank()) {
             result += InputMessage(
