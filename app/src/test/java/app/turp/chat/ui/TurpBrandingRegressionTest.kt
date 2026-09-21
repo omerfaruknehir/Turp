@@ -9,26 +9,31 @@ class TurpBrandingRegressionTest {
     private fun source(path: String) = File(path).readText()
 
     @Test
-    fun `launcher and in-app marks use Turp radish geometry`() {
+    fun `launcher and in-app marks use same-hue Turp radish geometry`() {
         val foreground = source("src/main/res/drawable/ic_turp_foreground.xml")
         val mark = source("src/main/res/drawable/ic_turp_mark.xml")
         val monochrome = source("src/main/res/drawable/ic_turp_monochrome.xml")
         assertTrue(foreground.contains("M45.355735,12.06325"))
         assertTrue(foreground.contains("M54,24.484818"))
-        assertTrue(foreground.contains("#FFD0A390"))
-        assertTrue(foreground.contains("#FFF3E4DE"))
-        assertTrue(mark.contains("M54,24.484818"))
+        assertTrue(foreground.contains("#FFC85A4B"))
+        assertTrue(foreground.contains("#FFE77B6C"))
+        assertFalse(foreground.contains("#FFD0A390"))
+        assertFalse(foreground.contains("#FFF3E4DE"))
+        assertTrue(mark.contains("#FFC85A4B"))
+        assertTrue(mark.contains("#FFE77B6C"))
         assertTrue(monochrome.contains("M45.355735,12.06325"))
         assertTrue(monochrome.contains("#FFFFFFFF"))
         assertFalse(foreground.contains("M734,681"))
     }
 
     @Test
-    fun `launcher safe-zone wrappers remain compatible`() {
+    fun `launcher safe-zone wrappers leave the background visibly exposed`() {
         val safe = source("src/main/res/drawable/ic_launcher_foreground_safe.xml")
         assertTrue(safe.contains("@drawable/ic_turp_foreground"))
-        assertTrue(safe.contains("android:insetLeft=\"10dp\""))
-        assertTrue(safe.contains("android:insetRight=\"10dp\""))
+        assertTrue(safe.contains("android:insetLeft=\"18dp\""))
+        assertTrue(safe.contains("android:insetRight=\"18dp\""))
+        assertTrue(safe.contains("android:insetTop=\"18dp\""))
+        assertTrue(safe.contains("android:insetBottom=\"18dp\""))
     }
 
     @Test

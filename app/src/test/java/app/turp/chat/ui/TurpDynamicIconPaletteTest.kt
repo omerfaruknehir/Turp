@@ -6,12 +6,12 @@ import org.junit.Test
 
 class TurpDynamicIconPaletteTest {
     @Test
-    fun `Turp launcher geometry keeps every static palette distinct`() {
+    fun `Turp launcher keeps both glyph layers in each palette hue family`() {
         val expected = mapOf(
-            "graphite" to listOf("#FFA9C7F8", "#FFE5BFA6"),
-            "ocean" to listOf("#FF54D6F2", "#FFBEC6EA"),
-            "violet" to listOf("#FFD1BCFF", "#FFEFB8C8"),
-            "sunset" to listOf("#FFFFB59C", "#FFD7C58D"),
+            "graphite" to listOf("#FFA9C7F8", "#FFB4CDF5"),
+            "ocean" to listOf("#FF54D6F2", "#FF8AE4F6"),
+            "violet" to listOf("#FFD1BCFF", "#FFD6C2FF"),
+            "sunset" to listOf("#FFFFB59C", "#FFE67853"),
         )
         expected.forEach { (name, colors) ->
             val source = File("src/main/res/drawable/ic_turp_foreground_$name.xml").readText()
