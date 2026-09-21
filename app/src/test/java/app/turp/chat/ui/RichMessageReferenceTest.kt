@@ -219,6 +219,25 @@ Outro""",
         assertTrue(source.contains("LowSensitivityHorizontalScroll("))
     }
 
+    @Test fun smallStreamingTablesStayOnNativeCellRenderer() {
+        val table = "| Surface | Demo data |\n| --- | --- |\n| Providers | 5 |\n| Models | 100 |"
+        assertFalse(shouldUseLightweightTableRenderer(table, streaming = true))
+        val rows = parseMarkdownTableRows(table)
+        assertEquals(listOf("Surface", "Demo data"), rows.first())
+        assertEquals(listOf("Models", "100"), rows.last())
+    }
+
+    @Test fun longCodeLinesProduceHorizontalOverflowWidth() {
+        val viewport = 320
+        val short = codeBlockContentWidthDp("println(\"ok\")", viewport)
+        val long = codeBlockContentWidthDp(
+            "val safe = BuildConfig.DEBUG && demoModeEnabled && anotherLongIdentifier",
+            viewport,
+        )
+        assertEquals(viewport, short)
+        assertTrue(long > viewport)
+    }
+
     @Test fun oversizedStreamingTablesUseTheBoundedRenderer() {
         val rows = buildString {
             append("| A | B |\n| --- | --- |\n")
