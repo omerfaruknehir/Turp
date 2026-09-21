@@ -1269,7 +1269,7 @@ private fun SystemPromptProfilesPage(
     var creating by remember { mutableStateOf(false) }
     SectionTitle(
         "Custom instruction profiles",
-        "Turp's versioned core prompt is built into the app and updates with Turp. Profiles can adjust tone or add preferences, but cannot replace the core capability, tool, research, date, privacy, or safety protocol.",
+        "Prepend adds instructions after Turp's built-in prompt. Override replaces the built-in prompt text; Turp still supplies runtime/tool protocol required for app features.",
     )
     FilledTonalButton(onClick = { creating = true }, modifier = Modifier.fillMaxWidth()) {
         Icon(Icons.Outlined.Add, null)
@@ -1285,7 +1285,7 @@ private fun SystemPromptProfilesPage(
                     Column(Modifier.weight(1f)) {
                         Text(profile.name, fontWeight = FontWeight.SemiBold)
                         Text(
-                            if (profile.mode == SystemPromptMode.OVERRIDE) "Override default tone/persona" else "Additional instructions",
+                            if (profile.mode == SystemPromptMode.OVERRIDE) "Override built-in prompt" else "Additional instructions",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.primary,
                         )
@@ -1341,6 +1341,21 @@ private fun SystemPromptEditorDialog(
                     FilterChip(selected = mode == SystemPromptMode.PREPEND, onClick = { mode = SystemPromptMode.PREPEND }, label = { Text("Prepend") })
                     FilterChip(selected = mode == SystemPromptMode.OVERRIDE, onClick = { mode = SystemPromptMode.OVERRIDE }, label = { Text("Override") })
                 }
+                OutlinedButton(
+                    onClick = {
+                        prompt = DEFAULT_TURP_SYSTEM_PROMPT
+                        mode = SystemPromptMode.OVERRIDE
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Outlined.ContentCopy, null)
+                    Text("Use Turp template", Modifier.padding(start = 8.dp))
+                }
+                Text(
+                    "Copies Turp's current built-in system prompt into this editable profile and switches to Override.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 OutlinedTextField(prompt, { prompt = it.take(64_000) }, label = { Text("Instructions") }, minLines = 8, maxLines = 16, modifier = Modifier.fillMaxWidth())
             }
         },
