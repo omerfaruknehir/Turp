@@ -106,7 +106,10 @@ internal object NativeWebSearch {
 }
 
 /** OpenAI Responses-compatible transport shared by DeepSeek, OpenAI, xAI, OpenRouter and Perplexity. */
-internal class ResponsesApiTransport(private val client: OkHttpClient) {
+internal class ResponsesApiTransport(
+    private val client: OkHttpClient,
+    private val includeNativeWebSearch: Boolean = true,
+) {
     suspend fun stream(request: ChatRequest, emit: suspend (StreamChunk) -> Unit) {
         val builder = Request.Builder()
             .url(endpoint(request))
@@ -174,32 +177,41 @@ internal class ResponsesApiTransport(private val client: OkHttpClient) {
             })
         }
 
-        val clientTools = NativeWebSearch.clientTools(request)
-        put("tools", buildJsonArray {
-            add(buildJsonObject {
-                put("type", JsonPrimitive(NativeWebSearch.responsesServerToolType(request)))
-                if (NativeWebSearch.responsesServerToolType(request) == "openrouter:web_search") {
-                    put("parameters", buildJsonObject {
-                        put("engine", JsonPrimitive("auto"))
-                        put("max_uses", JsonPrimitive(8))
-                        put("max_total_results", JsonPrimitive(request.webSearchMaxResults.coerceIn(3, 20)))
+        val clientTools = if (includeNativeWebSearch) {
+            NativeWebSearch.clientTools(request)
+        } else {
+            request.tools
+        }
+        val hasTools = includeNativeWebSearch || clientTools.isNotEmpty()
+        if (hasTools) {
+            put("tools", buildJsonArray {
+                if (includeNativeWebSearch) {
+                    add(buildJsonObject {
+                        put("type", JsonPrimitive(NativeWebSearch.responsesServerToolType(request)))
+                        if (NativeWebSearch.responsesServerToolType(request) == "openrouter:web_search") {
+                            put("parameters", buildJsonObject {
+                                put("engine", JsonPrimitive("auto"))
+                                put("max_uses", JsonPrimitive(8))
+                                put("max_total_results", JsonPrimitive(request.webSearchMaxResults.coerceIn(3, 20)))
+                            })
+                        }
+                    })
+                    if (isAlibabaNativeSearch && NativeWebSearch.requestedFetch(request)) {
+                        add(buildJsonObject { put("type", JsonPrimitive("web_extractor")) })
+                    }
+                }
+                clientTools.forEach { tool ->
+                    add(buildJsonObject {
+                        put("type", JsonPrimitive("function"))
+                        put("name", JsonPrimitive(tool.name))
+                        put("description", JsonPrimitive(tool.description))
+                        put("parameters", ProviderJson.parseToJsonElement(tool.parametersJson))
+                        put("strict", JsonPrimitive(false))
                     })
                 }
             })
-            if (isAlibabaNativeSearch && NativeWebSearch.requestedFetch(request)) {
-                add(buildJsonObject { put("type", JsonPrimitive("web_extractor")) })
-            }
-            clientTools.forEach { tool ->
-                add(buildJsonObject {
-                    put("type", JsonPrimitive("function"))
-                    put("name", JsonPrimitive(tool.name))
-                    put("description", JsonPrimitive(tool.description))
-                    put("parameters", ProviderJson.parseToJsonElement(tool.parametersJson))
-                    put("strict", JsonPrimitive(false))
-                })
-            }
-        })
-        put("tool_choice", JsonPrimitive("auto"))
+            put("tool_choice", JsonPrimitive("auto"))
+        }
         put("input", JsonArray(buildInput(request)))
     }
 
