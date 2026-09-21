@@ -99,6 +99,34 @@ class ModelRequestPolicyTest {
     }
 
     @Test
+    fun openCodeDiscoveryEnrichesBothGoAndZenModels() {
+        val sparse = DiscoveredModel(
+            id = "gpt-5.6-sol",
+            displayName = "GPT-5.6 Sol",
+        )
+        val go = ModelRequestPolicy.enrichOpenCodeModel(
+            providerId = "provider-opencode-go-test",
+            rawBaseUrl = "https://opencode.ai/zen/go/v1",
+            model = sparse,
+        )
+        val zen = ModelRequestPolicy.enrichOpenCodeModel(
+            providerId = "provider-opencode-zen-test",
+            rawBaseUrl = "https://opencode.ai/zen/v1",
+            model = sparse.copy(id = "claude-sonnet-5", displayName = "Claude Sonnet 5"),
+        )
+
+        assertEquals("OpenCode Go", go.metadataSource)
+        assertEquals(true, go.supportsThinking)
+        assertEquals(true, go.supportsVision)
+        assertEquals(true, go.supportsTools)
+
+        assertEquals("OpenCode Zen", zen.metadataSource)
+        assertEquals(true, zen.supportsThinking)
+        assertEquals(true, zen.supportsVision)
+        assertEquals(true, zen.supportsTools)
+    }
+
+    @Test
     fun customOpenAiCompatibleProviderUsesCompactPersistedRequestType() {
         val custom = ProviderEntity(
             id = "provider-custom",
