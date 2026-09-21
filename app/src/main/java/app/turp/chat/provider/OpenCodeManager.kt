@@ -110,11 +110,23 @@ class OpenCodeManager(
                 ?: throw ProviderProtocolException("OpenCode Go returned an empty usage response")
             val root = runCatching { ProviderJson.parseToJsonElement(raw).jsonObject }
                 .getOrElse { throw ProviderProtocolException("OpenCode Go returned invalid usage JSON", it) }
-            parse(root)
+            OpenCodeUsageParser.parse(root)
         }
     }
 
-    internal fun parse(root: JsonObject, nowMs: Long = System.currentTimeMillis()): OpenCodeUsageSnapshot {
+    private fun update(providerId: String, state: OpenCodeUsageState) {
+        _usageStates.update { it + (providerId to state) }
+    }
+
+    private companion object {
+        const val GO_USAGE_ENDPOINT = "https://opencode.ai/zen/go/v1/usage"
+        const val CACHE_MS = 60_000L
+    }
+}
+
+
+internal object OpenCodeUsageParser {
+    fun parse(root: JsonObject, nowMs: Long = System.currentTimeMillis()): OpenCodeUsageSnapshot {
         val usage = root["usage"] as? JsonObject
             ?: throw ProviderProtocolException("OpenCode Go usage response did not contain usage windows")
         return OpenCodeUsageSnapshot(
@@ -136,14 +148,5 @@ class OpenCodeManager(
             usedPercent = percent.coerceIn(0.0, 100.0),
             resetsAtEpochSeconds = resetsAt,
         )
-    }
-
-    private fun update(providerId: String, state: OpenCodeUsageState) {
-        _usageStates.update { it + (providerId to state) }
-    }
-
-    private companion object {
-        const val GO_USAGE_ENDPOINT = "https://opencode.ai/zen/go/v1/usage"
-        const val CACHE_MS = 60_000L
     }
 }
