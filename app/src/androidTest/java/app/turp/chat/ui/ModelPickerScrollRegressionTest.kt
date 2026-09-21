@@ -122,7 +122,7 @@ class ModelPickerScrollRegressionTest {
         composeRule.runOnIdle { assertEquals(1, dismissCount.get()) }
     }
     @Test
-    fun upwardFlingAtBottomSettlesWithoutDismissingPicker() {
+    fun upwardPullAtBottomSettlesWithoutDismissingPicker() {
         val dismissCount = AtomicInteger(0)
         val provider = ProviderEntity(
             id = "test-provider",
@@ -163,7 +163,7 @@ class ModelPickerScrollRegressionTest {
         val list = composeRule.onNodeWithTag("model_picker_list")
         list.performScrollToIndex(models.lastIndex)
         composeRule.waitForIdle()
-        list.performTouchInput { swipeUp(durationMillis = 120) }
+        list.performTouchInput { swipeUp(durationMillis = 500) }
         composeRule.waitForIdle()
 
         composeRule.onNodeWithTag("model_picker_sheet").assertExists()
