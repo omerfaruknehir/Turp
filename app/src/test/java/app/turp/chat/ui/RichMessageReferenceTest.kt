@@ -211,6 +211,7 @@ Outro""",
         val widths = markdownTableColumnWidthsDp(rows, viewportDp = 360)
         assertEquals(2, widths.size)
         assertTrue(widths.sum() >= 360)
+        assertEquals(widths.sum() + 1, markdownTableTotalWidthDp(widths, viewportDp = 360))
     }
 
     @Test fun codeBlocksUseExplicitOverflowWidthInsideHorizontalScroller() {
