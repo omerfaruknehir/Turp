@@ -1086,7 +1086,8 @@ private fun NativeMarkdownTable(
         LocalWindowInfo.current.containerSize.width.toDp().value.roundToInt()
     }.minus(48).coerceAtLeast(240)
     val widths = remember(rows, viewportDp) { markdownTableColumnWidthsDp(rows, viewportDp) }
-    val totalWidth = widths.sum().coerceAtLeast(viewportDp)
+    val dividerWidthDp = (widths.size - 1).coerceAtLeast(0)
+    val totalWidth = (widths.sum() + dividerWidthDp).coerceAtLeast(viewportDp)
 
     val textColor = MaterialTheme.colorScheme.onSurface.toArgbCompat()
     val linkColor = MaterialTheme.colorScheme.primary.toArgbCompat()
@@ -1107,13 +1108,18 @@ private fun NativeMarkdownTable(
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     }
                     Surface(
+                        modifier = Modifier.fillMaxWidth(),
                         color = if (rowIndex == 0) {
                             MaterialTheme.colorScheme.surfaceContainerHigh
                         } else {
                             MaterialTheme.colorScheme.surfaceContainerLow
                         },
                     ) {
-                        Row(Modifier.height(IntrinsicSize.Min)) {
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .height(IntrinsicSize.Min),
+                        ) {
                             widths.forEachIndexed { column, widthDp ->
                                 if (column > 0) {
                                     VerticalDivider(
@@ -1684,7 +1690,7 @@ internal fun codeBlockContentWidthDp(
     // density. Slight over-estimation is intentional: it guarantees that long
     // source lines produce actual horizontal overflow instead of being clipped
     // to the viewport by an intrinsic-width measurement.
-    val estimated = longestLineCharacters.coerceAtMost(520) * 9 + 32
+    val estimated = longestLineCharacters.coerceAtMost(520) * 10 + 40
     return estimated.coerceIn(safeViewport, maxWidthDp.coerceAtLeast(safeViewport))
 }
 
