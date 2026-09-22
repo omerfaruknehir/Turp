@@ -300,7 +300,7 @@ abstract class TurpDatabase : RoomDatabase() {
                         "WHEN lower(id) = 'groq' OR lower(id) LIKE 'provider-groq-%' THEN 'GROQ' " +
                         "WHEN lower(id) = 'mistral' OR lower(id) LIKE 'provider-mistral-%' THEN 'MISTRAL' " +
                         "WHEN lower(id) = 'xai' OR lower(id) LIKE 'provider-xai-%' THEN 'XAI' " +
-                        "WHEN lower(id) = 'qwen-cloud' OR lower(id) LIKE 'provider-qwen-cloud-%' THEN 'QWEN_CLOUD' " +
+                        "WHEN lower(id) = 'qwen-cloud' OR lower(id) LIKE 'provider-qwen-cloud-%' OR lower(baseUrl) LIKE '%dashscope%compatible-mode/v1%' OR lower(baseUrl) LIKE '%maas.aliyuncs.com%compatible-mode/v1%' THEN 'QWEN_CLOUD' " +
                         "WHEN lower(id) = 'ollama' OR lower(id) LIKE 'provider-ollama-%' THEN 'OLLAMA' " +
                         "WHEN kind = 'ANTHROPIC' THEN 'ANTHROPIC' " +
                         "WHEN kind = 'GEMINI' THEN 'GEMINI' " +
