@@ -180,6 +180,7 @@ class AppPreferences(context: Context) {
     private val _newChatDefaults = MutableStateFlow(readNewChatDefaults())
     private val _generatedRepairMaxAttempts = MutableStateFlow(preferences.getInt(KEY_GENERATED_REPAIR_ATTEMPTS, 3).coerceIn(1, 5))
     private val _developerSettings = MutableStateFlow(readDeveloperSettings())
+    private val _developerPromptOverrides = MutableStateFlow(readDeveloperPromptOverrides())
     private val _favoriteModels = MutableStateFlow(
         preferences.getStringSet(KEY_FAVORITE_MODELS, emptySet()).orEmpty().toSet(),
     )
@@ -201,6 +202,7 @@ class AppPreferences(context: Context) {
     val newChatDefaults: StateFlow<NewChatDefaults> = _newChatDefaults.asStateFlow()
     val generatedRepairMaxAttempts: StateFlow<Int> = _generatedRepairMaxAttempts.asStateFlow()
     val developerSettings: StateFlow<DeveloperSettings> = _developerSettings.asStateFlow()
+    val developerPromptOverrides: StateFlow<DeveloperPromptOverrides> = _developerPromptOverrides.asStateFlow()
     val favoriteModels: StateFlow<Set<String>> = _favoriteModels.asStateFlow()
     val recentModels: StateFlow<List<String>> = _recentModels.asStateFlow()
     val hasNewChatDefaults: Boolean get() = preferences.getBoolean(KEY_DEFAULTS_INITIALIZED, false)
@@ -363,6 +365,29 @@ class AppPreferences(context: Context) {
     fun updateDeveloperSettings(transform: (DeveloperSettings) -> DeveloperSettings) =
         setDeveloperSettings(transform(_developerSettings.value))
 
+    fun setDeveloperPromptOverridesEnabled(enabled: Boolean) {
+        _developerPromptOverrides.value = _developerPromptOverrides.value.copy(enabled = enabled)
+        preferences.edit { putBoolean(KEY_DEVELOPER_PROMPT_OVERRIDES_ENABLED, enabled) }
+    }
+
+    fun setDeveloperPromptOverride(key: DeveloperPromptKey, value: String?) {
+        val current = _developerPromptOverrides.value
+        val updatedValues = current.values.toMutableMap().apply {
+            if (value == null) remove(key.id) else put(key.id, value)
+        }.toMap()
+        _developerPromptOverrides.value = current.copy(values = updatedValues)
+        preferences.edit {
+            val storageKey = KEY_DEVELOPER_PROMPT_OVERRIDE_PREFIX + key.id
+            if (value == null) remove(storageKey) else putString(storageKey, value)
+        }
+    }
+
+    fun resetDeveloperPromptOverrides() {
+        val keys = preferences.all.keys.filter { it.startsWith(KEY_DEVELOPER_PROMPT_OVERRIDE_PREFIX) }
+        preferences.edit { keys.forEach(::remove) }
+        _developerPromptOverrides.value = _developerPromptOverrides.value.copy(values = emptyMap())
+    }
+
     fun setNewChatDefaults(value: NewChatDefaults) {
         val normalized = value.copy(
             contextPairs = value.contextPairs.coerceIn(1, 500),
@@ -405,6 +430,18 @@ class AppPreferences(context: Context) {
         pageFetchEnabled = preferences.getBoolean(KEY_WEB_FETCH_ENABLED, true),
         searxngEndpoint = preferences.getString(KEY_SEARXNG_ENDPOINT, "").orEmpty(),
     ).normalized()
+
+    private fun readDeveloperPromptOverrides(): DeveloperPromptOverrides {
+        val values = DeveloperPromptKey.entries.mapNotNull { key ->
+            val storageKey = KEY_DEVELOPER_PROMPT_OVERRIDE_PREFIX + key.id
+            if (!preferences.contains(storageKey)) null
+            else key.id to preferences.getString(storageKey, "").orEmpty()
+        }.toMap()
+        return DeveloperPromptOverrides(
+            enabled = preferences.getBoolean(KEY_DEVELOPER_PROMPT_OVERRIDES_ENABLED, false),
+            values = values,
+        )
+    }
 
     private fun readDeveloperSettings() = DeveloperSettings(
         enabled = preferences.getBoolean(KEY_DEVELOPER_ENABLED, false),
@@ -489,6 +526,8 @@ class AppPreferences(context: Context) {
         const val KEY_SHOW_MESSAGE_SOURCE_ENABLED = "show_message_source_enabled"
         const val KEY_SUDO_MODE_CONTROL_ENABLED = "sudo_mode_control_enabled"
         const val KEY_TOOL_DIAGNOSTICS_ENABLED = "tool_diagnostics_enabled"
+        const val KEY_DEVELOPER_PROMPT_OVERRIDES_ENABLED = "developer_prompt_overrides_enabled"
+        const val KEY_DEVELOPER_PROMPT_OVERRIDE_PREFIX = "developer_prompt_override_"
         const val KEY_PERFORMANCE_OVERLAY_ENABLED = "performance_overlay_enabled"
         const val KEY_DIAGNOSTIC_PROFILER_ENABLED = "diagnostic_profiler_enabled"
         const val KEY_PERFORMANCE_OVERLAY_DETAILED = "performance_overlay_detailed"
