@@ -111,6 +111,15 @@ class TurpNativeToolsTest {
     }
 
     @Test
+    fun sudoSynthesizesUnquotedToolNameFromNaturalCallRequest() {
+        val definitions = TurpNativeTools.sudoSyntheticDefinitions(
+            latestUserText = "make a tool call for web-search",
+        )
+
+        assertEquals(listOf("web-search"), definitions.map { it.name })
+    }
+
+    @Test
     fun sudoSyntheticToolsRequireExplicitToolContextAndDoNotShadowExistingTools() {
         assertTrue(
             TurpNativeTools.sudoSyntheticDefinitions(
