@@ -2742,10 +2742,10 @@ private fun ProviderSettings(
         onDiscover = { provider, key -> viewModel.discoverModels(provider, key) },
         onAdd = { draft ->
             val templateId = draft.templateProviderId
-            val id = "provider-${templateId ?: draft.kind.name.lowercase()}-${UUID.randomUUID()}"
+            val id = "provider-${templateId ?: draft.protocol.name.lowercase()}-${UUID.randomUUID()}"
             val template = DefaultCatalog.providers.firstOrNull { it.id == templateId }
             val provider = (template ?: ProviderEntity(
-                id = id, displayName = draft.name, kind = draft.kind, baseUrl = draft.baseUrl,
+                id = id, displayName = draft.name, kind = draft.protocol.legacyKind(), baseUrl = draft.baseUrl,
             )).copy(
                 id = id,
                 displayName = draft.name,
@@ -3616,7 +3616,10 @@ private fun AddProviderDialog(
     var discoveryError by remember { mutableStateOf<String?>(null) }
     var modelSearch by remember { mutableStateOf("") }
     var showManualModel by rememberSaveable { mutableStateOf(false) }
-    val connectionReady = baseUrl.isNotBlank() && (!apiKeyRequired || apiKey.isNotBlank())
+    val endpointOverridesValid = remember(endpointOverrides) {
+        runCatching { ProviderEndpointResolver.parseEndpointOverrides(endpointOverrides.ifBlank { "{}" }) }.isSuccess
+    }
+    val connectionReady = baseUrl.isNotBlank() && (!apiKeyRequired || apiKey.isNotBlank()) && endpointOverridesValid
     val manualModelReady = showManualModel && manualModelId.isNotBlank() && manualModelName.isNotBlank()
     val valid = name.isNotBlank() && connectionReady && (selectedModelIds.isNotEmpty() || manualModelReady)
     val visibleModels = remember(discoveredModels, modelSearch) {
@@ -3799,7 +3802,13 @@ private fun AddProviderDialog(
                     endpointOverrides,
                     { endpointOverrides = it; invalidateDiscovery() },
                     label = { Text("Endpoint overrides JSON") },
-                    supportingText = { Text("""Optional. Example: {"models":"models","account":"key"}""") },
+                    supportingText = {
+                        Text(
+                            if (endpointOverridesValid) """Optional. Example: {"models":"models","account":"key"}"""
+                            else "Must be a JSON object whose values are endpoint paths or absolute URLs.",
+                        )
+                    },
+                    isError = !endpointOverridesValid,
                     minLines = 2,
                     visualTransformation = rememberCodeVisualTransformation("json"),
                     textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
@@ -3974,6 +3983,15 @@ private fun defaultBaseUrl(kind: ProviderKind): String = when (kind) {
     ProviderKind.OPENAI_OAUTH -> "https://chatgpt.com/backend-api/codex"
     ProviderKind.ANTHROPIC -> "https://api.anthropic.com/v1"
     ProviderKind.GEMINI -> "https://generativelanguage.googleapis.com/v1beta"
+}
+
+private fun defaultBaseUrl(protocol: ProviderProtocol): String = when (protocol) {
+    ProviderProtocol.OPENAI_COMPATIBLE -> "https://api.openai.com/v1"
+    ProviderProtocol.ANTHROPIC -> "https://api.anthropic.com/v1"
+    ProviderProtocol.GEMINI -> "https://generativelanguage.googleapis.com/v1beta"
+    ProviderProtocol.OPENCODE_V2 -> "http://127.0.0.1:4096"
+    ProviderProtocol.OPENAI_OAUTH -> "https://chatgpt.com/backend-api/codex"
+    ProviderProtocol.AUTO -> "https://api.openai.com/v1"
 }
 
 @Composable
