@@ -8,6 +8,7 @@ class TurpDynamicIconPaletteTest {
     @Test
     fun `Turp launcher keeps both glyph layers in each palette hue family`() {
         val expected = mapOf(
+            "arbor" to listOf("#FF99D5B1", "#FFB5F1CC"),
             "graphite" to listOf("#FFA9C7F8", "#FFB4CDF5"),
             "ocean" to listOf("#FF54D6F2", "#FF8AE4F6"),
             "violet" to listOf("#FFD1BCFF", "#FFD6C2FF"),

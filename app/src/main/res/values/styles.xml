@@ -21,6 +21,11 @@
     </style>
 
     <style name="Theme.Turp.Launcher.Turp" parent="Theme.Turp.Launcher" />
+    <style name="Theme.Turp.Launcher.Arbor" parent="Theme.Turp.Launcher">
+        <item name="android:windowBackground">@color/turp_splash_arbor</item>
+        <item name="android:statusBarColor">@color/turp_splash_arbor</item>
+        <item name="android:navigationBarColor">@color/turp_splash_arbor</item>
+    </style>
     <style name="Theme.Turp.Launcher.Graphite" parent="Theme.Turp.Launcher" />
     <style name="Theme.Turp.Launcher.Ocean" parent="Theme.Turp.Launcher" />
     <style name="Theme.Turp.Launcher.Violet" parent="Theme.Turp.Launcher" />

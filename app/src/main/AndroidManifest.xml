@@ -79,6 +79,12 @@
             android:process=":launcher_icon"
             android:theme="@style/Theme.Turp.Launcher.Turp" />
         <activity
+            android:name=".LauncherArborActivity"
+            android:exported="false"
+            android:noHistory="true"
+            android:process=":launcher_icon"
+            android:theme="@style/Theme.Turp.Launcher.Arbor" />
+        <activity
             android:name=".LauncherSystemActivity"
             android:exported="false"
             android:noHistory="true"
@@ -131,9 +137,9 @@
             android:name=".LauncherArbor"
             android:enabled="false"
             android:exported="true"
-            android:icon="@mipmap/ic_launcher"
+            android:icon="@mipmap/ic_launcher_arbor"
             android:label="@string/app_name"
-            android:targetActivity=".LauncherTurpActivity">
+            android:targetActivity=".LauncherArborActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

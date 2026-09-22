@@ -40,7 +40,7 @@ class LauncherIconManagerTest {
 
         val expectedTargets = listOf(
             ".LauncherTurpActivity",
-            ".LauncherTurpActivity",
+            ".LauncherArborActivity",
             ".LauncherSystemActivity",
             ".LauncherGraphiteActivity",
             ".LauncherOceanActivity",
@@ -60,6 +60,8 @@ class LauncherIconManagerTest {
         val trampoline = File("src/main/java/app/turp/chat/LauncherActivity.kt").readText()
         expectedTargets.forEach { target -> assertTrue(trampoline.contains("class ${target.removePrefix(".")}")) }
         assertTrue(trampoline.contains("LauncherIconManager.appliedIconResource"))
+        assertTrue(manifest.contains("android:icon=\"@mipmap/ic_launcher_arbor\""))
+        assertTrue(File("src/main/java/app/turp/chat/settings/LauncherIconManager.kt").readText().contains("ARBOR_ALIAS -> R.mipmap.ic_launcher_arbor"))
         assertFalse(trampoline.contains("iconResource(matchIcon"))
         assertTrue(trampoline.contains("Intent(this, MainActivity::class.java)"))
         assertTrue(trampoline.contains("finish()"))

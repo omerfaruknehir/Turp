@@ -102,7 +102,7 @@ internal fun LauncherIconPreview(
 internal val ColorPalette.turpMarkDrawable: Int
     get() = when (this) {
         ColorPalette.TURP -> R.drawable.ic_turp_mark
-        ColorPalette.ARBOR -> R.drawable.ic_turp_mark
+        ColorPalette.ARBOR -> R.drawable.ic_turp_mark_arbor
         ColorPalette.SYSTEM -> R.drawable.ic_turp_mark_system
         ColorPalette.GRAPHITE -> R.drawable.ic_turp_mark_graphite
         ColorPalette.OCEAN -> R.drawable.ic_turp_mark_ocean
@@ -114,7 +114,7 @@ internal val ColorPalette.turpMarkDrawable: Int
 internal val ColorPalette.launcherBackgroundDrawable: Int
     get() = when (this) {
         ColorPalette.TURP -> R.drawable.ic_turp_background
-        ColorPalette.ARBOR -> R.drawable.ic_turp_background
+        ColorPalette.ARBOR -> R.drawable.ic_turp_background_arbor
         ColorPalette.SYSTEM -> R.drawable.ic_turp_background_system
         ColorPalette.GRAPHITE -> R.drawable.ic_turp_background_graphite
         ColorPalette.OCEAN -> R.drawable.ic_turp_background_ocean
@@ -126,7 +126,7 @@ internal val ColorPalette.launcherBackgroundDrawable: Int
 internal val ColorPalette.launcherForegroundDrawable: Int
     get() = when (this) {
         ColorPalette.TURP -> R.drawable.ic_turp_foreground
-        ColorPalette.ARBOR -> R.drawable.ic_turp_foreground
+        ColorPalette.ARBOR -> R.drawable.ic_turp_foreground_arbor
         ColorPalette.SYSTEM -> R.drawable.ic_turp_foreground_system
         ColorPalette.GRAPHITE -> R.drawable.ic_turp_foreground_graphite
         ColorPalette.OCEAN -> R.drawable.ic_turp_foreground_ocean

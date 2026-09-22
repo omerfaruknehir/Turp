@@ -35,7 +35,7 @@ class TurpBrandingRegressionTest {
         assertTrue(safe.contains("android:insetTop=\"22dp\""))
         assertTrue(safe.contains("android:insetBottom=\"22dp\""))
 
-        listOf("", "_graphite", "_ocean", "_sunset", "_system", "_violet").forEach { suffix ->
+        listOf("", "_arbor", "_graphite", "_ocean", "_sunset", "_system", "_violet").forEach { suffix ->
             val launcher = source("src/main/res/mipmap/ic_launcher$suffix.xml")
             assertTrue("legacy launcher $suffix scaleX", launcher.contains("android:scaleX=\".60\""))
             assertTrue("legacy launcher $suffix scaleY", launcher.contains("android:scaleY=\".60\""))

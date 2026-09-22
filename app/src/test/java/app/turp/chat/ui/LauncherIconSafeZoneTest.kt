@@ -13,6 +13,7 @@ class LauncherIconSafeZoneTest {
         val launchers = mapOf(
             "ic_launcher.xml" to "ic_launcher_foreground_safe",
             "ic_launcher_round.xml" to "ic_launcher_foreground_safe",
+            "ic_launcher_arbor.xml" to "ic_launcher_foreground_arbor_safe",
             "ic_launcher_graphite.xml" to "ic_launcher_foreground_graphite_safe",
             "ic_launcher_ocean.xml" to "ic_launcher_foreground_ocean_safe",
             "ic_launcher_sunset.xml" to "ic_launcher_foreground_sunset_safe",
@@ -31,6 +32,7 @@ class LauncherIconSafeZoneTest {
 
         val wrappers = listOf(
             "ic_launcher_foreground_safe.xml",
+            "ic_launcher_foreground_arbor_safe.xml",
             "ic_launcher_foreground_graphite_safe.xml",
             "ic_launcher_foreground_ocean_safe.xml",
             "ic_launcher_foreground_sunset_safe.xml",
@@ -41,7 +43,7 @@ class LauncherIconSafeZoneTest {
         wrappers.forEach { name ->
             val xml = source("src/main/res/drawable/$name")
             listOf("Left", "Top", "Right", "Bottom").forEach { edge ->
-                assertTrue(name, xml.contains("android:inset$edge=\"18dp\""))
+                assertTrue(name, xml.contains("android:inset$edge=\"22dp\""))
             }
         }
     }
@@ -53,6 +55,7 @@ class LauncherIconSafeZoneTest {
 
         val variants = mapOf(
             "ic_splash_turp.xml" to "ic_turp_mark",
+            "ic_splash_arbor.xml" to "ic_turp_mark_arbor",
             "ic_splash_graphite.xml" to "ic_turp_mark_graphite",
             "ic_splash_ocean.xml" to "ic_turp_mark_ocean",
             "ic_splash_sunset.xml" to "ic_turp_mark_sunset",

@@ -8,6 +8,10 @@
         <item name="android:windowSplashScreenBackground">@color/turp_splash_fallback</item>
         <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_splash_turp</item>
     </style>
+    <style name="Theme.Turp.Launcher.Arbor">
+        <item name="android:windowSplashScreenBackground">@color/turp_splash_arbor</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_splash_arbor</item>
+    </style>
     <style name="Theme.Turp.Launcher.System">
         <item name="android:windowSplashScreenBackground">@color/turp_splash_system</item>
         <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_splash_system</item>

@@ -83,6 +83,7 @@ open class LauncherActivity : Activity() {
 
 
 class LauncherTurpActivity : LauncherActivity()
+class LauncherArborActivity : LauncherActivity()
 class LauncherSystemActivity : LauncherActivity()
 class LauncherGraphiteActivity : LauncherActivity()
 class LauncherOceanActivity : LauncherActivity()

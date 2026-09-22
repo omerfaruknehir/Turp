@@ -62,7 +62,7 @@ internal object LauncherIconManager {
     @DrawableRes
     internal fun iconResourceForAlias(aliasClassName: String): Int =
         when (aliasClassName) {
-            ARBOR_ALIAS -> R.mipmap.ic_launcher
+            ARBOR_ALIAS -> R.mipmap.ic_launcher_arbor
             SYSTEM_ALIAS -> R.mipmap.ic_launcher_system
             GRAPHITE_ALIAS -> R.mipmap.ic_launcher_graphite
             OCEAN_ALIAS -> R.mipmap.ic_launcher_ocean
