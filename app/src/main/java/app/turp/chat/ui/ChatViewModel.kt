@@ -33,6 +33,7 @@ import app.turp.chat.data.PackageTransactionEntity
 import app.turp.chat.provider.ProviderCredentialPolicy
 import app.turp.chat.provider.ProviderEndpointPolicy
 import app.turp.chat.provider.ProviderEndpointResolver
+import app.turp.chat.provider.DeveloperHttpTraceStore
 import app.turp.chat.provider.ModelRequestPolicy
 import app.turp.chat.provider.defaultThinkingEffort
 import app.turp.chat.provider.effectiveThinkingEnabled
@@ -211,6 +212,7 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
     val developerSettings: StateFlow<app.turp.chat.settings.DeveloperSettings> = container.appPreferences.developerSettings
     val developerPromptOverrides: StateFlow<app.turp.chat.settings.DeveloperPromptOverrides> =
         container.appPreferences.developerPromptOverrides
+    val developerHttpTraces = DeveloperHttpTraceStore.traces
     val palette = container.appPreferences.palette
     val themeMode = container.appPreferences.themeMode
     val matchLauncherIconToPalette = container.appPreferences.matchLauncherIconToPalette

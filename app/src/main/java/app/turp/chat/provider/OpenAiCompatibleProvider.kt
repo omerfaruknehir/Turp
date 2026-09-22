@@ -77,6 +77,7 @@ class OpenAiCompatibleProvider(
             var attemptOutputTokens: Long? = null
             var attemptCachedTokens: Long? = null
 
+            DeveloperHttpTraceStore.record(attemptRequest.developerTraceId, httpRequest)
             client.newCall(httpRequest).useCancellable { response ->
                 if (!response.isSuccessful) {
                     val error = response.body?.readErrorSnippet().orEmpty()
@@ -238,7 +239,9 @@ class OpenAiCompatibleProvider(
             .post(buildImageRequestBody(request, prompt).toString().toRequestBody("application/json".toMediaType()))
         if (request.apiKey.isNotBlank()) builder.header("Authorization", "Bearer ${request.apiKey}")
         request.customHeaders.forEach(builder::header)
-        client.newCall(builder.build()).useCancellable { response ->
+        val httpRequest = builder.build()
+        DeveloperHttpTraceStore.record(request.developerTraceId, httpRequest)
+        client.newCall(httpRequest).useCancellable { response ->
             if (!response.isSuccessful) {
                 val error = response.body?.readErrorSnippet().orEmpty()
                 throw ProviderHttpException(response.code, "${response.code} ${response.message}: $error")
@@ -411,7 +414,7 @@ class OpenAiCompatibleProvider(
             ) {
                 put("stream_options", buildJsonObject { put("include_usage", JsonPrimitive(true)) })
             }
-            if (request.tools.isNotEmpty() && request.model.supportsTools) {
+            if (request.tools.isNotEmpty()) {
                 put("tools", buildJsonArray {
                     request.tools.forEach { tool ->
                         add(buildJsonObject {

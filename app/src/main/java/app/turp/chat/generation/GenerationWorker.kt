@@ -217,9 +217,8 @@ class GenerationWorker(
                 DeveloperPromptKey.FINAL_SYSTEM_MESSAGE,
                 developerPromptOverrides.resolve(key, defaultValue),
             )
-        val sudoModeAllowed = container.appPreferences.developerSettings.value.let {
-            it.enabled && it.sudoModeControlEnabled
-        }
+        val developerSettings = container.appPreferences.developerSettings.value
+        val sudoModeAllowed = developerSettings.enabled && developerSettings.sudoModeControlEnabled
         val sudoModeActive = sudoModeAllowed && conversation.sudoModeEnabled
         val latestUserText = newest.firstOrNull {
             it.role == MessageRole.USER && it.content.isNotBlank()
@@ -866,6 +865,9 @@ class GenerationWorker(
                         // Tool execution can be disabled for the final synthesis turn, but
                         // stale text-encoded calls must still be recognized and suppressed.
                         toolProtocolNames = nativeToolDefinitions.mapTo(linkedSetOf()) { it.name },
+                        developerTraceId = if (
+                            developerSettings.enabled && developerSettings.showHttpRequestEnabled
+                        ) assistantId else "",
                     )
                     val (request, preflightInputTokens) = prepareCountedRequest(baseRequest)
                     passInput = preflightInputTokens

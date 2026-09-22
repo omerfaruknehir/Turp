@@ -41,5 +41,22 @@ class DeveloperMessageSourceRegressionTest {
         val worker = java.io.File("src/main/java/app/turp/chat/generation/GenerationWorker.kt").readText()
         assertTrue(worker.contains("if (sudoModeActive && !directImageModel)"))
         assertFalse(worker.contains("if (model.supportsTools && sudoModeActive && !directImageModel)"))
+    }    @Test
+    fun `developer source can include redacted direct http request`() {
+        val source = developerMessageSource(
+            content = "answer",
+            reasoning = "reason",
+            providerId = "provider",
+            modelId = "model",
+            status = "COMPLETE",
+            toolTraceJson = """[{"tool":"web-search"}]""",
+            requestSnapshotJson = """{"snapshot":true}""",
+            httpRequest = "POST https://example.test\n\nBody\n{}",
+        )
+        assertTrue(source.contains("[PROVIDER REASONING]"))
+        assertTrue(source.contains("[TOOL TRACE]"))
+        assertTrue(source.contains("[REQUEST SNAPSHOT]"))
+        assertTrue(source.contains("[DIRECT HTTP REQUEST · REDACTED]"))
     }
+
 }

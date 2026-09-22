@@ -1475,12 +1475,59 @@ private fun EmptyConversation(
     }
 }
 
-internal fun developerMessageSource(content: String, reasoning: String): String {
-    if (reasoning.isBlank()) return content
+internal fun developerMessageSource(
+    content: String,
+    reasoning: String,
+    providerId: String? = null,
+    modelId: String? = null,
+    status: String = "",
+    toolTraceJson: String = "",
+    requestSnapshotJson: String? = null,
+    error: String? = null,
+    httpRequest: String = "",
+): String {
+    val hasDiagnostics = reasoning.isNotBlank() ||
+        !providerId.isNullOrBlank() ||
+        !modelId.isNullOrBlank() ||
+        status.isNotBlank() ||
+        (toolTraceJson.isNotBlank() && toolTraceJson != "[]") ||
+        !requestSnapshotJson.isNullOrBlank() ||
+        !error.isNullOrBlank() ||
+        httpRequest.isNotBlank()
+    if (!hasDiagnostics) return content
     return buildString {
-        appendLine("[PROVIDER REASONING]")
-        appendLine(reasoning)
-        appendLine()
+        if (!providerId.isNullOrBlank() || !modelId.isNullOrBlank() || status.isNotBlank()) {
+            appendLine("[MESSAGE METADATA]")
+            providerId?.takeIf(String::isNotBlank)?.let { append("provider: ").appendLine(it) }
+            modelId?.takeIf(String::isNotBlank)?.let { append("model: ").appendLine(it) }
+            if (status.isNotBlank()) append("status: ").appendLine(status)
+            appendLine()
+        }
+        if (reasoning.isNotBlank()) {
+            appendLine("[PROVIDER REASONING]")
+            appendLine(reasoning)
+            appendLine()
+        }
+        if (toolTraceJson.isNotBlank() && toolTraceJson != "[]") {
+            appendLine("[TOOL TRACE]")
+            appendLine(toolTraceJson)
+            appendLine()
+        }
+        requestSnapshotJson?.takeIf(String::isNotBlank)?.let {
+            appendLine("[REQUEST SNAPSHOT]")
+            appendLine(it)
+            appendLine()
+        }
+        if (httpRequest.isNotBlank()) {
+            appendLine("[DIRECT HTTP REQUEST · REDACTED]")
+            appendLine(httpRequest)
+            appendLine()
+        }
+        error?.takeIf(String::isNotBlank)?.let {
+            appendLine("[ERROR]")
+            appendLine(it)
+            appendLine()
+        }
         appendLine("[MESSAGE CONTENT]")
         append(content)
     }
@@ -1543,6 +1590,7 @@ private fun MessageCard(
         !showRecoveryState
     ) return
     val developerSettings by viewModel.developerSettings.collectAsStateWithLifecycle()
+    val developerHttpTraces by viewModel.developerHttpTraces.collectAsStateWithLifecycle()
     val sourceControlsEnabled =
         developerSettings.enabled && developerSettings.showMessageSourceEnabled
     var sourceVisible by rememberSaveable("message-source-${message.nodeId}") {
@@ -1628,6 +1676,15 @@ private fun MessageCard(
                         code = developerMessageSource(
                             content = message.content,
                             reasoning = message.reasoning,
+                            providerId = message.providerId,
+                            modelId = message.modelId,
+                            status = message.status.name,
+                            toolTraceJson = message.toolTraceJson,
+                            requestSnapshotJson = message.requestSnapshotJson,
+                            error = message.error,
+                            httpRequest = if (developerSettings.showHttpRequestEnabled) {
+                                developerHttpTraces[message.nodeId]?.formatted().orEmpty()
+                            } else "",
                         ),
                         title = "MESSAGE SOURCE",
                         live = animateStreaming,

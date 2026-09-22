@@ -120,7 +120,9 @@ internal class ResponsesApiTransport(
         request.customHeaders.forEach(builder::header)
 
         val state = ResponsesApiStreamState(NativeWebSearch.nativeSourceLabel(request))
-        client.newCall(builder.build()).useCancellable { response ->
+        val httpRequest = builder.build()
+        DeveloperHttpTraceStore.record(request.developerTraceId, httpRequest)
+        client.newCall(httpRequest).useCancellable { response ->
             if (!response.isSuccessful) {
                 val error = response.body?.readErrorSnippet().orEmpty()
                 throw ProviderHttpException(response.code, "${response.code} ${response.message}: $error")
