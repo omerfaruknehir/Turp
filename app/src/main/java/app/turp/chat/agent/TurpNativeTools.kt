@@ -14,8 +14,8 @@ import kotlinx.serialization.json.jsonPrimitive
 object TurpNativeTools {
     private val json = Json { ignoreUnknownKeys = true }
 
-    private val sudoQuotedName = Regex("""(["'`])([A-Za-z_][A-Za-z0-9_-]{0,63})\\1""")
-    private val sudoToolContext = Regex("""(?i)\\b(tool|function|tool-call|function-call|call)\\b""")
+    private val sudoQuotedName = Regex("""["\'`]([A-Za-z_][A-Za-z0-9_-]{0,63})["\'`]""")
+    private val sudoToolContext = Regex("""(?i)\b(tool|function|tool-call|function-call|call)\b""")
 
     fun sudoSyntheticDefinitions(
         latestUserText: String,
