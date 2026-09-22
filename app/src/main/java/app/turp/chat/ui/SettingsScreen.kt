@@ -1880,11 +1880,6 @@ private fun DeveloperSettingsPage(
     )
     latestPromptTrace?.let { trace ->
         Text(
-            "Effective system context",
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Text(
             buildString {
                 append(if (trace.stage == "PROVIDER_BOUNDARY") "Final provider-boundary context" else "Assembled Turp context")
                 append(" · ").append(trace.systemMessages.size)
@@ -1906,7 +1901,11 @@ private fun DeveloperSettingsPage(
                 modifier = Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()),
             )
         }
-    }
+    } ?: Text(
+        "No request has been captured yet. Send a message to populate the exact provider-boundary system context.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 
     HorizontalDivider()
     SectionTitle(
