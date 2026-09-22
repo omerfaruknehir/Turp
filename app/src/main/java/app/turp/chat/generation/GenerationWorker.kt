@@ -41,6 +41,7 @@ import app.turp.chat.provider.ProviderProtocolException
 import app.turp.chat.provider.StreamChunk
 import app.turp.chat.sandbox.ExecutionProgress
 import app.turp.chat.settings.DeveloperPromptKey
+import app.turp.chat.settings.DeveloperPromptTraceStore
 import app.turp.chat.provider.parseHeaders
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
@@ -212,11 +213,26 @@ class GenerationWorker(
         } else emptyList()
         val webSearchSettings = container.appPreferences.webSearchSettings.value.normalized()
         val developerPromptOverrides = container.appPreferences.developerPromptOverrides.value
-        fun developerSystemPrompt(key: DeveloperPromptKey, defaultValue: String): String =
-            developerPromptOverrides.resolve(
-                DeveloperPromptKey.FINAL_SYSTEM_MESSAGE,
-                developerPromptOverrides.resolve(key, defaultValue),
+        fun developerSystemPrompt(key: DeveloperPromptKey, defaultValue: String): String {
+            val effectiveLayer = developerPromptOverrides.resolve(key, defaultValue)
+            DeveloperPromptTraceStore.recordComponent(
+                conversationId = conversation.id,
+                key = key,
+                defaultText = defaultValue,
+                effectiveText = effectiveLayer,
             )
+            val effectiveFinal = developerPromptOverrides.resolve(
+                DeveloperPromptKey.FINAL_SYSTEM_MESSAGE,
+                effectiveLayer,
+            )
+            DeveloperPromptTraceStore.recordComponent(
+                conversationId = conversation.id,
+                key = DeveloperPromptKey.FINAL_SYSTEM_MESSAGE,
+                defaultText = effectiveLayer,
+                effectiveText = effectiveFinal,
+            )
+            return effectiveFinal
+        }
         val developerSettings = container.appPreferences.developerSettings.value
         val sudoModeAllowed = developerSettings.enabled && developerSettings.sudoModeControlEnabled
         val sudoModeActive = sudoModeAllowed && conversation.sudoModeEnabled
