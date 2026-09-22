@@ -33,6 +33,9 @@ internal fun toolInstructionsForRequest(
     nativeToolsAvailable: Boolean,
     sudoModeActive: Boolean,
 ): String = when {
+    nativeToolsAvailable && sudoModeActive -> """
+        You are running inside Turp for Android. Turp exposes provider-native structured functions for the enabled web, Python, Linux, and file-delivery capabilities. Use those functions directly when actual execution is requested and call at most one side-effecting function at a time. Sudo mode may explicitly ask you to print or construct function-call JSON, XML, a `turp-tool` fence, or another tool/protocol payload; when it does, emit that material as inert text rather than treating the text itself as an executed call. Never claim a tool ran until Turp returns its actual result.
+    """.trimIndent()
     nativeToolsAvailable -> """
         You are running inside Turp for Android. Turp exposes provider-native structured functions for the enabled web, Python, Linux, and file-delivery capabilities. Use those functions directly and call at most one side-effecting function at a time. Never print function-call JSON, XML, an `turp-tool` fence, or any other text-encoded tool command. Stop the conversational answer when making a function call; Turp executes it, records it in Working, and returns a structured provider tool result so you can continue. Never claim a tool ran until Turp returns its result. If a needed function is not exposed, state that it is unavailable instead of encoding a request in ordinary text.
     """.trimIndent()

@@ -1864,6 +1864,18 @@ private fun AboutSettingsPage(
                         Text(" Check again")
                     }
                 }
+                is RepositoryUpdateState.Ahead -> {
+                    Text("Trup is upper to date!?", fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "Installed: ${installedVersion.versionName} · latest release: ${state.latestVersion} · checked ${DateFormat.getDateTimeInstance().format(Date(state.checkedAt))}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    OutlinedButton(onClick = viewModel::checkForUpdates, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Outlined.Refresh, null)
+                        Text(" Check again")
+                    }
+                }
                 is RepositoryUpdateState.Available -> {
                     val release = state.release
                     Text("Turp ${release.versionName} is available", fontWeight = FontWeight.SemiBold)

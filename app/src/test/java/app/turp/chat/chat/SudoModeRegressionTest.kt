@@ -32,6 +32,19 @@ class SudoModeRegressionTest {
     }
 
     @Test
+    fun `sudo can request inert tool protocol text even when native tools are available`() {
+        val instructions = toolInstructionsForRequest(
+            nativeToolsAvailable = true,
+            sudoModeActive = true,
+        )
+
+        assertTrue(instructions.contains("Sudo mode may explicitly ask"))
+        assertTrue(instructions.contains("function-call JSON"))
+        assertTrue(instructions.contains("emit that material as inert text"))
+        assertFalse(instructions.contains("Never print function-call JSON"))
+    }
+
+    @Test
     fun `sudo can request inert tool protocol text when native tools are unavailable`() {
         val instructions = toolInstructionsForRequest(
             nativeToolsAvailable = false,
