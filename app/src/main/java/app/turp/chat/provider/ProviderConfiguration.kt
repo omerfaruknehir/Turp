@@ -86,7 +86,7 @@ object ProviderEndpointResolver {
         val expanded = variables.entries.fold(value) { result, (name, replacement) ->
             result.replace("{$name}", replacement)
         }
-        require(!Regex("""\{[A-Za-z][A-Za-z0-9_]*}""").containsMatchIn(expanded)) {
+        require(!Regex("""\{[A-Za-z][A-Za-z0-9_]*\}""").containsMatchIn(expanded)) {
             "Endpoint ${key.wireName} still contains an unresolved template variable"
         }
         return resolveAgainstBase(provider.baseUrl, expanded)

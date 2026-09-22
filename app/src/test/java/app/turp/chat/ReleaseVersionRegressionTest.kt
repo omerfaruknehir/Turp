@@ -10,14 +10,14 @@ class ReleaseVersionRegressionTest {
         ?: error("Could not locate repository file: $path")
 
     @Test
-    fun `release metadata is scoped to 0_25_0`() {
+    fun `release metadata is scoped to 0_25_1`() {
         val gradle = repositoryFile("app/build.gradle.kts").readText()
-        val english = repositoryFile("docs/releases/RELEASE_NOTES_0.25.0.md").readText()
-        val turkish = repositoryFile("docs/releases/tr/RELEASE_NOTES_0.25.0.md").readText()
+        val english = repositoryFile("docs/releases/RELEASE_NOTES_0.25.1.md").readText()
+        val turkish = repositoryFile("docs/releases/tr/RELEASE_NOTES_0.25.1.md").readText()
 
-        assertTrue(gradle.contains("versionCode = 220"))
-        assertTrue(gradle.contains("versionName = \"0.25.0\""))
-        assertTrue(english.startsWith("# Turp 0.25.0"))
-        assertTrue(turkish.startsWith("# Turp 0.25.0"))
+        assertTrue(gradle.contains("versionCode = 221"))
+        assertTrue(gradle.contains("versionName = \"0.25.1\""))
+        assertTrue(english.startsWith("# Turp 0.25.1"))
+        assertTrue(turkish.startsWith("# Turp 0.25.1"))
     }
 }

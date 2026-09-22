@@ -1,3 +1,8 @@
+## 0.25.1 — 2026-09-22
+
+- Fix Android request failures caused by an invalid endpoint-template regular expression in the configurable provider resolver.
+- Add Android instrumentation coverage that executes provider endpoint expansion on Android's regex engine.
+
 ## 0.25.0 — 2026-09-22
 
 - Separate provider wire protocol from provider profile so provider-specific behavior works through arbitrary proxy and self-hosted base URLs.
