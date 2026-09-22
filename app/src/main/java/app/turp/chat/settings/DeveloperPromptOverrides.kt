@@ -77,10 +77,18 @@ data class DeveloperPromptOverrides(
     fun hasOverride(key: DeveloperPromptKey): Boolean = values.containsKey(key.id)
 }
 
+data class DeveloperPromptComponentTrace(
+    val key: String,
+    val title: String,
+    val defaultText: String,
+    val effectiveText: String,
+)
+
 data class DeveloperPromptTrace(
     val conversationId: String,
     val capturedAt: Long,
     val systemMessages: List<String>,
+    val components: Map<String, DeveloperPromptComponentTrace> = emptyMap(),
     val stage: String = "ASSEMBLED",
     val providerId: String = "",
     val profile: String = "",
@@ -91,21 +99,66 @@ object DeveloperPromptTraceStore {
     private val _latest = MutableStateFlow<DeveloperPromptTrace?>(null)
     val latest: StateFlow<DeveloperPromptTrace?> = _latest.asStateFlow()
 
-    fun record(conversationId: String, messages: List<InputMessage>) {
+    fun record(
+        conversationId: String,
+        messages: List<InputMessage>,
+        components: Map<String, DeveloperPromptComponentTrace> = emptyMap(),
+    ) {
+        val previous = _latest.value
+        val mergedComponents = if (previous?.conversationId == conversationId) {
+            previous.components + components
+        } else {
+            components
+        }
         _latest.value = DeveloperPromptTrace(
             conversationId = conversationId,
             capturedAt = System.currentTimeMillis(),
             systemMessages = messages.filter { it.role == MessageRole.SYSTEM }.map(InputMessage::content),
+            components = mergedComponents,
+        )
+    }
+
+    fun recordComponent(
+        conversationId: String,
+        key: DeveloperPromptKey,
+        defaultText: String,
+        effectiveText: String,
+    ) {
+        val previous = _latest.value
+        val base = if (previous?.conversationId == conversationId) {
+            previous
+        } else {
+            DeveloperPromptTrace(
+                conversationId = conversationId,
+                capturedAt = System.currentTimeMillis(),
+                systemMessages = emptyList(),
+            )
+        }
+        _latest.value = base.copy(
+            capturedAt = System.currentTimeMillis(),
+            components = base.components + (
+                key.id to DeveloperPromptComponentTrace(
+                    key = key.id,
+                    title = key.title,
+                    defaultText = defaultText,
+                    effectiveText = effectiveText,
+                )
+            ),
         )
     }
 
     fun recordProviderContext(request: ChatRequest, protocol: String) {
+        val previous = _latest.value
         _latest.value = DeveloperPromptTrace(
             conversationId = request.sessionId,
             capturedAt = System.currentTimeMillis(),
             systemMessages = request.messages
                 .filter { it.role == MessageRole.SYSTEM }
                 .map(InputMessage::content),
+            components = previous
+                ?.takeIf { it.conversationId == request.sessionId }
+                ?.components
+                .orEmpty(),
             stage = "PROVIDER_BOUNDARY",
             providerId = request.provider.id,
             profile = request.provider.effectiveProfile.name,
