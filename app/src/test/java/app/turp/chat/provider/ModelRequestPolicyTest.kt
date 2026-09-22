@@ -117,12 +117,12 @@ class ModelRequestPolicyTest {
             model = sparse.copy(id = "claude-sonnet-5", displayName = "Claude Sonnet 5"),
         )
 
-        assertEquals("OpenCode V2 Go", go.metadataSource)
+        assertEquals("OpenCode Go", go.metadataSource)
         assertEquals(true, go.supportsThinking)
         assertEquals(true, go.supportsVision)
         assertEquals(true, go.supportsTools)
 
-        assertEquals("OpenCode V2 Console", zen.metadataSource)
+        assertEquals("OpenCode Zen", zen.metadataSource)
         assertEquals(true, zen.supportsThinking)
         assertEquals(true, zen.supportsVision)
         assertEquals(true, zen.supportsTools)
