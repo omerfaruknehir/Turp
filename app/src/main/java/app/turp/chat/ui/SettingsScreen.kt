@@ -1045,8 +1045,17 @@ private fun AppearanceSettingsPage(
 
     HorizontalDivider()
     SectionTitle("Color scheme", "Choose a restrained built-in palette or Android dynamic colors. Every swatch is rendered from that palette, not the currently selected one.")
+    val appearancePaletteOrder = listOf(
+        ColorPalette.TURP,
+        ColorPalette.SYSTEM,
+        ColorPalette.ARBOR,
+        ColorPalette.GRAPHITE,
+        ColorPalette.OCEAN,
+        ColorPalette.VIOLET,
+        ColorPalette.SUNSET,
+    )
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        ColorPalette.entries.forEach { option ->
+        appearancePaletteOrder.forEach { option ->
             val preview = palettePreviewColors(option, themeMode)
             Surface(
                 onClick = { viewModel.setPalette(option) },
@@ -1090,7 +1099,7 @@ private fun AppearanceSettingsPage(
                         if (matchLauncherIconToPalette) {
                             "Use the selected palette for the launcher icon. Icon changes stay pending until you restart Turp with the button below. Android themed icons can still override app-selected colors."
                         } else {
-                            "Keep the classic Turp green icon regardless of the selected palette. If the current icon differs, apply the change with the restart button below."
+                            "Keep the classic Turp icon regardless of the selected palette. If the current icon differs, apply the change with the restart button below."
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
