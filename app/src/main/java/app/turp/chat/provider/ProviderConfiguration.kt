@@ -12,6 +12,9 @@ import kotlinx.serialization.json.jsonPrimitive
 enum class ProviderEndpointKey(val wireName: String) {
     MODELS("models"),
     CHAT("chat"),
+    RESPONSES("responses"),
+    MESSAGES("messages"),
+    GEMINI_STREAM("geminiStream"),
     IMAGES("images"),
     IMAGE_MODELS("imageModels"),
     ACCOUNT("account"),
@@ -69,14 +72,24 @@ fun providerProfileLabel(value: ProviderProfile): String = when (value) {
 }
 
 object ProviderEndpointResolver {
-    fun resolve(provider: ProviderEntity, key: ProviderEndpointKey): String {
+    fun resolve(
+        provider: ProviderEntity,
+        key: ProviderEndpointKey,
+        variables: Map<String, String> = emptyMap(),
+    ): String {
         val overrides = parseEndpointOverrides(provider.endpointOverridesJson)
         val configured = overrides[key.wireName]?.takeIf(String::isNotBlank)
         val value = configured ?: defaultRelative(provider, key)
         require(!value.isNullOrBlank()) {
             "No ${key.wireName} endpoint is configured for ${provider.displayName}"
         }
-        return resolveAgainstBase(provider.baseUrl, value)
+        val expanded = variables.entries.fold(value) { result, (name, replacement) ->
+            result.replace("{$name}", replacement)
+        }
+        require(!Regex("""\{[A-Za-z][A-Za-z0-9_]*}""").containsMatchIn(expanded)) {
+            "Endpoint ${key.wireName} still contains an unresolved template variable"
+        }
+        return resolveAgainstBase(provider.baseUrl, expanded)
     }
 
     internal fun parseEndpointOverrides(raw: String): Map<String, String> {
@@ -102,6 +115,9 @@ object ProviderEndpointResolver {
             ProviderProtocol.OPENAI_COMPATIBLE -> when (key) {
                 ProviderEndpointKey.MODELS -> "models"
                 ProviderEndpointKey.CHAT -> "chat/completions"
+                ProviderEndpointKey.RESPONSES -> "responses"
+                ProviderEndpointKey.MESSAGES -> "messages"
+                ProviderEndpointKey.GEMINI_STREAM -> "models/{model}:streamGenerateContent?alt=sse"
                 ProviderEndpointKey.IMAGES -> if (provider.effectiveProfile == ProviderProfile.OPENROUTER) "images" else "images/generations"
                 ProviderEndpointKey.IMAGE_MODELS -> if (provider.effectiveProfile == ProviderProfile.OPENROUTER) "images/models" else null
                 ProviderEndpointKey.ACCOUNT -> when (provider.effectiveProfile) {
@@ -113,11 +129,13 @@ object ProviderEndpointResolver {
             }
             ProviderProtocol.ANTHROPIC -> when (key) {
                 ProviderEndpointKey.MODELS -> "models"
-                ProviderEndpointKey.CHAT -> "messages"
+                ProviderEndpointKey.CHAT,
+                ProviderEndpointKey.MESSAGES -> "messages"
                 else -> null
             }
             ProviderProtocol.GEMINI -> when (key) {
                 ProviderEndpointKey.MODELS -> "models"
+                ProviderEndpointKey.GEMINI_STREAM -> "models/{model}:streamGenerateContent?alt=sse"
                 else -> null
             }
             ProviderProtocol.OPENCODE_V2 -> when (key) {
