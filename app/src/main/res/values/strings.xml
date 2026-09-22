@@ -1158,7 +1158,7 @@
     <string name="ui_copy_workspace_4ca0a75c" formatted="false">Workspace</string>
     <string name="ui_copy_writing_report_37d1a667" formatted="false">Writing report</string>
     <string name="ui_copy_writing_source_request_3021661d" formatted="false">Writing source request…</string>
-    <string name="ui_copy_turp_adds_request_specific_date_enabled__388d9dd8" formatted="false">Turp adds request-specific date, enabled-tool, research, memory, attachment, and generated-content instructions at runtime. Developer Options → System prompt laboratory can inspect and override those Turp-controlled layers and show their effective context. Provider/API-owned prompts that Turp never receives remain outside Turp\'s control.</string>
+    <string name="ui_copy_turp_adds_request_specific_date_enabled__388d9dd8" formatted="false">Turp adds request-specific date, enabled-tool, research, memory, attachment, and generated-content instructions at runtime. Developer Options → System prompts lets you inspect and directly edit those Turp-controlled components and see the effective context. Provider/API-owned prompts that Turp never receives remain outside Turp\'s control.</string>
     <string name="ui_copy_turp_asks_for_the_non_sensitive_drive_ap_1514dc2b" formatted="false">Turp asks for the non-sensitive drive.appdata scope only. The backup files remain hidden from normal Drive browsing and from other apps.</string>
     <string name="ui_copy_turp_cannot_send_messages_until_chatgpt__31d3179a" formatted="false">Turp cannot send messages until ChatGPT, an API provider, or a local model server is connected.</string>
     <string name="ui_copy_turp_chat_cb1f11e8" formatted="false">Turp chat</string>
