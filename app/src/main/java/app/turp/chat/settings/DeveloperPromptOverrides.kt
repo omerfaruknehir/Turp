@@ -71,6 +71,13 @@ data class DeveloperPromptOverrides(
         return template.replace(DEVELOPER_PROMPT_DEFAULT_TOKEN, defaultValue)
     }
 
+    /**
+     * Text shown by the direct developer editor. Legacy {{default}} wrappers are
+     * expanded before display so the UI always edits concrete prompt text.
+     */
+    fun editorText(key: DeveloperPromptKey, defaultValue: String): String =
+        values[key.id]?.replace(DEVELOPER_PROMPT_DEFAULT_TOKEN, defaultValue) ?: defaultValue
+
     fun editValue(key: DeveloperPromptKey): String =
         values[key.id] ?: DEVELOPER_PROMPT_DEFAULT_TOKEN
 
