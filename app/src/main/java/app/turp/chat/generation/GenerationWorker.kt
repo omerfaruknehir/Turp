@@ -645,7 +645,7 @@ class GenerationWorker(
                 try {
                     val (counted, preflightInput) = prepareCountedRequest(request)
                     inputTokens = preflightInput
-                    container.providers.get(provider.kind).stream(counted) { chunk ->
+                    container.providers.get(provider).stream(counted) { chunk ->
                         if (chunk.text.isNotEmpty() || chunk.reasoning.isNotEmpty()) received = true
                         stateText.append(chunk.text)
                         stateReasoning.append(chunk.reasoning)
@@ -831,7 +831,7 @@ class GenerationWorker(
                     )
                     val (request, preflightInputTokens) = prepareCountedRequest(baseRequest)
                     passInput = preflightInputTokens
-                    container.providers.get(provider.kind).stream(request) { chunk ->
+                    container.providers.get(provider).stream(request) { chunk ->
                         if (chunk.resetCurrentAttempt) {
                             closeOpenStreamEvents()
                             savedContent = savedContent.substring(0, callContentStart.coerceAtMost(savedContent.length))
