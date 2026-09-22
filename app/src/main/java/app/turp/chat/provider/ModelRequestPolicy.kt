@@ -98,7 +98,10 @@ object ModelRequestPolicy {
         require(isOpenCode(provider)) { "OpenCode routing requested for a non-OpenCode provider" }
         val id = model.modelId.substringAfterLast('/').lowercase()
         return if (isOpenCodeGo(provider)) {
+            // OpenCode V2's Console contract still uses the /zen/go/v1 wire
+            // gateway, but model families do not all share one protocol.
             when {
+                id == "grok-4.5" -> OpenCodeTransport.CHAT_COMPLETIONS
                 id.startsWith("gpt-") || id.startsWith("grok-") ||
                     id.startsWith("muse-spark-") -> OpenCodeTransport.RESPONSES
                 id.startsWith("minimax-") || id.startsWith("qwen") ->
