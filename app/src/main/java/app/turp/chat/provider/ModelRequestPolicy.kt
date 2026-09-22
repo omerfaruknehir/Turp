@@ -140,7 +140,7 @@ object ModelRequestPolicy {
             supportsVision = model.supportsVision ?: visionFamily,
             supportsTools = model.supportsTools ?: true,
             metadataSource = model.metadataSource.ifBlank {
-                if (isOpenCodeGo(provider)) "OpenCode Go" else "OpenCode Zen"
+                if (isOpenCodeGo(provider)) "OpenCode V2 Go" else "OpenCode V2 Console"
             },
         )
     }
