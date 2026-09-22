@@ -2,6 +2,7 @@
 
 - Fix Android request failures caused by an invalid endpoint-template regular expression in the configurable provider resolver.
 - Add Android instrumentation coverage that executes provider endpoint expansion on Android's regex engine.
+- Suppress streaming and completion haptics while Turp is backgrounded or its window is unfocused.
 
 ## 0.25.0 — 2026-09-22
 

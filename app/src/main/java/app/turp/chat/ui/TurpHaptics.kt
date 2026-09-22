@@ -16,6 +16,13 @@ import androidx.compose.ui.platform.LocalView
  * permission. Events are rate-limited so rapid sliders and gestures feel
  * textured instead of buzzing continuously.
  */
+internal fun shouldPerformTurpHaptic(
+    hapticsEnabled: Boolean,
+    attachedToWindow: Boolean,
+    windowVisible: Boolean,
+    hasWindowFocus: Boolean,
+): Boolean = hapticsEnabled && attachedToWindow && windowVisible && hasWindowFocus
+
 @Stable
 class TurpHapticController internal constructor(private val view: View) {
     private var lastFeedbackAtMs = 0L
@@ -86,7 +93,13 @@ class TurpHapticController internal constructor(private val view: View) {
     )
 
     private fun perform(constant: Int, minimumIntervalMs: Long) {
-        if (!view.isHapticFeedbackEnabled || !view.isAttachedToWindow) return
+        if (!shouldPerformTurpHaptic(
+                hapticsEnabled = view.isHapticFeedbackEnabled,
+                attachedToWindow = view.isAttachedToWindow,
+                windowVisible = view.windowVisibility == View.VISIBLE,
+                hasWindowFocus = view.hasWindowFocus(),
+            )
+        ) return
         val now = SystemClock.uptimeMillis()
         if (constant == lastConstant && now - lastFeedbackAtMs < minimumIntervalMs) return
         lastConstant = constant
