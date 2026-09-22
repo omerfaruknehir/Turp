@@ -102,16 +102,12 @@ object DeveloperHttpTraceStore {
     }
 
     private fun redactUrl(raw: String): String =
-        raw.replace(
-            Regex("""(?i)([?&](?:api[_-]?key|access[_-]?token|token|secret|password|authorization)=)[^&]*"""),
-            "$1[REDACTED]",
-        )
+        Regex("""(?i)([?&](?:api[_-]?key|access[_-]?token|token|secret|password|authorization)=)[^&]*""")
+            .replace(raw) { match -> match.groupValues[1] + "[REDACTED]" }
 
     private fun redactLooseText(raw: String): String =
-        raw.replace(
-            Regex("""(?i)("(?:api[_-]?key|access[_-]?token|token|secret|password|authorization)"\s*:\s*")[^"]*(")"""),
-            "$1[REDACTED]$2",
-        )
+        Regex("""(?i)("(?:api[_-]?key|access[_-]?token|token|secret|password|authorization)"\s*:\s*")[^"]*(")""")
+            .replace(raw) { match -> match.groupValues[1] + "[REDACTED]" + match.groupValues[2] }
 
     private fun isSensitiveName(name: String): Boolean {
         val normalized = name.lowercase()
