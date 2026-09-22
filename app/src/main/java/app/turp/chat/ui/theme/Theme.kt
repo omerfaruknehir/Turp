@@ -23,8 +23,8 @@ import app.turp.chat.settings.ThemeMode
 private val TurpLight = lightColorScheme(
     primary = Color(0xFF9F244A), onPrimary = Color.White,
     primaryContainer = Color(0xFFF7DCE4), onPrimaryContainer = Color(0xFF3C0A1C),
-    secondary = Color(0xFF5D625F), onSecondary = Color.White,
-    secondaryContainer = Color(0xFFE2E6E2), onSecondaryContainer = Color(0xFF1B201D),
+    secondary = Color(0xFF625D60), onSecondary = Color.White,
+    secondaryContainer = Color(0xFFE9E1E4), onSecondaryContainer = Color(0xFF211A1D),
     tertiary = Color(0xFF5D6070), onTertiary = Color.White,
     tertiaryContainer = Color(0xFFE2E2EE), onTertiaryContainer = Color(0xFF1A1B24),
     background = Color(0xFFFAF9FA), onBackground = Color(0xFF1C1B1D),
@@ -41,8 +41,8 @@ private val TurpLight = lightColorScheme(
 private val TurpDark = darkColorScheme(
     primary = Color(0xFFFFB0C5), onPrimary = Color(0xFF5C0A29),
     primaryContainer = Color(0xFF4A2130), onPrimaryContainer = Color(0xFFFFD9E3),
-    secondary = Color(0xFFC3C8C3), onSecondary = Color(0xFF2C312E),
-    secondaryContainer = Color(0xFF343936), onSecondaryContainer = Color(0xFFDEE3DE),
+    secondary = Color(0xFFCDC4C7), onSecondary = Color(0xFF342F31),
+    secondaryContainer = Color(0xFF433B3E), onSecondaryContainer = Color(0xFFE9E0E3),
     tertiary = Color(0xFFC6C5D3), onTertiary = Color(0xFF2F303B),
     tertiaryContainer = Color(0xFF3B3B48), onTertiaryContainer = Color(0xFFE2E2EE),
     background = Color(0xFF111113), onBackground = Color(0xFFE7E1E3),
