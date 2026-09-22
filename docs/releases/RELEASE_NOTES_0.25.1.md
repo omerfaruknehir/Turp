@@ -11,3 +11,4 @@
 - Expands Developer “Show source” with provider/model/status metadata, provider-returned reasoning, tool traces, request snapshots, errors, and an optional redacted final HTTP request captured from the actual OkHttp request.
 - Adds a Developer system-prompt laboratory covering Turp's core/runtime/tool/research/memory/file/execution/generated-content/Sudo/continuation/provider-guard/auxiliary layers, with `{{default}}` wrapping, per-layer reset, reset-all, and last assembled system-message inspection.
 - Shows “Trup is upper to date!?” / “Trup daha güncel!?” when the installed build is newer than the latest GitHub release.
+- Developer prompt and HTTP-request diagnostics remain opt-in behind Developer settings and are disabled by default.
