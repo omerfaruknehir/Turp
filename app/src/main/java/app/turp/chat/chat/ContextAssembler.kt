@@ -15,6 +15,7 @@ import app.turp.chat.generated.GeneratedContentCapabilityRegistry
 import app.turp.chat.settings.TURP_CORE_PROMPT_REVISION
 import app.turp.chat.settings.DEFAULT_TURP_SYSTEM_PROMPT
 import app.turp.chat.settings.DeveloperPromptTraceStore
+import app.turp.chat.settings.DeveloperPromptComponentTrace
 import app.turp.chat.settings.DeveloperPromptOverrides
 import app.turp.chat.settings.DeveloperPromptKey
 import java.time.ZoneOffset
@@ -93,10 +94,19 @@ class ContextAssembler(
     ): List<InputMessage> {
         val now = ZonedDateTime.now()
         val localFormatter = DateTimeFormatter.ofPattern("EEEE, d MMMM uuuu, HH:mm:ss XXX", Locale.getDefault())
-        fun promptLayer(key: DeveloperPromptKey, defaultValue: String): String =
-            developerPromptOverrides.resolve(key, defaultValue)
+        val promptComponents = linkedMapOf<String, DeveloperPromptComponentTrace>()
+        fun promptLayer(key: DeveloperPromptKey, defaultValue: String): String {
+            val effective = developerPromptOverrides.resolve(key, defaultValue)
+            promptComponents[key.id] = DeveloperPromptComponentTrace(
+                key = key.id,
+                title = key.title,
+                defaultText = defaultValue,
+                effectiveText = effective,
+            )
+            return effective
+        }
         fun systemPrompt(key: DeveloperPromptKey, defaultValue: String): String =
-            developerPromptOverrides.resolve(
+            promptLayer(
                 DeveloperPromptKey.FINAL_SYSTEM_MESSAGE,
                 promptLayer(key, defaultValue),
             )
@@ -382,7 +392,11 @@ class ContextAssembler(
             bounded = best
         }
         result += bounded
-        DeveloperPromptTraceStore.record(conversation.id, result)
+        DeveloperPromptTraceStore.record(
+            conversationId = conversation.id,
+            messages = result,
+            components = promptComponents.toMap(),
+        )
         return result
     }
 
