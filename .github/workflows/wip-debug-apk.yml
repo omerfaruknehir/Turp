@@ -15,7 +15,7 @@ concurrency:
 
 env:
   TURP_SOURCE_REPOSITORY: ${{ github.repository }}
-  TURP_SOURCE_COMMIT: ${{ github.sha }}
+  TURP_SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
   TURP_MICROSOFT_CLIENT_ID: ${{ vars.TURP_MICROSOFT_CLIENT_ID }}
   TURP_DROPBOX_APP_KEY: ${{ vars.TURP_DROPBOX_APP_KEY }}
 
@@ -32,6 +32,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - uses: actions/setup-java@v5
         with:
