@@ -1,5 +1,6 @@
 package app.turp.chat.provider
 
+import app.turp.chat.data.ProviderEntity
 import app.turp.chat.security.SecureStore
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
@@ -55,8 +56,10 @@ class OpenCodeManager(
     private val _usageStates = MutableStateFlow<Map<String, OpenCodeUsageState>>(emptyMap())
     val usageStates: StateFlow<Map<String, OpenCodeUsageState>> = _usageStates.asStateFlow()
 
-    suspend fun usage(providerId: String, forceRefresh: Boolean = false): OpenCodeUsageSnapshot =
+    suspend fun usage(provider: ProviderEntity, forceRefresh: Boolean = false): OpenCodeUsageSnapshot =
         mutex.withLock {
+            require(ModelRequestPolicy.isOpenCodeGo(provider)) { "Provider profile is not OpenCode Go" }
+            val providerId = provider.id
             val apiKey = secureStore.apiKey(providerId)
             if (apiKey.isBlank()) {
                 update(providerId, OpenCodeUsageState.Unavailable)
@@ -73,7 +76,7 @@ class OpenCodeManager(
             val previous = cached?.snapshot
             update(providerId, OpenCodeUsageState.Loading(previous))
             try {
-                val snapshot = withContext(Dispatchers.IO) { fetch(apiKey) }
+                val snapshot = withContext(Dispatchers.IO) { fetch(provider, apiKey) }
                 caches[providerId] = Cache(snapshot, System.currentTimeMillis() + CACHE_MS)
                 update(providerId, OpenCodeUsageState.Loaded(snapshot))
                 snapshot
@@ -89,9 +92,9 @@ class OpenCodeManager(
         _usageStates.update { it - providerId }
     }
 
-    private suspend fun fetch(apiKey: String): OpenCodeUsageSnapshot {
+    private suspend fun fetch(provider: ProviderEntity, apiKey: String): OpenCodeUsageSnapshot {
         val request = Request.Builder()
-            .url(GO_USAGE_ENDPOINT)
+            .url(ProviderEndpointResolver.resolve(provider, ProviderEndpointKey.ACCOUNT))
             .header("Authorization", "Bearer " + apiKey)
             .header("Accept", "application/json")
             .header("User-Agent", "Turp-Android")
@@ -119,7 +122,6 @@ class OpenCodeManager(
     }
 
     private companion object {
-        const val GO_USAGE_ENDPOINT = "https://opencode.ai/zen/go/v1/usage"
         const val CACHE_MS = 60_000L
     }
 }
