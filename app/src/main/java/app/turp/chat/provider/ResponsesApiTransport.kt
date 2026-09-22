@@ -96,9 +96,7 @@ internal object NativeWebSearch {
     }
 
     fun responsesServerToolType(request: ChatRequest): String =
-        if (ModelRequestPolicy.matchesPreset(request.provider, "openrouter") ||
-            request.provider.baseUrl.contains("openrouter.ai", ignoreCase = true)
-        ) {
+        if (ModelRequestPolicy.isOpenRouter(request.provider)) {
             "openrouter:web_search"
         } else {
             "web_search"
@@ -139,11 +137,15 @@ internal class ResponsesApiTransport(
     }
 
     internal fun endpoint(request: ChatRequest): String {
+        val overrides = ProviderEndpointResolver.parseEndpointOverrides(request.provider.endpointOverridesJson)
+        if (overrides.containsKey(ProviderEndpointKey.RESPONSES.wireName)) {
+            return ProviderEndpointResolver.resolve(request.provider, ProviderEndpointKey.RESPONSES)
+        }
         val base = request.provider.baseUrl.trimEnd('/')
         return if (base.contains("api.perplexity.ai", ignoreCase = true) && !base.endsWith("/v1")) {
             "$base/v1/responses"
         } else {
-            "$base/responses"
+            ProviderEndpointResolver.resolve(request.provider, ProviderEndpointKey.RESPONSES)
         }
     }
 
