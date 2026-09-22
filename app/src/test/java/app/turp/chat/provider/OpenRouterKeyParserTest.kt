@@ -47,7 +47,7 @@ class OpenRouterKeyParserTest {
         assertTrue(value.includeByokInLimit == true)
         assertFalse(value.isFreeTier == true)
         assertEquals(listOf("europe", "us"), value.allowedDataRegions)
-        assertEquals(1_801_440_000L, value.expiresAtEpochSeconds)
+        assertEquals(1_790_812_800L, value.expiresAtEpochSeconds)
         assertEquals(50, value.freeModelDailyRequests?.limit)
         assertEquals(42, value.freeModelDailyRequests?.remaining)
         assertEquals(8, value.freeModelDailyRequests?.used)
