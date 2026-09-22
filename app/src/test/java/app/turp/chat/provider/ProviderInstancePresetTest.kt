@@ -21,6 +21,6 @@ class ProviderInstancePresetTest {
         val source = File("src/main/java/app/turp/chat/ui/SettingsScreen.kt").readText()
         assertTrue(source.contains("initialTemplateId = addingProviderTemplateId"))
         assertTrue(source.contains("templates = DefaultCatalog.providers.filter"))
-        assertTrue(source.contains("provider-${'$'}{templateId ?: draft.kind.name.lowercase()}-${'$'}{UUID.randomUUID()}"))
+        assertTrue(source.contains("provider-${'$'}{templateId ?: draft.protocol.name.lowercase()}-${'$'}{UUID.randomUUID()}"))
     }
 }
