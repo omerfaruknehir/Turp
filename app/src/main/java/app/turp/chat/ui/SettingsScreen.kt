@@ -3399,13 +3399,65 @@ private fun ProviderEditor(
     baseUrl: String, onBaseUrl: (String) -> Unit,
     key: String, onKey: (String) -> Unit,
     headers: String, onHeaders: (String) -> Unit,
+    endpointOverrides: String, onEndpointOverrides: (String) -> Unit,
+    protocol: ProviderProtocol, onProtocol: (ProviderProtocol) -> Unit,
+    profile: ProviderProfile, onProfile: (ProviderProfile) -> Unit,
     apiKeyRequired: Boolean, onApiKeyRequired: (Boolean) -> Unit,
     onSave: () -> Unit,
 ) {
     var advanced by rememberSaveable(provider.id) { mutableStateOf(false) }
+    var protocolMenu by remember { mutableStateOf(false) }
+    var profileMenu by remember { mutableStateOf(false) }
+    val endpointOverridesValid = remember(endpointOverrides) {
+        runCatching { ProviderEndpointResolver.parseEndpointOverrides(endpointOverrides.ifBlank { "{}" }) }.isSuccess
+    }
+    val profiles = providerProfilesForProtocol(protocol)
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(providerKindLabel(provider.kind), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
         OutlinedTextField(name, onName, label = { Text("Provider name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+
+        Box {
+            OutlinedButton(onClick = { protocolMenu = true }, modifier = Modifier.fillMaxWidth()) {
+                Text("Protocol: " + providerProtocolLabel(protocol), Modifier.weight(1f))
+                Icon(Icons.Outlined.ExpandMore, null)
+            }
+            TurpDropdownMenu(expanded = protocolMenu, onDismissRequest = { protocolMenu = false }) {
+                configurableProviderProtocols().forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text(providerProtocolLabel(option)) },
+                        onClick = {
+                            onProtocol(option)
+                            val allowed = providerProfilesForProtocol(option)
+                            if (profile !in allowed) onProfile(defaultProfileForProtocol(option))
+                            protocolMenu = false
+                        },
+                    )
+                }
+            }
+        }
+
+        Box {
+            OutlinedButton(onClick = { profileMenu = true }, modifier = Modifier.fillMaxWidth()) {
+                Text("Profile: " + providerProfileLabel(profile), Modifier.weight(1f))
+                Icon(Icons.Outlined.ExpandMore, null)
+            }
+            TurpDropdownMenu(expanded = profileMenu, onDismissRequest = { profileMenu = false }) {
+                profiles.forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text(providerProfileLabel(option)) },
+                        onClick = {
+                            onProfile(option)
+                            profileMenu = false
+                        },
+                    )
+                }
+            }
+        }
+
+        Text(
+            "Protocol controls the wire format. Profile enables provider-specific metadata and extras; neither depends on the hostname.",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         OutlinedTextField(baseUrl, onBaseUrl, label = { Text("API base URL") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(
             key, onKey,
@@ -3430,24 +3482,51 @@ private fun ProviderEditor(
             Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Outlined.Tune, null)
                 Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                    Text("Advanced headers", fontWeight = FontWeight.Medium)
-                    Text("Usually unnecessary", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Advanced routing", fontWeight = FontWeight.Medium)
+                    Text("Headers and endpoint overrides", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Icon(Icons.Outlined.ExpandMore, null)
             }
         }
-        if (advanced) OutlinedTextField(
-            headers,
-            onHeaders,
-            label = { Text("Custom headers JSON") },
-            minLines = 3,
-            visualTransformation = rememberCodeVisualTransformation("json"),
-            textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
-            modifier = Modifier.fillMaxWidth(),
-        )
+        if (advanced) {
+            OutlinedTextField(
+                headers,
+                onHeaders,
+                label = { Text("Custom headers JSON") },
+                minLines = 3,
+                visualTransformation = rememberCodeVisualTransformation("json"),
+                textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                endpointOverrides,
+                onEndpointOverrides,
+                label = { Text("Endpoint overrides JSON") },
+                supportingText = {
+                    Text(
+                        if (endpointOverridesValid) {
+                            """Relative paths use the base URL. Example: {"models":"models","account":"key"}"""
+                        } else {
+                            "Must be a JSON object whose values are endpoint paths or absolute URLs."
+                        },
+                    )
+                },
+                isError = !endpointOverridesValid,
+                minLines = 3,
+                visualTransformation = rememberCodeVisualTransformation("json"),
+                textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text(
+                "Absolute endpoint overrides receive this connection's configured credentials and custom headers.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         Button(
             onClick = onSave,
-            enabled = name.isNotBlank() && baseUrl.isNotBlank() && (!apiKeyRequired || key.isNotBlank()),
+            enabled = name.isNotBlank() && baseUrl.isNotBlank() &&
+                (!apiKeyRequired || key.isNotBlank()) && endpointOverridesValid,
             modifier = Modifier.fillMaxWidth(),
         ) { Text("Save connection") }
     }
@@ -3456,13 +3535,52 @@ private fun ProviderEditor(
 private data class ProviderDraft(
     val templateProviderId: String?,
     val name: String,
-    val kind: ProviderKind,
+    val protocol: ProviderProtocol,
+    val profile: ProviderProfile,
     val baseUrl: String,
     val apiKey: String,
     val apiKeyRequired: Boolean,
     val headers: String,
+    val endpointOverrides: String,
     val selectedModels: List<DiscoveredModel>,
 )
+
+private fun configurableProviderProtocols(): List<ProviderProtocol> = listOf(
+    ProviderProtocol.OPENAI_COMPATIBLE,
+    ProviderProtocol.ANTHROPIC,
+    ProviderProtocol.GEMINI,
+    ProviderProtocol.OPENCODE_V2,
+)
+
+private fun providerProfilesForProtocol(protocol: ProviderProtocol): List<ProviderProfile> = when (protocol) {
+    ProviderProtocol.OPENAI_COMPATIBLE -> listOf(
+        ProviderProfile.GENERIC,
+        ProviderProfile.OPENAI,
+        ProviderProfile.OPENROUTER,
+        ProviderProfile.OPENCODE_GO,
+        ProviderProfile.OPENCODE_ZEN,
+        ProviderProfile.DEEPSEEK,
+        ProviderProfile.GROQ,
+        ProviderProfile.MISTRAL,
+        ProviderProfile.XAI,
+        ProviderProfile.QWEN_CLOUD,
+        ProviderProfile.OLLAMA,
+    )
+    ProviderProtocol.ANTHROPIC -> listOf(ProviderProfile.ANTHROPIC, ProviderProfile.GENERIC)
+    ProviderProtocol.GEMINI -> listOf(ProviderProfile.GEMINI, ProviderProfile.GENERIC)
+    ProviderProtocol.OPENCODE_V2 -> listOf(ProviderProfile.OPENCODE_V2, ProviderProfile.GENERIC)
+    ProviderProtocol.AUTO,
+    ProviderProtocol.OPENAI_OAUTH -> listOf(ProviderProfile.GENERIC)
+}
+
+private fun defaultProfileForProtocol(protocol: ProviderProtocol): ProviderProfile = when (protocol) {
+    ProviderProtocol.OPENAI_COMPATIBLE -> ProviderProfile.GENERIC
+    ProviderProtocol.ANTHROPIC -> ProviderProfile.ANTHROPIC
+    ProviderProtocol.GEMINI -> ProviderProfile.GEMINI
+    ProviderProtocol.OPENCODE_V2 -> ProviderProfile.OPENCODE_V2
+    ProviderProtocol.OPENAI_OAUTH -> ProviderProfile.OPENAI_OAUTH
+    ProviderProtocol.AUTO -> ProviderProfile.GENERIC
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
