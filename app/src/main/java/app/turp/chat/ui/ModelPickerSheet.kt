@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
@@ -47,14 +48,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import app.turp.chat.data.ModelEntity
 import app.turp.chat.data.ProviderEntity
@@ -198,53 +194,6 @@ internal fun ModelPickerSheet(
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val listState = rememberLazyListState()
-    // Preserve Material's native top-boundary pull-to-dismiss, but never hand
-    // upward leftover motion to an already fully-expanded sheet. That upward
-    // handoff is what causes the sheet/list rubber-band loop at the bottom.
-    val listBoundaryGuard = remember(listState) {
-        object : NestedScrollConnection {
-            override fun onPreScroll(
-                available: Offset,
-                source: NestedScrollSource,
-            ): Offset =
-                if (
-                    source == NestedScrollSource.UserInput &&
-                    available.y < 0f &&
-                    !listState.canScrollForward
-                ) {
-                    // The list is already at its bottom and the sheet is already fully
-                    // expanded. Consume the impossible upward overscroll before Material's
-                    // sheet connection can try to "expand" again and start a rubber-band loop.
-                    available
-                } else {
-                    Offset.Zero
-                }
-
-            override fun onPostScroll(
-                consumed: Offset,
-                available: Offset,
-                source: NestedScrollSource,
-            ): Offset =
-                if (
-                    source == NestedScrollSource.UserInput &&
-                    available.y < 0f &&
-                    !listState.canScrollForward
-                ) {
-                    available
-                } else {
-                    Offset.Zero
-                }
-
-            override suspend fun onPreFling(available: Velocity): Velocity =
-                if (available.y < 0f && !listState.canScrollForward) available else Velocity.Zero
-
-            override suspend fun onPostFling(
-                consumed: Velocity,
-                available: Velocity,
-            ): Velocity =
-                if (available.y < 0f && !listState.canScrollForward) available else Velocity.Zero
-        }
-    }
     val scope = rememberCoroutineScope()
     var dismissing by remember { mutableStateOf(false) }
 
@@ -270,6 +219,10 @@ internal fun ModelPickerSheet(
     ModalBottomSheet(
         onDismissRequest = ::dismissSheet,
         sheetState = sheetState,
+        // Material3 1.4 can enter an anchored-drag bounce loop for nearly full-height
+        // modal sheets when its default content insets participate in measurement.
+        // Keep native sheet gestures/nested scrolling, but make the content viewport stable.
+        contentWindowInsets = { WindowInsets(0.dp) },
         // Native Material nested scrolling: the list consumes vertical motion
         // while it can scroll; only unconsumed downward motion at its top
         // boundary is handed to the sheet.
@@ -403,7 +356,6 @@ internal fun ModelPickerSheet(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
-                        .nestedScroll(listBoundaryGuard)
                         .testTag("model_picker_list"),
                     state = listState,
                 ) {
