@@ -1035,10 +1035,11 @@ class GenerationWorker(
                 )
                 val results = calls.map { call ->
                     val syntheticSudoCall = call.name.lowercase() in sudoSyntheticToolNames
-                    val parsed = if (syntheticSudoCall) {
-                        Result.failure(IllegalStateException("Sudo synthetic tool has no Turp implementation"))
-                    } else {
-                        runCatching { TurpNativeTools.request(call) }
+                    val parsed = runCatching {
+                        if (syntheticSudoCall) {
+                            error("Sudo synthetic tool has no Turp implementation")
+                        }
+                        TurpNativeTools.request(call)
                     }
                     if (parsed.isFailure) {
                         val rejection = if (syntheticSudoCall) {
