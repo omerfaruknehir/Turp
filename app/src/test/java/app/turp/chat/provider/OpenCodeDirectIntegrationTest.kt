@@ -10,16 +10,19 @@ import org.junit.Test
 
 class OpenCodeDirectIntegrationTest {
     @Test
-    fun `go and zen are separate first class presets`() {
+    fun `V2 console and go remain separate first class presets on documented wire gateways`() {
         val go = DefaultCatalog.providers.single { it.id == "opencode-go" }
         val zen = DefaultCatalog.providers.single { it.id == "opencode-zen" }
 
         assertEquals("OpenCode Go", go.displayName)
+        // OpenCode V2 Go likewise keeps /zen/go/v1 as its documented direct model gateway.
         assertEquals("https://opencode.ai/zen/go/v1", go.baseUrl)
         assertEquals(ProviderKind.OPENAI_COMPATIBLE, go.kind)
         assertTrue(ModelRequestPolicy.isOpenCodeGo(go))
 
         assertEquals("OpenCode Zen", zen.displayName)
+        // OpenCode V2 changed the OpenCode server/client API, not the Console model gateway.
+        // V2 Console documentation still publishes this /zen/v1 endpoint for direct inference.
         assertEquals("https://opencode.ai/zen/v1", zen.baseUrl)
         assertEquals(ProviderKind.OPENAI_COMPATIBLE, zen.kind)
         assertTrue(ModelRequestPolicy.isOpenCodeZen(zen))
