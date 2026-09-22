@@ -122,13 +122,7 @@ object ModelRequestPolicy {
         }
     }
 
-    fun enrichOpenCodeModel(providerId: String?, rawBaseUrl: String, model: DiscoveredModel): DiscoveredModel {
-        val provider = ProviderEntity(
-            id = providerId ?: if (isOpenCodeGoBaseUrl(rawBaseUrl)) "opencode-go" else "opencode-zen",
-            displayName = "OpenCode",
-            kind = ProviderKind.OPENAI_COMPATIBLE,
-            baseUrl = rawBaseUrl,
-        )
+    fun enrichOpenCodeModel(provider: ProviderEntity, model: DiscoveredModel): DiscoveredModel {
         if (!isOpenCode(provider)) return model
         val id = model.id.substringAfterLast('/').lowercase()
         val reasoningFamily = listOf(
@@ -142,9 +136,19 @@ object ModelRequestPolicy {
             supportsVision = model.supportsVision ?: visionFamily,
             supportsTools = model.supportsTools ?: true,
             metadataSource = model.metadataSource.ifBlank {
-                if (isOpenCodeGo(provider)) "OpenCode V2 Go" else "OpenCode V2 Console"
+                if (isOpenCodeGo(provider)) "OpenCode Go" else "OpenCode Zen"
             },
         )
+    }
+
+    fun enrichOpenCodeModel(providerId: String?, rawBaseUrl: String, model: DiscoveredModel): DiscoveredModel {
+        val provider = ProviderEntity(
+            id = providerId ?: if (isOpenCodeGoBaseUrl(rawBaseUrl)) "opencode-go" else "opencode-zen",
+            displayName = "OpenCode",
+            kind = ProviderKind.OPENAI_COMPATIBLE,
+            baseUrl = rawBaseUrl,
+        )
+        return enrichOpenCodeModel(provider, model)
     }
 
     fun isQwenCloudBaseUrl(rawBaseUrl: String): Boolean {
@@ -242,8 +246,8 @@ object ModelRequestPolicy {
         DefaultCatalog.models.filter { it.providerId == "openai" && it.modelId in officialOpenAiImageIds }
             .map { it.copy(providerId = providerId, supportsImageGeneration = true) }
 
-    fun mergeOfficialOpenAiCatalog(rawBaseUrl: String, discovered: List<DiscoveredModel>): List<DiscoveredModel> {
-        if (!isOfficialOpenAiBaseUrl(rawBaseUrl)) return discovered
+    fun mergeOfficialOpenAiCatalog(rawBaseUrl: String, discovered: List<DiscoveredModel>, force: Boolean = false): List<DiscoveredModel> {
+        if (!force && !isOfficialOpenAiBaseUrl(rawBaseUrl)) return discovered
         val byId = discovered.associateByTo(linkedMapOf()) { it.id }
         officialOpenAiImageModels().forEach { bundled ->
             val existing = byId[bundled.modelId]
