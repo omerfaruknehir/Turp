@@ -19,7 +19,7 @@ class SudoModeRegressionTest {
         assertTrue(prefs.contains("KEY_SUDO_MODE_CONTROL_ENABLED"))
         assertTrue(entities.contains("val sudoModeEnabled: Boolean = false"))
 
-        assertTrue(database.contains("version = 17"))
+        assertTrue(database.contains("version = 18"))
         assertTrue(database.contains("MIGRATION_16_17"))
         assertTrue(database.contains("ADD COLUMN sudoModeEnabled INTEGER NOT NULL DEFAULT 0"))
 
