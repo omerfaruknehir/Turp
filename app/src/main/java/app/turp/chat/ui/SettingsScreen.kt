@@ -3588,21 +3588,25 @@ private fun AddProviderDialog(
     templates: List<ProviderEntity>,
     initialTemplateId: String? = null,
     onDismiss: () -> Unit,
-    onDiscover: suspend (ProviderKind, String, String, String) -> List<DiscoveredModel>,
+    onDiscover: suspend (ProviderEntity, String) -> List<DiscoveredModel>,
     onAdd: (ProviderDraft) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val initialTemplate = remember(initialTemplateId, templates) { templates.firstOrNull { it.id == initialTemplateId } }
-    val initialKind = initialTemplate?.kind ?: ProviderKind.OPENAI_COMPATIBLE
+    val initialProtocol = initialTemplate?.effectiveProtocol ?: ProviderProtocol.OPENAI_COMPATIBLE
+    val initialProfile = initialTemplate?.effectiveProfile ?: ProviderProfile.GENERIC
     var templateId by remember(initialTemplateId, templates) { mutableStateOf(initialTemplate?.id) }
     var templateMenu by remember { mutableStateOf(false) }
     var name by remember(initialTemplateId, templates) { mutableStateOf(initialTemplate?.displayName.orEmpty()) }
-    var kind by remember(initialTemplateId, templates) { mutableStateOf(initialKind) }
+    var protocol by remember(initialTemplateId, templates) { mutableStateOf(initialProtocol) }
+    var profile by remember(initialTemplateId, templates) { mutableStateOf(initialProfile) }
     var typeMenu by remember { mutableStateOf(false) }
-    var baseUrl by remember(initialTemplateId, templates) { mutableStateOf(initialTemplate?.baseUrl ?: defaultBaseUrl(initialKind)) }
+    var profileMenu by remember { mutableStateOf(false) }
+    var baseUrl by remember(initialTemplateId, templates) { mutableStateOf(initialTemplate?.baseUrl ?: defaultBaseUrl(initialProtocol)) }
     var apiKey by remember { mutableStateOf("") }
     var apiKeyRequired by remember(initialTemplateId, templates) { mutableStateOf(initialTemplate?.apiKeyRequired ?: true) }
     var headers by remember(initialTemplateId, templates) { mutableStateOf(initialTemplate?.customHeadersJson ?: "{}") }
+    var endpointOverrides by remember(initialTemplateId, templates) { mutableStateOf(initialTemplate?.endpointOverridesJson ?: "{}") }
     var manualModelId by remember { mutableStateOf("") }
     var manualModelName by remember { mutableStateOf("") }
     var discoveredModels by remember { mutableStateOf<List<DiscoveredModel>>(emptyList()) }
@@ -3646,11 +3650,13 @@ private fun AddProviderDialog(
             ProviderDraft(
                 templateProviderId = templateId,
                 name = name.trim(),
-                kind = kind,
+                protocol = protocol,
+                profile = profile,
                 baseUrl = baseUrl.trim(),
                 apiKey = apiKey,
                 apiKeyRequired = apiKeyRequired,
                 headers = headers.ifBlank { "{}" },
+                endpointOverrides = endpointOverrides.ifBlank { "{}" },
                 selectedModels = (selected + manual).distinctBy { it.id },
             ),
         )
@@ -3696,9 +3702,12 @@ private fun AddProviderDialog(
                         DropdownMenuItem(text = { Text("Custom provider") }, onClick = {
                             templateId = null
                             name = ""
-                            kind = ProviderKind.OPENAI_COMPATIBLE
-                            baseUrl = defaultBaseUrl(kind)
+                            protocol = ProviderProtocol.OPENAI_COMPATIBLE
+                            profile = ProviderProfile.GENERIC
+                            baseUrl = defaultBaseUrl(protocol)
                             apiKeyRequired = true
+                            headers = "{}"
+                            endpointOverrides = "{}"
                             invalidateDiscovery()
                             templateMenu = false
                         })
@@ -3706,9 +3715,12 @@ private fun AddProviderDialog(
                             DropdownMenuItem(text = { Text(template.displayName) }, onClick = {
                                 templateId = template.id
                                 name = template.displayName
-                                kind = template.kind
+                                protocol = template.effectiveProtocol
+                                profile = template.effectiveProfile
                                 baseUrl = template.baseUrl
                                 apiKeyRequired = template.apiKeyRequired
+                                headers = template.customHeadersJson
+                                endpointOverrides = template.endpointOverridesJson
                                 invalidateDiscovery()
                                 templateMenu = false
                             })
@@ -3718,18 +3730,40 @@ private fun AddProviderDialog(
                 OutlinedTextField(name, { name = it }, label = { Text("Provider name") }, placeholder = { Text("My DeepSeek account") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 Box {
                     OutlinedButton(onClick = { typeMenu = true }, modifier = Modifier.fillMaxWidth()) {
-                        Text("Protocol: ${providerKindLabel(kind)}", Modifier.weight(1f))
+                        Text("Protocol: " + providerProtocolLabel(protocol), Modifier.weight(1f))
+                        Icon(Icons.Outlined.ExpandMore, null)
                     }
                     TurpDropdownMenu(expanded = typeMenu, onDismissRequest = { typeMenu = false }) {
-                        ProviderKind.entries.filter { it != ProviderKind.OPENAI_OAUTH }.forEach { option ->
+                        configurableProviderProtocols().forEach { option ->
                             DropdownMenuItem(
-                                text = { Text(providerKindLabel(option)) },
+                                text = { Text(providerProtocolLabel(option)) },
                                 onClick = {
-                                    kind = option
+                                    protocol = option
+                                    profile = defaultProfileForProtocol(option)
                                     baseUrl = defaultBaseUrl(option)
                                     templateId = null
+                                    endpointOverrides = "{}"
                                     invalidateDiscovery()
                                     typeMenu = false
+                                },
+                            )
+                        }
+                    }
+                }
+                Box {
+                    OutlinedButton(onClick = { profileMenu = true }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Profile: " + providerProfileLabel(profile), Modifier.weight(1f))
+                        Icon(Icons.Outlined.ExpandMore, null)
+                    }
+                    TurpDropdownMenu(expanded = profileMenu, onDismissRequest = { profileMenu = false }) {
+                        providerProfilesForProtocol(protocol).forEach { option ->
+                            DropdownMenuItem(
+                                text = { Text(providerProfileLabel(option)) },
+                                onClick = {
+                                    profile = option
+                                    templateId = null
+                                    invalidateDiscovery()
+                                    profileMenu = false
                                 },
                             )
                         }
@@ -3761,6 +3795,21 @@ private fun AddProviderDialog(
                     textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
                     modifier = Modifier.fillMaxWidth(),
                 )
+                OutlinedTextField(
+                    endpointOverrides,
+                    { endpointOverrides = it; invalidateDiscovery() },
+                    label = { Text("Endpoint overrides JSON") },
+                    supportingText = { Text("""Optional. Example: {"models":"models","account":"key"}""") },
+                    minLines = 2,
+                    visualTransformation = rememberCodeVisualTransformation("json"),
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    "Relative endpoints use the base URL. Absolute overrides receive this connection's credentials and headers.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 Button(
                     enabled = connectionReady && !discovering,
                     onClick = {
@@ -3768,7 +3817,18 @@ private fun AddProviderDialog(
                         discoveryAttempted = true
                         discoveryError = null
                         scope.launch {
-                            runCatching { onDiscover(kind, baseUrl, apiKey, headers.ifBlank { "{}" }) }
+                            val discoveryProvider = ProviderEntity(
+                                id = "provider-preview",
+                                displayName = name.ifBlank { "Provider" },
+                                kind = protocol.legacyKind(),
+                                baseUrl = baseUrl,
+                                customHeadersJson = headers.ifBlank { "{}" },
+                                apiKeyRequired = apiKeyRequired,
+                                protocol = protocol,
+                                profile = profile,
+                                endpointOverridesJson = endpointOverrides.ifBlank { "{}" },
+                            )
+                            runCatching { onDiscover(discoveryProvider, apiKey) }
                                 .onSuccess { models ->
                                     discoveredModels = models
                                     selectedModelIds = models.mapTo(linkedSetOf()) { it.id }
