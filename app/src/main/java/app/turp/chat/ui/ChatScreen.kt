@@ -1475,6 +1475,17 @@ private fun EmptyConversation(
     }
 }
 
+internal fun developerMessageSource(content: String, reasoning: String): String {
+    if (reasoning.isBlank()) return content
+    return buildString {
+        appendLine("[PROVIDER REASONING]")
+        appendLine(reasoning)
+        appendLine()
+        appendLine("[MESSAGE CONTENT]")
+        append(content)
+    }
+}
+
 @Composable
 private fun MessageCard(
     message: app.turp.chat.data.MessageEntity,
@@ -1614,7 +1625,10 @@ private fun MessageCard(
                 if (sourceControlsEnabled && sourceVisible) {
                     CodeSourcePanel(
                         language = "markdown",
-                        code = message.content,
+                        code = developerMessageSource(
+                            content = message.content,
+                            reasoning = message.reasoning,
+                        ),
                         title = "MESSAGE SOURCE",
                         live = animateStreaming,
                     )

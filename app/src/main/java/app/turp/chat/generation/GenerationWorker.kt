@@ -223,7 +223,11 @@ class GenerationWorker(
                     !webSearchSettings.pageFetchEnabled && tool.name.equals("web_fetch", ignoreCase = true)
                 }
         } else emptyList()
-        val sudoSyntheticToolDefinitions = if (model.supportsTools && sudoModeActive && !directImageModel) {
+        // Sudo is a developer override: if the user explicitly asks for an unknown
+        // native function, offer that synthetic schema even when catalog metadata
+        // says the model does not support tools. The provider may still reject
+        // the request, but Turp must not suppress the native call attempt itself.
+        val sudoSyntheticToolDefinitions = if (sudoModeActive && !directImageModel) {
             TurpNativeTools.sudoSyntheticDefinitions(
                 latestUserText = latestUserText,
                 existingToolNames = regularNativeToolDefinitions.mapTo(linkedSetOf()) { it.name },

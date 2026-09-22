@@ -1,10 +1,20 @@
 package app.turp.chat.ui
 
 import java.io.File
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MessageSourceDeveloperOptionTest {
+    @Test
+    fun `developer source includes provider reasoning without changing plain messages`() {
+        assertEquals("plain answer", developerMessageSource("plain answer", ""))
+        assertEquals(
+            "[PROVIDER REASONING]\ninternal reasoning\n\n[MESSAGE CONTENT]\nanswer",
+            developerMessageSource("answer", "internal reasoning"),
+        )
+    }
+
     @Test
     fun `developer message source option is persisted and wired into chat rendering`() {
         val prefs = File("src/main/java/app/turp/chat/settings/AppPreferences.kt").readText()
@@ -21,7 +31,8 @@ class MessageSourceDeveloperOptionTest {
 
         assertTrue(chat.contains("developerSettings.enabled && developerSettings.showMessageSourceEnabled"))
         assertTrue(chat.contains("CodeSourcePanel("))
-        assertTrue(chat.contains("code = message.content"))
+        assertTrue(chat.contains("developerMessageSource("))
+        assertTrue(chat.contains("reasoning = message.reasoning"))
         assertTrue(chat.contains("if (sourceVisible) \"Rendered\" else \"Source\""))
     }
 }

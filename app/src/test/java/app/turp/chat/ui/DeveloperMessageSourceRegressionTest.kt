@@ -22,7 +22,8 @@ class DeveloperMessageSourceRegressionTest {
         assertTrue(settings.contains("enabled = settings.enabled"))
 
         assertTrue(chat.contains("developerSettings.enabled && developerSettings.showMessageSourceEnabled"))
-        assertTrue(chat.contains("code = message.content"))
+        assertTrue(chat.contains("developerMessageSource("))
+        assertTrue(chat.contains("reasoning = message.reasoning"))
         assertTrue(chat.contains("title = \"MESSAGE SOURCE\""))
         assertTrue(chat.contains("if (sourceVisible) \"Rendered\" else \"Source\""))
 
@@ -30,7 +31,15 @@ class DeveloperMessageSourceRegressionTest {
         val sourceBranch = chat.substringAfter("if (sourceControlsEnabled && sourceVisible)")
             .substringBefore("Row(Modifier.fillMaxWidth().padding(top = 6.dp)")
         assertTrue(sourceBranch.contains("CodeSourcePanel"))
-        assertTrue(sourceBranch.contains("message.content"))
+        assertTrue(sourceBranch.contains("developerMessageSource"))
+        assertTrue(sourceBranch.contains("message.reasoning"))
         assertFalse(sourceBranch.substringBefore("} else {").contains("RichMessage("))
+    }
+
+    @Test
+    fun `sudo synthetic native calls are not blocked by model metadata`() {
+        val worker = java.io.File("src/main/java/app/turp/chat/generation/GenerationWorker.kt").readText()
+        assertTrue(worker.contains("if (sudoModeActive && !directImageModel)"))
+        assertFalse(worker.contains("if (model.supportsTools && sudoModeActive && !directImageModel)"))
     }
 }
