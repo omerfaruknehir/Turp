@@ -140,6 +140,8 @@ import app.turp.chat.provider.OpenAiOAuthUsageState
 import app.turp.chat.provider.OpenAiOAuthUsageWindow
 import app.turp.chat.provider.OpenCodeUsageState
 import app.turp.chat.provider.OpenCodeUsageWindow
+import app.turp.chat.provider.OpenRouterKeySnapshot
+import app.turp.chat.provider.OpenRouterKeyState
 import app.turp.chat.provider.supportedThinkingLevels
 import app.turp.chat.provider.defaultThinkingEffort
 import app.turp.chat.provider.effectiveThinkingEnabled
@@ -167,6 +169,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.distinctUntilChanged
 import java.text.DateFormat
 import java.util.Date
+import java.util.Locale
 import java.util.UUID
 import kotlin.math.roundToInt
 
@@ -190,6 +193,7 @@ fun SettingsScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
     val openAiOAuthStates by viewModel.openAiOAuthStates.collectAsStateWithLifecycle()
     val openAiOAuthUsageStates by viewModel.openAiOAuthUsageStates.collectAsStateWithLifecycle()
     val openCodeUsageStates by viewModel.openCodeUsageStates.collectAsStateWithLifecycle()
+    val openRouterKeyStates by viewModel.openRouterKeyStates.collectAsStateWithLifecycle()
     val amoled by viewModel.amoled.collectAsState()
     val palette by viewModel.palette.collectAsState()
     val themeMode by viewModel.themeMode.collectAsState()
@@ -326,6 +330,7 @@ fun SettingsScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
                             openAiOAuthStates = openAiOAuthStates,
                             openAiOAuthUsageStates = openAiOAuthUsageStates,
                             openCodeUsageStates = openCodeUsageStates,
+                            openRouterKeyStates = openRouterKeyStates,
                             viewModel = viewModel,
                         )
                         SettingsRoute.ABOUT -> AboutSettingsPage(
@@ -2310,6 +2315,7 @@ private fun ProviderSettings(
     openAiOAuthStates: Map<String, OpenAiOAuthState>,
     openAiOAuthUsageStates: Map<String, OpenAiOAuthUsageState>,
     openCodeUsageStates: Map<String, OpenCodeUsageState>,
+    openRouterKeyStates: Map<String, OpenRouterKeyState>,
     viewModel: ChatViewModel,
 ) {
     var selectedId by remember { mutableStateOf<String?>(null) }
@@ -2359,6 +2365,12 @@ private fun ProviderSettings(
     LaunchedEffect(selected?.id, apiKey) {
         val provider = selected?.takeIf(ModelRequestPolicy::isOpenCodeGo) ?: return@LaunchedEffect
         if (apiKey.isNotBlank()) viewModel.ensureOpenCodeUsage(provider.id)
+    }
+    val selectedOpenRouterKeyState = selected?.takeIf(ModelRequestPolicy::isOpenRouter)
+        ?.let { openRouterKeyStates[it.id] } ?: OpenRouterKeyState.Unavailable
+    LaunchedEffect(selected?.id, apiKey) {
+        val provider = selected?.takeIf(ModelRequestPolicy::isOpenRouter) ?: return@LaunchedEffect
+        if (apiKey.isNotBlank()) viewModel.ensureOpenRouterKeyInfo(provider.id)
     }
     LaunchedEffect(selected?.id, selectedModels, apiKey, headers, baseUrl) {
         val provider = selected ?: return@LaunchedEffect
@@ -2555,6 +2567,10 @@ private fun ProviderSettings(
                 }
             }
             when {
+                ModelRequestPolicy.isOpenRouter(provider) -> OpenRouterKeyUsagePanel(
+                    state = selectedOpenRouterKeyState,
+                    onRefresh = { viewModel.refreshOpenRouterKeyInfo(provider.id) },
+                )
                 ModelRequestPolicy.isOpenCodeGo(provider) -> OpenCodeUsagePanel(
                     state = selectedOpenCodeUsageState,
                     onRefresh = { viewModel.refreshOpenCodeUsage(provider.id) },
