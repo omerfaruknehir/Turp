@@ -160,7 +160,6 @@ import app.turp.chat.settings.CHROME_EDGE_SOFTNESS_ROUNDED_SNAP_POINT
 import app.turp.chat.settings.ColorPalette
 import app.turp.chat.settings.LauncherIconManager
 import app.turp.chat.settings.DeveloperSettings
-import app.turp.chat.settings.DEVELOPER_PROMPT_DEFAULT_TOKEN
 import app.turp.chat.settings.DeveloperPromptTraceStore
 import app.turp.chat.settings.DeveloperPromptOverrides
 import app.turp.chat.settings.DeveloperPromptKey
@@ -1471,6 +1470,84 @@ private fun LocalCodeExecutionSettingsPage(
 }
 
 @Composable
+private fun DeveloperPromptComponentEditorDialog(
+    key: DeveloperPromptKey,
+    initialText: String,
+    builtInText: String?,
+    hasSavedEdit: Boolean,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit,
+    onReset: () -> Unit,
+    onDisable: () -> Unit,
+) {
+    var draft by remember(key.name, initialText) { mutableStateOf(initialText) }
+    TurpAlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit ${key.title}") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    key.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    if (builtInText != null) {
+                        "Editing concrete prompt text. Saving replaces only this Turp-controlled component. The current built-in/rendered value is available below for restoration."
+                    } else {
+                        "This component has not been rendered in the current app session yet. You can still define it directly; run a request that uses this component to capture its built-in rendered value."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedTextField(
+                    value = draft,
+                    onValueChange = { draft = it.take(128_000) },
+                    label = { Text("Prompt text") },
+                    minLines = 12,
+                    maxLines = 24,
+                    modifier = Modifier.fillMaxWidth(),
+                    textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                )
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedButton(
+                        onClick = { draft = builtInText.orEmpty() },
+                        enabled = builtInText != null,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Load built-in")
+                    }
+                    OutlinedButton(
+                        onClick = onDisable,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Disable")
+                    }
+                }
+                if (hasSavedEdit) {
+                    TextButton(onClick = onReset) {
+                        Text("Reset component to built-in")
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = { onSave(draft) }) {
+                Text("Save changes")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        },
+    )
+}
+
+@Composable
 private fun DeveloperSettingsPage(
     settings: DeveloperSettings,
     promptOverrides: DeveloperPromptOverrides,
@@ -1581,30 +1658,54 @@ private fun DeveloperSettingsPage(
 
     HorizontalDivider()
     SectionTitle(
-        "System prompt laboratory",
-        "Edit every Turp-authored system-prompt layer. Changes apply to subsequent model requests while developer overrides are enabled.",
+        "System prompts",
+        "Edit the actual Turp-controlled prompt components sent to models. No template syntax is required.",
     )
     SettingsSwitch(
-        label = "Enable system prompt overrides",
+        label = "Apply developer prompt edits",
         checked = promptOverrides.enabled,
         onCheckedChange = viewModel::setDeveloperPromptOverridesEnabled,
         enabled = settings.enabled,
     )
     Text(
-        "Each entry defaults to $DEVELOPER_PROMPT_DEFAULT_TOKEN. Replace it to fully override that layer, include $DEVELOPER_PROMPT_DEFAULT_TOKEN inside custom text to wrap the built-in value, or save an empty value to remove that layer. “Every final system message” is the catch-all applied last.",
+        "Choose a component, inspect its built-in/rendered text, and edit the concrete text directly. Saved edits persist on this device and apply only while this switch is enabled.",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
     Text(
-        "Only Turp-controlled prompt content is editable here. Provider/API-owned upstream system or developer instructions that Turp never receives are outside Turp's control and are not presented as editable.",
+        "Only Turp-controlled prompt content is editable here. Provider/API-owned upstream system or developer instructions that Turp never receives remain outside Turp's control.",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
 
+    val latestPromptTrace by DeveloperPromptTraceStore.latest.collectAsState()
     var selectedPromptKeyName by rememberSaveable { mutableStateOf(DeveloperPromptKey.CORE_PROMPT.name) }
     var promptMenuExpanded by remember { mutableStateOf(false) }
+    var promptEditorOpen by rememberSaveable { mutableStateOf(false) }
     val selectedPromptKey = DeveloperPromptKey.entries.firstOrNull { it.name == selectedPromptKeyName }
         ?: DeveloperPromptKey.CORE_PROMPT
+    val renderedComponent = latestPromptTrace?.components?.get(selectedPromptKey.id)
+    val builtInPromptText = renderedComponent?.defaultText
+        ?: if (selectedPromptKey == DeveloperPromptKey.CORE_PROMPT) DEFAULT_TURP_SYSTEM_PROMPT else null
+    val savedPromptValue = promptOverrides.values[selectedPromptKey.id]
+    val editorPromptText = when {
+        savedPromptValue != null && savedPromptValue.isEmpty() -> builtInPromptText.orEmpty()
+        builtInPromptText != null -> promptOverrides.editorText(selectedPromptKey, builtInPromptText)
+        savedPromptValue != null -> promptOverrides.editorText(selectedPromptKey, "")
+        else -> ""
+    }
+    val promptStatus = when {
+        savedPromptValue == "" -> "Disabled"
+        savedPromptValue != null -> "Edited"
+        else -> "Built-in"
+    }
+    val previewPromptText = when {
+        savedPromptValue == "" -> ""
+        renderedComponent != null && promptOverrides.enabled -> renderedComponent.effectiveText
+        savedPromptValue != null -> editorPromptText
+        builtInPromptText != null -> builtInPromptText
+        else -> "Not rendered for the current chat/model/provider yet."
+    }
 
     Box(Modifier.fillMaxWidth()) {
         OutlinedButton(
@@ -1612,7 +1713,14 @@ private fun DeveloperSettingsPage(
             modifier = Modifier.fillMaxWidth(),
             enabled = settings.enabled,
         ) {
-            Text(selectedPromptKey.title, Modifier.weight(1f))
+            Column(Modifier.weight(1f)) {
+                Text(selectedPromptKey.title, fontWeight = FontWeight.SemiBold)
+                Text(
+                    selectedPromptKey.id,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Icon(Icons.Outlined.ExpandMore, null)
         }
         DropdownMenu(
@@ -1620,12 +1728,17 @@ private fun DeveloperSettingsPage(
             onDismissRequest = { promptMenuExpanded = false },
         ) {
             DeveloperPromptKey.entries.forEach { key ->
+                val raw = promptOverrides.values[key.id]
                 DropdownMenuItem(
                     text = {
                         Column {
                             Text(key.title, fontWeight = FontWeight.Medium)
                             Text(
-                                key.id,
+                                when {
+                                    raw == "" -> "${key.id} · disabled"
+                                    raw != null -> "${key.id} · edited"
+                                    else -> "${key.id} · built-in"
+                                },
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -1634,53 +1747,137 @@ private fun DeveloperSettingsPage(
                     onClick = {
                         selectedPromptKeyName = key.name
                         promptMenuExpanded = false
+                        promptEditorOpen = false
                     },
                 )
             }
         }
     }
-    Text(
-        selectedPromptKey.description,
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-    OutlinedTextField(
-        value = promptOverrides.editValue(selectedPromptKey),
-        onValueChange = { viewModel.setDeveloperPromptOverride(selectedPromptKey, it) },
-        label = { Text(selectedPromptKey.title) },
-        supportingText = {
-            Text(
-                if (promptOverrides.hasOverride(selectedPromptKey)) "Custom value saved"
-                else "Built-in default via $DEVELOPER_PROMPT_DEFAULT_TOKEN",
-            )
-        },
-        enabled = settings.enabled && promptOverrides.enabled,
-        minLines = 8,
-        maxLines = 24,
+
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        shape = MaterialTheme.shapes.extraLarge,
         modifier = Modifier.fillMaxWidth(),
-        textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-    )
-    Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        OutlinedButton(
-            onClick = { viewModel.setDeveloperPromptOverride(selectedPromptKey, null) },
-            enabled = settings.enabled && promptOverrides.hasOverride(selectedPromptKey),
-            modifier = Modifier.weight(1f),
+        Column(
+            Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text("Reset selected")
-        }
-        OutlinedButton(
-            onClick = viewModel::resetDeveloperPromptOverrides,
-            enabled = settings.enabled && promptOverrides.values.isNotEmpty(),
-            modifier = Modifier.weight(1f),
-        ) {
-            Text("Reset all")
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(selectedPromptKey.title, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        selectedPromptKey.description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                AssistChip(
+                    onClick = {},
+                    label = { Text(promptStatus) },
+                    enabled = false,
+                )
+            }
+            Text(
+                if (renderedComponent != null) "Current / last rendered text" else "Prompt text",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            SelectionContainer {
+                Text(
+                    previewPromptText.ifBlank {
+                        if (savedPromptValue == "") "This component is disabled." else "(empty)"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 72.dp, max = 220.dp)
+                        .verticalScroll(rememberScrollState()),
+                )
+            }
+            if (renderedComponent == null && selectedPromptKey != DeveloperPromptKey.CORE_PROMPT) {
+                Text(
+                    "This component is dynamic or inactive in the current context. Send a request that uses it to capture its built-in rendered value.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                FilledTonalButton(
+                    onClick = { promptEditorOpen = true },
+                    enabled = settings.enabled,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Icon(Icons.Outlined.Edit, null)
+                    Text("Edit component", Modifier.padding(start = 8.dp))
+                }
+                OutlinedButton(
+                    onClick = { viewModel.setDeveloperPromptOverride(selectedPromptKey, null) },
+                    enabled = settings.enabled && savedPromptValue != null,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Reset")
+                }
+            }
+            SettingsSwitch(
+                label = "Component enabled",
+                checked = savedPromptValue != "",
+                onCheckedChange = { enabled ->
+                    if (enabled) {
+                        viewModel.setDeveloperPromptOverride(selectedPromptKey, null)
+                    } else {
+                        viewModel.setDeveloperPromptOverride(selectedPromptKey, "")
+                    }
+                },
+                enabled = settings.enabled,
+            )
         }
     }
 
-    val latestPromptTrace by DeveloperPromptTraceStore.latest.collectAsState()
+    OutlinedButton(
+        onClick = viewModel::resetDeveloperPromptOverrides,
+        enabled = settings.enabled && promptOverrides.values.isNotEmpty(),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text("Reset all prompt edits")
+    }
+
+    if (promptEditorOpen) {
+        DeveloperPromptComponentEditorDialog(
+            key = selectedPromptKey,
+            initialText = editorPromptText,
+            builtInText = builtInPromptText,
+            hasSavedEdit = savedPromptValue != null,
+            onDismiss = { promptEditorOpen = false },
+            onSave = { value ->
+                viewModel.setDeveloperPromptOverride(selectedPromptKey, value)
+                promptEditorOpen = false
+            },
+            onReset = {
+                viewModel.setDeveloperPromptOverride(selectedPromptKey, null)
+                promptEditorOpen = false
+            },
+            onDisable = {
+                viewModel.setDeveloperPromptOverride(selectedPromptKey, "")
+                promptEditorOpen = false
+            },
+        )
+    }
+
+    Text(
+        "Effective system context",
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = FontWeight.SemiBold,
+    )
+    Text(
+        "The exact ordered Turp-generated system messages below come from the latest request after component edits and provider-stage transformations.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
     latestPromptTrace?.let { trace ->
         Text(
             "Effective system context",
