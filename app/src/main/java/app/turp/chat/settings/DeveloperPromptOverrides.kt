@@ -38,6 +38,7 @@ enum class DeveloperPromptKey(
     CONTINUATION_TOOL_CONTEXT("continuation_tool_context", "Saved tool-context wrapper", "System wrapper used when resuming a saved assistant prefix with prior tool activity."),
     HISTORICAL_SYSTEM_EVENT("historical_system_event", "Stored system events", "Wrapper around system-role events already stored in chat history."),
     RESEARCH_INITIAL("research_initial", "Research-state initial instruction", "System instruction inserted when Deep Research has no valid state block yet."),
+    RESEARCH_UPDATE("research_update", "Research-state update", "System instruction used to request an updated research state after new evidence."),
     RESEARCH_REPAIR("research_repair", "Research-state repair", "System instruction after an invalid research-state block."),
     RESEARCH_RECORDED("research_recorded", "Research-state recorded", "System instruction after Turp records model-reported research state."),
     RESEARCH_FINAL("research_final", "Research-state finalization", "System instruction used to request terminal research state."),

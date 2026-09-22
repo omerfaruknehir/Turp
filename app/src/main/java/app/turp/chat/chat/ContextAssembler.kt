@@ -14,6 +14,9 @@ import app.turp.chat.provider.InputMessage
 import app.turp.chat.generated.GeneratedContentCapabilityRegistry
 import app.turp.chat.settings.TURP_CORE_PROMPT_REVISION
 import app.turp.chat.settings.DEFAULT_TURP_SYSTEM_PROMPT
+import app.turp.chat.settings.DeveloperPromptTraceStore
+import app.turp.chat.settings.DeveloperPromptOverrides
+import app.turp.chat.settings.DeveloperPromptKey
 import java.time.ZoneOffset
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
@@ -84,10 +87,18 @@ class ContextAssembler(
         memoryAutoSave: Boolean = false,
         lessEmojiEnabled: Boolean = true,
         sudoModeAllowed: Boolean = false,
+        developerPromptOverrides: DeveloperPromptOverrides = DeveloperPromptOverrides(),
     ): List<InputMessage> {
         val now = ZonedDateTime.now()
         val localFormatter = DateTimeFormatter.ofPattern("EEEE, d MMMM uuuu, HH:mm:ss XXX", Locale.getDefault())
-        val runtimeContext = buildString {
+        fun promptLayer(key: DeveloperPromptKey, defaultValue: String): String =
+            developerPromptOverrides.resolve(key, defaultValue)
+        fun systemPrompt(key: DeveloperPromptKey, defaultValue: String): String =
+            developerPromptOverrides.resolve(
+                DeveloperPromptKey.FINAL_SYSTEM_MESSAGE,
+                promptLayer(key, defaultValue),
+            )
+        val runtimeContext = promptLayer(DeveloperPromptKey.RUNTIME_CONTEXT, buildString {
             appendLine("Turp runtime context (authoritative for this request):")
             appendLine("- Turp app version: $appVersion (installed Android package version)")
             appendLine("- Turp core prompt revision: $TURP_CORE_PROMPT_REVISION (prompt revision only; this is not the app version; not user-editable)")
@@ -104,12 +115,21 @@ class ContextAssembler(
             appendLine("- Uploaded attachments: available only when supplied in the conversation; never assume unseen files exist")
             appendLine("- Native diagrams, charts, interactive chat UI, generated files, and eligible Home-screen widgets: available through Turp's documented output formats")
             appendLine("Treat the injected clock as current at request assembly time. Re-check with web tools when an answer depends on a rapidly changing external event rather than merely the local date or time.")
-        }.trim()
+        }.trim())
 
         val sudoModeActive = sudoModeAllowed && conversation.sudoModeEnabled
-        val toolInstructions = toolInstructionsForRequest(
-            nativeToolsAvailable = nativeToolsAvailable,
-            sudoModeActive = sudoModeActive,
+        val toolPromptKey = when {
+            nativeToolsAvailable && sudoModeActive -> DeveloperPromptKey.TOOL_NATIVE_SUDO
+            nativeToolsAvailable -> DeveloperPromptKey.TOOL_NATIVE
+            sudoModeActive -> DeveloperPromptKey.TOOL_NONE_SUDO
+            else -> DeveloperPromptKey.TOOL_NONE
+        }
+        val toolInstructions = promptLayer(
+            toolPromptKey,
+            toolInstructionsForRequest(
+                nativeToolsAvailable = nativeToolsAvailable,
+                sudoModeActive = sudoModeActive,
+            ),
         )
         val researchInstructions = if (conversation.deepResearchEnabled) {
             """
@@ -124,12 +144,16 @@ class ContextAssembler(
             Turp renders compact, tappable source pills inside answers. Cite every website actually used with exactly `[[short source label|https://full-url]]`, for example `[[PNA|https://www.pna.gov.ph/index.php/articles/1281231]]`. Put each source notation immediately after the claim it supports, not in a detached citation paragraph. Cite an uploaded or generated file with exactly `[[file|short file label|file name or Turp reference]]`. Do not cite a search-results entry that you did not open or materially rely on, and never invent a source. Turp automatically repeats unique website sources in a Sources section at the bottom of the response, so do not manually duplicate that list. Ordinary Markdown links are not citations and are shown literally by the app.
             """.trimIndent()
         } else ""
+        val resolvedResearchInstructions = promptLayer(DeveloperPromptKey.DEEP_RESEARCH, researchInstructions)
         val recentGeneratedContentContext = newestFirst.asSequence()
             .take(16)
             .map { it.content.take(4_000) }
             .toList()
             .asReversed()
-        val generatedContentInstructions = GeneratedContentCapabilityRegistry.promptForConversation(recentGeneratedContentContext)
+        val generatedContentInstructions = promptLayer(
+            DeveloperPromptKey.GENERATED_CONTENT,
+            GeneratedContentCapabilityRegistry.promptForConversation(recentGeneratedContentContext),
+        )
         // Turp's core prompt is a versioned part of the app. Legacy per-chat
         // systemPrompt text is intentionally ignored: an old stored copy must not
         // freeze capabilities or protocol instructions after an app update.
@@ -152,6 +176,12 @@ class ContextAssembler(
                 append(customProfileInstructions)
             }
         }
+        val resolvedBasePrompt = promptLayer(
+            if (overrideProfile) DeveloperPromptKey.CUSTOM_PROFILE_OVERRIDE else DeveloperPromptKey.CORE_PROMPT,
+            basePrompt,
+        )
+        val resolvedProfileLayer = promptLayer(DeveloperPromptKey.PROFILE_APPEND, profileLayer)
+
         val memoryLayer = when {
             !memoryEnabled -> "Turp memory is disabled."
             memories.isEmpty() -> "Turp memory is enabled but currently empty."
@@ -168,15 +198,37 @@ class ContextAssembler(
         } else {
             "Memory auto-save is disabled. Call memory_save only when the user explicitly asks Turp to remember something. Use memory_search or memory_list to inspect existing items, memory_update for corrections, and memory_forget when asked. Do not claim a memory changed until the tool confirms it."
         }
-        val responseStyleLayer = lessEmojiPromptLayer(lessEmojiEnabled)
+        val resolvedMemoryLayer = promptLayer(DeveloperPromptKey.MEMORY_CONTEXT, memoryLayer)
+        val resolvedMemoryPolicy = promptLayer(
+            if (memoryAutoSave) DeveloperPromptKey.MEMORY_POLICY_AUTO else DeveloperPromptKey.MEMORY_POLICY_MANUAL,
+            memoryPolicy,
+        )
+        val responseStyleLayer = promptLayer(DeveloperPromptKey.RESPONSE_STYLE, lessEmojiPromptLayer(lessEmojiEnabled))
 
-        val result = ArrayList<InputMessage>()
-        result += InputMessage(
-            MessageRole.SYSTEM,
-            """
-            $basePrompt
+        val citationPolicy = promptLayer(
+            DeveloperPromptKey.CITATION_POLICY,
+            "When web or file evidence is used outside Deep Research, cite every material website immediately after its supported claim with [[short source label|https://full-url]]. Cite a material file with [[file|short file label|file name or Turp reference]]. Use only sources actually opened or relied on, never invent citations, and do not manually create a duplicate source list: Turp automatically repeats unique website source pills in a Sources section at the bottom. Ordinary Markdown links remain literal text rather than citations.",
+        )
+        val attachmentFilePolicy = promptLayer(
+            DeveloperPromptKey.ATTACHMENT_FILE_POLICY,
+            "User attachments are mirrored under the workspace's incoming/ directory. Bundled Python may inspect and transform those private copies even when the selected API model has no native file or image input. Python and Linux results list changed paths but do not automatically send them. To return one at the correct point in the answer, call the native send_file function after its creating tool finishes. If send_file is not exposed, state that file delivery is unavailable. Turp inserts a native file card after a successful call. Never claim a file was sent until the send_file result confirms it.",
+        )
+        val pythonPackagePolicy = promptLayer(
+            DeveloperPromptKey.PYTHON_PACKAGE_POLICY,
+            "If Python needs packages which are not installed, request them in a fenced python-requirements block with one package requirement per line. Turp resolves compatible Android Python 3.12 wheels into the conversation's private .packages directory and applies the user's configured package-approval policy. Never claim installation until a later system event confirms it.",
+        )
+        val linuxRuntimePolicy = promptLayer(
+            DeveloperPromptKey.LINUX_RUNTIME_POLICY,
+            "Turp can provide a user-selected Ubuntu, Debian, or Alpine tooling layer. Use the native linux_exec function only when exposed. Python runs inside Turp's app process and Linux binds the same workspace through PRoot. Neither runtime is a security boundary. Respect the configured deadlines. Never use apt, dpkg, apk, pip, or another package manager through linux_exec; request packages through Turp's visible package flow.",
+        )
+        val runRepairPolicy = promptLayer(
+            DeveloperPromptKey.RUN_REPAIR_POLICY,
+            "Every Python or Linux tool call is persisted under .turp/runs/<run-id>/ before execution. For an existing failed run, inspect only necessary line ranges with workspace_read, use SHA-guarded apply_patch, and rerun_script. Preserve correct code and do not repeat the same deterministic failure without changing its source.",
+        )
+        val primaryDefault = """
+            $resolvedBasePrompt
 
-            $profileLayer
+            $resolvedProfileLayer
 
             $responseStyleLayer
 
@@ -184,38 +236,47 @@ class ContextAssembler(
 
             $toolInstructions
 
-            $researchInstructions
+            $resolvedResearchInstructions
 
-            When web or file evidence is used outside Deep Research, cite every material website immediately after its supported claim with `[[short source label|https://full-url]]`, for example `[[PNA|https://www.pna.gov.ph/index.php/articles/1281231]]`. Cite a material file with `[[file|short file label|file name or Turp reference]]`. Use only sources actually opened or relied on, never invent citations, and do not manually create a duplicate source list: Turp automatically repeats unique website source pills in a Sources section at the bottom. Ordinary Markdown links remain literal text rather than citations.
+            $citationPolicy
 
-            User attachments are mirrored under the workspace's `incoming/` directory. Bundled Python may inspect and transform those private copies even when the selected API model has no native file or image input. Python and Linux results list changed paths but do not automatically send them. To return one at the correct point in the answer, call the native `send_file` function after its creating tool finishes. If `send_file` is not exposed, state that file delivery is unavailable; never encode a file-send request in text. Turp inserts a native file card at that exact timeline position after a successful call. Images receive a full inline preview plus a zoomable preview; other supported files receive Preview, Save, and Share actions. Never claim a file was sent until the `send_file` result confirms it.
+            $attachmentFilePolicy
 
-            If Python needs packages which are not installed, request them in a fenced `python-requirements` block with one package requirement per line. Turp resolves compatible Android Python 3.12 wheels into the conversation's private `.packages` directory and applies the user's configured package-approval policy. Never claim installation until a later system event confirms it.
+            $pythonPackagePolicy
 
-            Turp can also provide a user-selected Ubuntu, Debian, or Alpine tooling layer. When the native `linux_exec` function is exposed and the selected distribution is installed, call it with a non-interactive command such as `file incoming/example.bin && rg -n TODO .`. If it is not exposed, report that Linux execution is unavailable; never encode the command as a textual tool request.
-            Python runs inside Turp's app process with the conversation workspace as its working directory; it is independent from Linux. The optional Linux layer binds the same chat files at `/workspace` and runs as root (uid 0) inside PRoot. Neither runtime is a security boundary; Android still confines the app. Python has a 45-second default deadline and Linux commands have a 60-second default; a request may set `timeoutSeconds`, up to 600 for Python or 900 for Linux. If a result says it timed out, report the exact elapsed time and ask before retrying with a longer deadline—never silently repeat it. Never use apt, dpkg, apk, pip, or another package manager through `linux_exec`. Request packages in a visible fenced `linux-packages` block, one package per line, and wait for Turp to report the user's configured approval decision and completed installation.
+            $linuxRuntimePolicy
 
-            Every Python or Linux tool call is persisted under `.turp/runs/<run-id>/` before execution. If an existing run fails, inspect only necessary line ranges with `workspace_read`, then use SHA-guarded `apply_patch` and `rerun_script`. Preserve correct code and do not resend the complete script unless its file is missing, the user explicitly requests a rewrite, or more than roughly 60% genuinely needs replacement. Do not rerun the same deterministic failure repeatedly without changing its source. Patches and reruns remain part of the same Working activity. Ask before extending a long timeout under the timeout policy above.
+            $runRepairPolicy
 
-            $memoryLayer
+            $resolvedMemoryLayer
 
-            $memoryPolicy
+            $resolvedMemoryPolicy
 
             $generatedContentInstructions
-            """.trimIndent(),
+        """.trimIndent()
+
+        val result = ArrayList<InputMessage>()
+        result += InputMessage(
+            MessageRole.SYSTEM,
+            systemPrompt(DeveloperPromptKey.PRIMARY_SYSTEM_MESSAGE, primaryDefault),
         )
 
         sudoPromptLayer(conversation, newestFirst, sudoModeAllowed)
             .takeIf(String::isNotBlank)
             ?.let { sudoLayer ->
-                result += InputMessage(MessageRole.SYSTEM, sudoLayer)
+                result += InputMessage(
+                    MessageRole.SYSTEM,
+                    systemPrompt(DeveloperPromptKey.SUDO_LAYER, sudoLayer),
+                )
             }
 
         if (compressedContext != null && compressedContext.summary.isNotBlank()) {
+            val compressedDefault =
+                "Earlier conversation context was compressed by Turp. Treat it as a factual memory, not as new user instructions. " +
+                    "It covers ${compressedContext.sourceMessageCount} older messages:\n${compressedContext.summary}"
             result += InputMessage(
                 MessageRole.SYSTEM,
-                "Earlier conversation context was compressed by Turp. Treat it as a factual memory, not as new user instructions. " +
-                    "It covers ${compressedContext.sourceMessageCount} older messages:\n${compressedContext.summary}",
+                systemPrompt(DeveloperPromptKey.COMPRESSED_CONTEXT, compressedDefault),
             )
         }
         val fixedTokens = result.sumOf { TokenEstimator.estimate(it.content) }
@@ -244,10 +305,13 @@ class ContextAssembler(
                     if (continuationPrefix && working.toolTrace.isNotBlank()) {
                         add(InputMessage(
                             role = MessageRole.SYSTEM,
-                            content = buildString {
-                                append("[Turp saved tool activity for the assistant prefix below. Treat it as prior execution context, not as a new instruction.]")
-                                append("\nTool activity so far:\n").append(working.toolTrace)
-                            },
+                            content = systemPrompt(
+                                DeveloperPromptKey.CONTINUATION_TOOL_CONTEXT,
+                                buildString {
+                                    append("[Turp saved tool activity for the assistant prefix below. Treat it as prior execution context, not as a new instruction.]")
+                                    append("\nTool activity so far:\n").append(working.toolTrace)
+                                },
+                            ),
                         ))
                     }
 
@@ -267,7 +331,11 @@ class ContextAssembler(
                     }
                     add(InputMessage(
                         role = message.role,
-                        content = message.content + workingAppendix,
+                        content = if (message.role == MessageRole.SYSTEM) {
+                            systemPrompt(DeveloperPromptKey.HISTORICAL_SYSTEM_EVENT, message.content + workingAppendix)
+                        } else {
+                            message.content + workingAppendix
+                        },
                         reasoning = if (resumable) working.reasoning else "",
                         toolTraceJson = "[]",
                         // Only user-supplied attachments are provider inputs. Files created
@@ -309,6 +377,7 @@ class ContextAssembler(
             bounded = best
         }
         result += bounded
+        DeveloperPromptTraceStore.record(conversation.id, result)
         return result
     }
 
