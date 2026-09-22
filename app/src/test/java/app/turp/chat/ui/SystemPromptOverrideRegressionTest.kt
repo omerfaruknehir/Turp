@@ -29,7 +29,7 @@ class SystemPromptOverrideRegressionTest {
         assertTrue(settings.contains("prompt = DEFAULT_TURP_SYSTEM_PROMPT"))
         assertTrue(settings.contains("mode = SystemPromptMode.OVERRIDE"))
         assertTrue(settings.contains("Override replaces the built-in prompt text"))
-        assertTrue(settings.contains("Developer Options → System prompt laboratory can inspect and override"))
+        assertTrue(settings.contains("Developer Options → System prompts lets you inspect and directly edit"))
         assertFalse(settings.contains("Those dynamic layers are not editable either"))
     }
 }
