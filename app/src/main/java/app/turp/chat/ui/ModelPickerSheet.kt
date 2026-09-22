@@ -85,6 +85,15 @@ internal data class ModelPickerChoice(
     val model: ModelEntity,
 )
 
+internal fun shouldDismissModelPickerFromHandle(
+    dragDistancePx: Float,
+    velocityYPxPerSecond: Float,
+    distanceThresholdPx: Float,
+    velocityThresholdPxPerSecond: Float,
+): Boolean =
+    dragDistancePx >= distanceThresholdPx ||
+        velocityYPxPerSecond >= velocityThresholdPxPerSecond
+
 internal fun filteredModelChoices(
     providers: List<ProviderEntity>,
     models: List<ModelEntity>,
@@ -245,9 +254,12 @@ internal fun ModelPickerSheet(
                         orientation = Orientation.Vertical,
                         onDragStarted = { handleDragDistancePx = 0f },
                         onDragStopped = { velocity ->
-                            val shouldDismiss =
-                                handleDragDistancePx >= dismissDistancePx ||
-                                    velocity >= dismissVelocityPxPerSecond
+                            val shouldDismiss = shouldDismissModelPickerFromHandle(
+                                dragDistancePx = handleDragDistancePx,
+                                velocityYPxPerSecond = velocity,
+                                distanceThresholdPx = dismissDistancePx,
+                                velocityThresholdPxPerSecond = dismissVelocityPxPerSecond,
+                            )
                             handleDragDistancePx = 0f
                             if (shouldDismiss) dismissSheet()
                         },
