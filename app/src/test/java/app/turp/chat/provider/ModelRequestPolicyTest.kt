@@ -91,6 +91,8 @@ class ModelRequestPolicyTest {
         assertTrue(ModelRequestPolicy.isOpenCodeGo(go))
         assertFalse(ModelRequestPolicy.usesManualRequestType(go))
         assertEquals(OpenCodeTransport.RESPONSES, ModelRequestPolicy.openCodeTransport(go, model("gpt-5.6-luna", false, go.id)))
+        assertEquals(OpenCodeTransport.CHAT_COMPLETIONS, ModelRequestPolicy.openCodeTransport(go, model("grok-4.5", false, go.id)))
+        assertEquals(OpenCodeTransport.RESPONSES, ModelRequestPolicy.openCodeTransport(go, model("grok-4.6", false, go.id)))
         assertEquals(OpenCodeTransport.RESPONSES, ModelRequestPolicy.openCodeTransport(go, model("muse-spark-1.3-contributor", false, go.id)))
         assertEquals(OpenCodeTransport.ANTHROPIC_MESSAGES, ModelRequestPolicy.openCodeTransport(go, model("minimax-m3", false, go.id)))
         assertEquals(OpenCodeTransport.ANTHROPIC_MESSAGES, ModelRequestPolicy.openCodeTransport(go, model("qwen3.8-max", false, go.id)))
