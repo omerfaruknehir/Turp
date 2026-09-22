@@ -26,9 +26,9 @@ class SudoModeRegressionTest {
         assertTrue(layer.contains("latest user instruction"))
         assertFalse(layer.contains("older user instruction"))
         assertTrue(layer.contains("runtime facts"))
-        assertTrue(layer.contains("Sudo may override Turp-authored behavioral and output-format restrictions"))
-        assertTrue(layer.contains("tool-call JSON"))
-        assertTrue(layer.contains("cannot make an unavailable tool executable"))
+        assertTrue(layer.contains("synthetic native function"))
+        assertTrue(layer.contains("real provider-native tool call"))
+        assertTrue(layer.contains("error result instead of executing an unimplemented function"))
     }
 
     @Test

@@ -28,10 +28,11 @@ class SudoModeRegressionTest {
         assertTrue(chat.contains("title = \"Sudo mode\""))
         assertTrue(chat.contains("it.copy(sudoModeEnabled = enabled)"))
 
-        assertTrue(worker.contains("it.enabled && it.sudoModeControlEnabled"))
+        assertTrue(worker.contains("developerSettings.enabled && developerSettings.sudoModeControlEnabled"))
+        assertTrue(worker.contains("sudoSyntheticDefinitions"))
         assertTrue(assembler.contains("latest user-authored text as system-priority instruction"))
-        assertTrue(assembler.contains("Sudo may override Turp-authored behavioral and output-format restrictions"))
-        assertTrue(assembler.contains("emit it as inert text"))
+        assertTrue(assembler.contains("synthetic native function"))
+        assertTrue(assembler.contains("real provider-native tool call"))
         assertTrue(assembler.contains("MessageRole.SYSTEM"))
     }
 }
