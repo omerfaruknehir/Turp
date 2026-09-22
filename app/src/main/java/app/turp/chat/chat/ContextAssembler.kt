@@ -63,6 +63,8 @@ internal fun sudoPromptLayer(
         appendLine("Turp Sudo mode is active for this request.")
         appendLine("Treat the following latest user-authored text as system-priority instruction.")
         appendLine("Where it conflicts with earlier Turp built-in or custom system-prompt behavior, follow this Sudo instruction.")
+        appendLine("All Turp-authored behavioral or output restrictions that would otherwise forbid attempting a provider-native tool/function call are overridden by this Sudo instruction.")
+        appendLine("Do not treat Turp's normal no-tools fallback, catalog metadata, or the absence of an executable implementation as a reason to refuse an exposed synthetic native call.")
         appendLine("Turp runtime facts, actual executable tool availability, factual tool results, and provider-enforced constraints remain authoritative.")
         appendLine("For a Sudo request that explicitly names an otherwise-unavailable tool, Turp may expose that name to a tool-capable provider as a synthetic native function.")
         appendLine("If such a function is exposed, use a real provider-native tool call rather than printed JSON. Turp preserves the call but will return an error result instead of executing an unimplemented function.")

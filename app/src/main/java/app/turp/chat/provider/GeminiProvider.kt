@@ -35,7 +35,7 @@ class GeminiProvider(
             .post(body.toString().toRequestBody("application/json".toMediaType()))
             .also { builder -> request.customHeaders.forEach(builder::header) }.build()
         val state = GeminiStreamState()
-        DeveloperHttpTraceStore.record(request.developerTraceId, httpRequest)
+        DeveloperHttpTraceStore.record(request, httpRequest, request.provider.effectiveProtocol.name)
         client.newCall(httpRequest).useCancellable { response ->
             if (!response.isSuccessful) throw ProviderHttpException(response.code, response.body?.readErrorSnippet().orEmpty())
             val source = response.body?.source() ?: error("Provider returned an empty response")

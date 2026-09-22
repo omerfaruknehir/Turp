@@ -669,6 +669,7 @@ class GenerationWorker(
                     sessionId = conversation.id,
                     customHeaders = parseHeaders(provider.customHeadersJson),
                     tools = emptyList(),
+                    developerPromptTraceEnabled = developerSettings.enabled,
                 )
                 try {
                     val (counted, preflightInput) = prepareCountedRequest(request)
@@ -871,6 +872,7 @@ class GenerationWorker(
                         developerTraceId = if (
                             developerSettings.enabled && developerSettings.showHttpRequestEnabled
                         ) assistantId else "",
+                        developerPromptTraceEnabled = developerSettings.enabled,
                         deepSeekToolGuardPrompt = developerSystemPrompt(
                             DeveloperPromptKey.DEEPSEEK_TOOL_GUARD,
                             "When a tool is needed, return ONLY the API's structured tool_calls field for that turn. Never write function names, DSML tags, XML-like tool markup, or JSON tool arguments in content.",

@@ -1507,6 +1507,9 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
     fun resetDeveloperPromptOverrides() =
         container.appPreferences.resetDeveloperPromptOverrides()
 
+    suspend fun generationUsage(assistantId: String) =
+        container.repository.generationUsage(assistantId)
+
     fun setDemoModeEnabled(enabled: Boolean, openWalkthrough: Boolean = false) = launchAction {
         if (!BuildConfig.DEBUG) return@launchAction
         val selectedWasDemo = DemoModeController.isDemoConversationId(selectedConversationId.value)

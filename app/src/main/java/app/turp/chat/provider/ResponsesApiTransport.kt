@@ -121,7 +121,7 @@ internal class ResponsesApiTransport(
 
         val state = ResponsesApiStreamState(NativeWebSearch.nativeSourceLabel(request))
         val httpRequest = builder.build()
-        DeveloperHttpTraceStore.record(request.developerTraceId, httpRequest)
+        DeveloperHttpTraceStore.record(request, httpRequest, request.provider.effectiveProtocol.name)
         client.newCall(httpRequest).useCancellable { response ->
             if (!response.isSuccessful) {
                 val error = response.body?.readErrorSnippet().orEmpty()

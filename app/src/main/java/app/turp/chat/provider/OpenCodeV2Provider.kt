@@ -46,7 +46,7 @@ class OpenCodeV2Provider(
             request.customHeaders.forEach(builder::header)
 
             val httpRequest = builder.build()
-            DeveloperHttpTraceStore.record(request.developerTraceId, httpRequest)
+            DeveloperHttpTraceStore.record(request, httpRequest, request.provider.effectiveProtocol.name)
             client.newCall(httpRequest).useCancellable { response ->
                 if (!response.isSuccessful) {
                     val error = response.body?.readErrorSnippet().orEmpty()

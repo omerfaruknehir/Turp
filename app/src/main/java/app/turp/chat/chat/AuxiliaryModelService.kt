@@ -241,6 +241,7 @@ class AuxiliaryModelService(
             thinkingEnabled = false,
             sessionId = conversationId,
             customHeaders = parseHeaders(provider.customHeadersJson),
+            developerPromptTraceEnabled = appPreferences.developerSettings.value.enabled,
         )
         providers.get(provider).stream(request) { chunk ->
             output.append(chunk.text)

@@ -25,6 +25,26 @@ class DeveloperHttpTraceStoreTest {
     }
 
     @Test
+    fun redactsCamelCaseApiKeysAndSecretLikeUrlParameters() {
+        val body = DeveloperHttpTraceStore.redactBody(
+            """{"apiKey":"camel-secret","xApiKey":"x-secret","clientSecret":"client-secret","safe":"visible"}""",
+        )
+        assertFalse(body.contains("camel-secret"))
+        assertFalse(body.contains("x-secret"))
+        assertFalse(body.contains("client-secret"))
+        assertTrue(body.contains("visible"))
+
+        val url = DeveloperHttpTraceStore.redactUrl(
+            "https://example.test/chat?client_secret=url-secret&x-api-key=query-key&apiKey=camel-query&mode=fast",
+        )
+        assertFalse(url.contains("url-secret"))
+        assertFalse(url.contains("query-key"))
+        assertFalse(url.contains("camel-query"))
+        assertTrue(url.contains("mode=fast"))
+        assertTrue(url.contains("[REDACTED]"))
+    }
+
+    @Test
     fun capturesFinalRequestAndResponseWhileRedactingSecrets() {
         val traceId = "trace-final-http"
         DeveloperHttpTraceStore.clear(traceId)

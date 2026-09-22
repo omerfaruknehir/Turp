@@ -1,7 +1,9 @@
 package app.turp.chat.settings
 
 import app.turp.chat.data.MessageRole
+import app.turp.chat.provider.ChatRequest
 import app.turp.chat.provider.InputMessage
+import app.turp.chat.provider.effectiveProfile
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -79,6 +81,10 @@ data class DeveloperPromptTrace(
     val conversationId: String,
     val capturedAt: Long,
     val systemMessages: List<String>,
+    val stage: String = "ASSEMBLED",
+    val providerId: String = "",
+    val profile: String = "",
+    val protocol: String = "",
 )
 
 object DeveloperPromptTraceStore {
@@ -90,6 +96,20 @@ object DeveloperPromptTraceStore {
             conversationId = conversationId,
             capturedAt = System.currentTimeMillis(),
             systemMessages = messages.filter { it.role == MessageRole.SYSTEM }.map(InputMessage::content),
+        )
+    }
+
+    fun recordProviderContext(request: ChatRequest, protocol: String) {
+        _latest.value = DeveloperPromptTrace(
+            conversationId = request.sessionId,
+            capturedAt = System.currentTimeMillis(),
+            systemMessages = request.messages
+                .filter { it.role == MessageRole.SYSTEM }
+                .map(InputMessage::content),
+            stage = "PROVIDER_BOUNDARY",
+            providerId = request.provider.id,
+            profile = request.provider.effectiveProfile.name,
+            protocol = protocol,
         )
     }
 

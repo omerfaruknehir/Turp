@@ -46,16 +46,24 @@ class DeveloperMessageSourceRegressionTest {
         val source = developerMessageSource(
             content = "answer",
             reasoning = "reason",
+            role = "ASSISTANT",
             providerId = "provider",
             modelId = "model",
             status = "COMPLETE",
             toolTraceJson = """[{"tool":"web-search"}]""",
+            timelineJson = """[{"providerCallId":"call-1","argumentsJson":"{}","output":"ok"}]""",
             requestSnapshotJson = """{"snapshot":true}""",
+            providerCalls = "round: 0\nfinish_reason: stop",
             httpRequest = "POST https://example.test\n\nBody\n{}",
         )
         assertTrue(source.contains("[PROVIDER REASONING]"))
+        assertTrue(source.contains("role: ASSISTANT"))
         assertTrue(source.contains("[TOOL TRACE]"))
+        assertTrue(source.contains("[MESSAGE TIMELINE · RAW]"))
+        assertTrue(source.contains("providerCallId"))
         assertTrue(source.contains("[REQUEST SNAPSHOT]"))
+        assertTrue(source.contains("[PROVIDER CALLS]"))
+        assertTrue(source.contains("finish_reason: stop"))
         assertTrue(source.contains("[DIRECT HTTP REQUEST · REDACTED]"))
     }
 

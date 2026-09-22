@@ -63,6 +63,21 @@ class DeveloperPromptOverridesTest {
     }
 
     @Test
+    fun effectiveContextHasProviderBoundaryTraceSupport() {
+        val traceStore = File("src/main/java/app/turp/chat/settings/DeveloperPromptOverrides.kt").readText()
+        val httpStore = File("src/main/java/app/turp/chat/provider/DeveloperHttpTraceStore.kt").readText()
+        val settings = File("src/main/java/app/turp/chat/ui/SettingsScreen.kt").readText()
+        val worker = File("src/main/java/app/turp/chat/generation/GenerationWorker.kt").readText()
+
+        assertTrue(traceStore.contains("fun recordProviderContext(request: ChatRequest, protocol: String)"))
+        assertTrue(traceStore.contains("stage = \"PROVIDER_BOUNDARY\""))
+        assertTrue(httpStore.contains("DeveloperPromptTraceStore.recordProviderContext(request, protocol)"))
+        assertTrue(worker.contains("developerPromptTraceEnabled = developerSettings.enabled"))
+        assertTrue(settings.contains("\"Effective system context\""))
+        assertTrue(settings.contains("Provider/API-owned upstream system or developer instructions"))
+    }
+
+    @Test
     fun providerStageToolPromptsAreDeveloperEditable() {
         val provider = File("src/main/java/app/turp/chat/provider/OpenAiCompatibleProvider.kt").readText()
         val worker = File("src/main/java/app/turp/chat/generation/GenerationWorker.kt").readText()

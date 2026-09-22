@@ -88,14 +88,20 @@ object DeveloperHttpTraceStore {
     val traces: StateFlow<Map<String, List<DeveloperHttpTrace>>> = _traces.asStateFlow()
 
     fun record(request: ChatRequest, httpRequest: Request, protocol: String): String {
-        if (request.developerPromptTraceEnabled) DeveloperPromptTraceStore.recordProviderContext(request, protocol)
-        return begin(
+        if (request.developerPromptTraceEnabled) {
+            DeveloperPromptTraceStore.recordProviderContext(request, protocol)
+        }
+        val exchangeId = begin(
             traceId = request.developerTraceId,
             providerId = request.provider.id,
             profile = request.provider.effectiveProfile.name,
             protocol = protocol,
             request = httpRequest,
         )
+        if (exchangeId.isNotBlank()) synchronized(lock) {
+            automaticRequests[httpRequest] = exchangeId
+        }
+        return exchangeId
     }
 
     /** Compatibility overload for focused unit tests and any diagnostic caller without a ChatRequest. */
@@ -286,9 +292,18 @@ object DeveloperHttpTraceStore {
         else -> value
     }
 
-    private fun redactUrl(raw: String): String =
-        Regex("""(?i)([?&](?:api[_-]?key|access[_-]?token|token|secret|password|authorization)=)[^&]*""")
-            .replace(raw) { match -> match.groupValues[1] + "[REDACTED]" }
+    internal fun redactUrl(raw: String): String =
+        Regex("""([?&])([^=&#]+)=([^&#]*)""").replace(raw) { match ->
+            val encodedKey = match.groupValues[2]
+            val decodedKey = runCatching {
+                java.net.URLDecoder.decode(encodedKey, Charsets.UTF_8.name())
+            }.getOrDefault(encodedKey)
+            if (isSensitiveName(decodedKey)) {
+                match.groupValues[1] + encodedKey + "=[REDACTED]"
+            } else {
+                match.value
+            }
+        }
 
     private fun redactLooseText(raw: String): String = raw
         .let {
@@ -311,10 +326,14 @@ object DeveloperHttpTraceStore {
             "api-key",
             "x-goog-api-key",
             "chatgpt-account-id",
+            "apikey",
+            "xapikey",
+            "xgoogapikey",
         ) || normalized.contains("password") ||
             normalized.contains("secret") ||
             normalized.contains("token") ||
             normalized.endsWith("_key") ||
-            normalized.endsWith("-key")
+            normalized.endsWith("-key") ||
+            name.endsWith("Key")
     }
 }

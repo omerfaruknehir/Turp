@@ -143,6 +143,7 @@ import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.compose.collectAsLazyPagingItems
 import app.turp.chat.R
+import app.turp.chat.data.GenerationUsageEntity
 import app.turp.chat.data.MessageEntity
 import app.turp.chat.data.MessageRole
 import app.turp.chat.data.MessageStatus
@@ -1478,26 +1479,33 @@ private fun EmptyConversation(
 internal fun developerMessageSource(
     content: String,
     reasoning: String,
+    role: String = "",
     providerId: String? = null,
     modelId: String? = null,
     status: String = "",
     toolTraceJson: String = "",
+    timelineJson: String = "",
     requestSnapshotJson: String? = null,
+    providerCalls: String = "",
     error: String? = null,
     httpRequest: String = "",
 ): String {
     val hasDiagnostics = reasoning.isNotBlank() ||
+        role.isNotBlank() ||
         !providerId.isNullOrBlank() ||
         !modelId.isNullOrBlank() ||
         status.isNotBlank() ||
         (toolTraceJson.isNotBlank() && toolTraceJson != "[]") ||
+        (timelineJson.isNotBlank() && timelineJson != "[]") ||
         !requestSnapshotJson.isNullOrBlank() ||
+        providerCalls.isNotBlank() ||
         !error.isNullOrBlank() ||
         httpRequest.isNotBlank()
     if (!hasDiagnostics) return content
     return buildString {
-        if (!providerId.isNullOrBlank() || !modelId.isNullOrBlank() || status.isNotBlank()) {
+        if (role.isNotBlank() || !providerId.isNullOrBlank() || !modelId.isNullOrBlank() || status.isNotBlank()) {
             appendLine("[MESSAGE METADATA]")
+            if (role.isNotBlank()) append("role: ").appendLine(role)
             providerId?.takeIf(String::isNotBlank)?.let { append("provider: ").appendLine(it) }
             modelId?.takeIf(String::isNotBlank)?.let { append("model: ").appendLine(it) }
             if (status.isNotBlank()) append("status: ").appendLine(status)
@@ -1513,9 +1521,19 @@ internal fun developerMessageSource(
             appendLine(toolTraceJson)
             appendLine()
         }
+        if (timelineJson.isNotBlank() && timelineJson != "[]") {
+            appendLine("[MESSAGE TIMELINE · RAW]")
+            appendLine(timelineJson)
+            appendLine()
+        }
         requestSnapshotJson?.takeIf(String::isNotBlank)?.let {
             appendLine("[REQUEST SNAPSHOT]")
             appendLine(it)
+            appendLine()
+        }
+        if (providerCalls.isNotBlank()) {
+            appendLine("[PROVIDER CALLS]")
+            appendLine(providerCalls)
             appendLine()
         }
         if (httpRequest.isNotBlank()) {
@@ -1532,6 +1550,26 @@ internal fun developerMessageSource(
         append(content)
     }
 }
+
+internal fun developerProviderCallSource(usages: List<GenerationUsageEntity>): String =
+    usages.joinToString("\n\n") { usage ->
+        buildString {
+            append("call_id: ").appendLine(usage.id)
+            append("round: ").appendLine(usage.roundIndex.toString())
+            append("provider: ").appendLine(usage.providerId)
+            append("model: ").appendLine(usage.modelId)
+            append("status: ").appendLine(usage.status)
+            usage.finishReason?.takeIf(String::isNotBlank)?.let {
+                append("finish_reason: ").appendLine(it)
+            }
+            usage.error?.takeIf(String::isNotBlank)?.let {
+                append("error: ").appendLine(it)
+            }
+            append("input_tokens: ").appendLine(usage.inputTokens.toString())
+            append("output_tokens: ").appendLine(usage.outputTokens.toString())
+            append("cached_input_tokens: ").appendLine(usage.cachedInputTokens.toString())
+        }.trimEnd()
+    }
 
 @Composable
 private fun MessageCard(
@@ -1595,6 +1633,16 @@ private fun MessageCard(
         developerSettings.enabled && developerSettings.showMessageSourceEnabled
     var sourceVisible by rememberSaveable("message-source-${message.nodeId}") {
         mutableStateOf(false)
+    }
+    var developerUsage by remember(message.nodeId) {
+        mutableStateOf<List<GenerationUsageEntity>>(emptyList())
+    }
+    LaunchedEffect(sourceControlsEnabled, sourceVisible, message.nodeId, message.updatedAt) {
+        developerUsage = if (sourceControlsEnabled && sourceVisible) {
+            viewModel.generationUsage(message.nodeId)
+        } else {
+            emptyList()
+        }
     }
     LaunchedEffect(sourceControlsEnabled) {
         if (!sourceControlsEnabled) sourceVisible = false
@@ -1676,14 +1724,19 @@ private fun MessageCard(
                         code = developerMessageSource(
                             content = message.content,
                             reasoning = message.reasoning,
+                            role = message.role.name,
                             providerId = message.providerId,
                             modelId = message.modelId,
                             status = message.status.name,
                             toolTraceJson = message.toolTraceJson,
+                            timelineJson = message.timelineJson,
                             requestSnapshotJson = message.requestSnapshotJson,
+                            providerCalls = developerProviderCallSource(developerUsage),
                             error = message.error,
                             httpRequest = if (developerSettings.showHttpRequestEnabled) {
-                                developerHttpTraces[message.nodeId]?.formatted().orEmpty()
+                                developerHttpTraces[message.nodeId]
+                                    .orEmpty()
+                                    .joinToString("\n\n") { it.formatted() }
                             } else "",
                         ),
                         title = "MESSAGE SOURCE",

@@ -1594,6 +1594,11 @@ private fun DeveloperSettingsPage(
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
+    Text(
+        "Only Turp-controlled prompt content is editable here. Provider/API-owned upstream system or developer instructions that Turp never receives are outside Turp's control and are not presented as editable.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 
     var selectedPromptKeyName by rememberSaveable { mutableStateOf(DeveloperPromptKey.CORE_PROMPT.name) }
     var promptMenuExpanded by remember { mutableStateOf(false) }
@@ -1677,9 +1682,21 @@ private fun DeveloperSettingsPage(
     val latestPromptTrace by DeveloperPromptTraceStore.latest.collectAsState()
     latestPromptTrace?.let { trace ->
         Text(
-            "Last assembled request · ${trace.systemMessages.size} system message${if (trace.systemMessages.size == 1) "" else "s"}",
+            "Effective system context",
             style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.SemiBold,
+        )
+        Text(
+            buildString {
+                append(if (trace.stage == "PROVIDER_BOUNDARY") "Final provider-boundary context" else "Assembled Turp context")
+                append(" · ").append(trace.systemMessages.size)
+                append(" system message").append(if (trace.systemMessages.size == 1) "" else "s")
+                if (trace.providerId.isNotBlank()) append(" · provider=").append(trace.providerId)
+                if (trace.profile.isNotBlank()) append(" · profile=").append(trace.profile)
+                if (trace.protocol.isNotBlank()) append(" · protocol=").append(trace.protocol)
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         SelectionContainer {
             Text(

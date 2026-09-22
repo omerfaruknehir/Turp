@@ -58,7 +58,7 @@ class OpenAiOAuthProvider(
             val state = OpenAiOAuthStreamState()
             var retryWithFreshToken = false
             val httpRequest = builder.build()
-            DeveloperHttpTraceStore.record(request.developerTraceId, httpRequest)
+            DeveloperHttpTraceStore.record(request, httpRequest, request.provider.effectiveProtocol.name)
             client.newCall(httpRequest).useCancellable { response ->
                 if (response.code == 401 && !refreshed) {
                     retryWithFreshToken = true

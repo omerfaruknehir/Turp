@@ -78,7 +78,7 @@ class OpenAiCompatibleProvider(
             var attemptOutputTokens: Long? = null
             var attemptCachedTokens: Long? = null
 
-            DeveloperHttpTraceStore.record(attemptRequest.developerTraceId, httpRequest)
+            DeveloperHttpTraceStore.record(attemptRequest, httpRequest, attemptRequest.provider.effectiveProtocol.name)
             client.newCall(httpRequest).useCancellable { response ->
                 if (!response.isSuccessful) {
                     val error = response.body?.readErrorSnippet().orEmpty()
@@ -241,7 +241,7 @@ class OpenAiCompatibleProvider(
         if (request.apiKey.isNotBlank()) builder.header("Authorization", "Bearer ${request.apiKey}")
         request.customHeaders.forEach(builder::header)
         val httpRequest = builder.build()
-        DeveloperHttpTraceStore.record(request.developerTraceId, httpRequest)
+        DeveloperHttpTraceStore.record(request, httpRequest, request.provider.effectiveProtocol.name)
         client.newCall(httpRequest).useCancellable { response ->
             if (!response.isSuccessful) {
                 val error = response.body?.readErrorSnippet().orEmpty()
