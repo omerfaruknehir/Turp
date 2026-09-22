@@ -17,7 +17,8 @@ class OpenRouterIntegrationTest {
         assertTrue(viewModel.contains("ensureOpenRouterKeyInfo"))
         assertTrue(settings.contains("OpenRouterKeyUsagePanel"))
         assertTrue(settings.contains("refreshOpenRouterKeyInfo"))
-        assertTrue(manager.contains("https://openrouter.ai/api/v1/key"))
+        assertTrue(manager.contains("ProviderEndpointKey.ACCOUNT"))
+        assertTrue(!manager.contains("https://openrouter.ai/api/v1/key"))
     }
 
     @Test
