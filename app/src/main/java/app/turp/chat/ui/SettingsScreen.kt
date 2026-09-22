@@ -121,6 +121,8 @@ import app.turp.chat.R
 import app.turp.chat.installedAppVersion
 import app.turp.chat.data.ProviderEntity
 import app.turp.chat.data.ProviderKind
+import app.turp.chat.data.ProviderProfile
+import app.turp.chat.data.ProviderProtocol
 import app.turp.chat.data.ModelEntity
 import app.turp.chat.data.DefaultCatalog
 import app.turp.chat.data.ReasoningVisibility
@@ -134,6 +136,12 @@ import app.turp.chat.data.SystemPromptProfileEntity
 import app.turp.chat.provider.DiscoveredModel
 import app.turp.chat.provider.ModelRequestPolicy
 import app.turp.chat.provider.ModelRequestType
+import app.turp.chat.provider.ProviderEndpointResolver
+import app.turp.chat.provider.effectiveProfile
+import app.turp.chat.provider.effectiveProtocol
+import app.turp.chat.provider.legacyKind
+import app.turp.chat.provider.providerProfileLabel
+import app.turp.chat.provider.providerProtocolLabel
 import app.turp.chat.provider.OpenAiOAuthState
 import app.turp.chat.provider.OpenAiOAuthUsageSnapshot
 import app.turp.chat.provider.OpenAiOAuthUsageState
@@ -2328,8 +2336,11 @@ private fun ProviderSettings(
     var baseUrl by remember { mutableStateOf("") }
     var apiKey by remember { mutableStateOf("") }
     var headers by remember { mutableStateOf("{}") }
+    var endpointOverrides by remember { mutableStateOf("{}") }
     var providerName by remember { mutableStateOf("") }
     var apiKeyRequired by remember { mutableStateOf(true) }
+    var protocol by remember { mutableStateOf(ProviderProtocol.OPENAI_COMPATIBLE) }
+    var profile by remember { mutableStateOf(ProviderProfile.GENERIC) }
     val scope = rememberCoroutineScope()
     var syncingModels by remember { mutableStateOf(false) }
     var modelSyncStatus by remember { mutableStateOf<String?>(null) }
@@ -2348,8 +2359,11 @@ private fun ProviderSettings(
             baseUrl = it.baseUrl
             apiKey = viewModel.apiKey(it.id)
             headers = it.customHeadersJson
+            endpointOverrides = it.endpointOverridesJson
             providerName = it.displayName
             apiKeyRequired = it.apiKeyRequired
+            protocol = it.effectiveProtocol
+            profile = it.effectiveProfile
         }
     }
     val selectedOAuthState = selected?.takeIf { it.kind == ProviderKind.OPENAI_OAUTH }
@@ -2372,9 +2386,17 @@ private fun ProviderSettings(
         val provider = selected?.takeIf(ModelRequestPolicy::isOpenRouter) ?: return@LaunchedEffect
         if (apiKey.isNotBlank()) viewModel.ensureOpenRouterKeyInfo(provider.id)
     }
-    LaunchedEffect(selected?.id, selectedModels, apiKey, headers, baseUrl) {
+    LaunchedEffect(selected?.id, selectedModels, apiKey, headers, endpointOverrides, baseUrl, protocol, profile) {
         val provider = selected ?: return@LaunchedEffect
-        if (!ModelRequestPolicy.isOpenRouter(provider) || provider.kind == ProviderKind.OPENAI_OAUTH) return@LaunchedEffect
+        val configuredProvider = provider.copy(
+            kind = protocol.legacyKind(),
+            baseUrl = baseUrl,
+            customHeadersJson = headers,
+            protocol = protocol,
+            profile = profile,
+            endpointOverridesJson = endpointOverrides,
+        )
+        if (!ModelRequestPolicy.isOpenRouter(configuredProvider) || protocol == ProviderProtocol.OPENAI_OAUTH) return@LaunchedEffect
         val newestMetadata = selectedModels.maxOfOrNull(ModelEntity::metadataUpdatedAt) ?: 0L
         val metadataFresh = selectedModels.any { it.metadataSource == "OpenRouter" } &&
             System.currentTimeMillis() - newestMetadata < OPENROUTER_METADATA_REFRESH_INTERVAL_MS
@@ -2383,7 +2405,7 @@ private fun ProviderSettings(
         automaticMetadataAttemptedFor = provider.id
         syncingModels = true
         modelSyncStatus = "Fetching OpenRouter capabilities, reasoning modes, limits, and pricing…"
-        runCatching { viewModel.discoverModels(provider.kind, baseUrl, apiKey, headers) }
+        runCatching { viewModel.discoverModels(configuredProvider, apiKey) }
             .onSuccess { discovered ->
                 viewModel.saveDiscoveredModels(provider.id, discovered)
                 modelSyncStatus = "Automatically updated metadata for ${discovered.size} models"
@@ -2398,6 +2420,7 @@ private fun ProviderSettings(
             "anthropic" to "Anthropic",
             "gemini" to "Gemini",
             "openrouter" to "OpenRouter",
+            "opencode-v2" to "OpenCode V2",
             "opencode-go" to "OpenCode Go",
             "opencode-zen" to "OpenCode Zen",
             "deepseek" to "DeepSeek",
