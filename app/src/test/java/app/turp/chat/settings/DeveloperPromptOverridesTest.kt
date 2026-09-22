@@ -40,7 +40,11 @@ class DeveloperPromptOverridesTest {
         assertTrue(settings.contains("DeveloperPromptKey.entries.forEach"))
         assertTrue(settings.contains("setDeveloperPromptOverride"))
         assertTrue(settings.contains("resetDeveloperPromptOverrides"))
-        assertTrue(settings.contains("DEVELOPER_PROMPT_DEFAULT_TOKEN"))
+        assertTrue(settings.contains("\"Edit component\""))
+        assertTrue(settings.contains("\"Save changes\""))
+        assertTrue(settings.contains("\"Load built-in\""))
+        assertTrue(settings.contains("\"Component enabled\""))
+        assertFalse(settings.contains("DEVELOPER_PROMPT_DEFAULT_TOKEN"))
 
         val required = setOf(
             DeveloperPromptKey.CORE_PROMPT,
@@ -63,6 +67,23 @@ class DeveloperPromptOverridesTest {
     }
 
     @Test
+    fun directEditorExpandsLegacyTemplatesIntoConcreteText() {
+        val edits = DeveloperPromptOverrides(
+            enabled = true,
+            values = mapOf(DeveloperPromptKey.CORE_PROMPT.id to "before {{default}} after"),
+        )
+        assertEquals(
+            "before built-in prompt after",
+            edits.editorText(DeveloperPromptKey.CORE_PROMPT, "built-in prompt"),
+        )
+        assertEquals(
+            "built-in prompt",
+            DeveloperPromptOverrides(enabled = true)
+                .editorText(DeveloperPromptKey.CORE_PROMPT, "built-in prompt"),
+        )
+    }
+
+    @Test
     fun effectiveContextHasProviderBoundaryTraceSupport() {
         val traceStore = File("src/main/java/app/turp/chat/settings/DeveloperPromptOverrides.kt").readText()
         val httpStore = File("src/main/java/app/turp/chat/provider/DeveloperHttpTraceStore.kt").readText()
@@ -71,6 +92,8 @@ class DeveloperPromptOverridesTest {
 
         assertTrue(traceStore.contains("fun recordProviderContext(request: ChatRequest, protocol: String)"))
         assertTrue(traceStore.contains("stage = \"PROVIDER_BOUNDARY\""))
+        assertTrue(traceStore.contains("data class DeveloperPromptComponentTrace"))
+        assertTrue(traceStore.contains("fun recordComponent("))
         assertTrue(httpStore.contains("DeveloperPromptTraceStore.recordProviderContext(request, protocol)"))
         assertTrue(worker.contains("developerPromptTraceEnabled = developerSettings.enabled"))
         assertTrue(settings.contains("\"Effective system context\""))
