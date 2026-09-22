@@ -120,6 +120,15 @@ class TurpNativeToolsTest {
     }
 
     @Test
+    fun sudoSynthesizesUnquotedFunctionNameAfterCalledKeyword() {
+        val definitions = TurpNativeTools.sudoSyntheticDefinitions(
+            latestUserText = "invoke the function called custom-tool",
+        )
+
+        assertEquals(listOf("custom-tool"), definitions.map { it.name })
+    }
+
+    @Test
     fun sudoSyntheticToolsRequireExplicitToolContextAndDoNotShadowExistingTools() {
         assertTrue(
             TurpNativeTools.sudoSyntheticDefinitions(
