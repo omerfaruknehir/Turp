@@ -292,10 +292,10 @@ abstract class TurpDatabase : RoomDatabase() {
                 )
                 db.execSQL(
                     "UPDATE providers SET profile = CASE " +
-                        "WHEN lower(id) = 'openrouter' OR lower(id) LIKE 'provider-openrouter-%' THEN 'OPENROUTER' " +
-                        "WHEN lower(id) = 'opencode-go' OR lower(id) LIKE 'provider-opencode-go-%' THEN 'OPENCODE_GO' " +
-                        "WHEN lower(id) = 'opencode-zen' OR lower(id) LIKE 'provider-opencode-zen-%' THEN 'OPENCODE_ZEN' " +
-                        "WHEN lower(id) = 'openai' OR lower(id) LIKE 'provider-openai-%' THEN 'OPENAI' " +
+                        "WHEN lower(id) = 'openrouter' OR lower(id) LIKE 'provider-openrouter-%' OR lower(rtrim(baseUrl, '/')) = 'https://openrouter.ai/api/v1' THEN 'OPENROUTER' " +
+                        "WHEN lower(id) = 'opencode-go' OR lower(id) LIKE 'provider-opencode-go-%' OR lower(rtrim(baseUrl, '/')) = 'https://opencode.ai/zen/go/v1' THEN 'OPENCODE_GO' " +
+                        "WHEN lower(id) = 'opencode-zen' OR lower(id) LIKE 'provider-opencode-zen-%' OR lower(rtrim(baseUrl, '/')) = 'https://opencode.ai/zen/v1' THEN 'OPENCODE_ZEN' " +
+                        "WHEN lower(id) = 'openai' OR lower(id) LIKE 'provider-openai-%' OR lower(rtrim(baseUrl, '/')) = 'https://api.openai.com/v1' THEN 'OPENAI' " +
                         "WHEN lower(id) = 'deepseek' OR lower(id) LIKE 'provider-deepseek-%' THEN 'DEEPSEEK' " +
                         "WHEN lower(id) = 'groq' OR lower(id) LIKE 'provider-groq-%' THEN 'GROQ' " +
                         "WHEN lower(id) = 'mistral' OR lower(id) LIKE 'provider-mistral-%' THEN 'MISTRAL' " +
