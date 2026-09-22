@@ -3,6 +3,7 @@
 - Fix Android request failures caused by an invalid endpoint-template regular expression in the configurable provider resolver.
 - Add Android instrumentation coverage that executes provider endpoint expansion on Android's regex engine.
 - Suppress streaming and completion haptics while Turp is backgrounded or its window is unfocused.
+- Let Sudo override Turp-authored tool-output restrictions so explicit diagnostic/example tool-call JSON can be emitted as inert text even when native functions are unavailable, without pretending it executed.
 
 ## 0.25.0 — 2026-09-22
 

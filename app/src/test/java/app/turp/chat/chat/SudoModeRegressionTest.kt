@@ -26,6 +26,33 @@ class SudoModeRegressionTest {
         assertTrue(layer.contains("latest user instruction"))
         assertFalse(layer.contains("older user instruction"))
         assertTrue(layer.contains("runtime facts"))
+        assertTrue(layer.contains("Sudo may override Turp-authored behavioral and output-format restrictions"))
+        assertTrue(layer.contains("tool-call JSON"))
+        assertTrue(layer.contains("cannot make an unavailable tool executable"))
+    }
+
+    @Test
+    fun `sudo can request inert tool protocol text when native tools are unavailable`() {
+        val instructions = toolInstructionsForRequest(
+            nativeToolsAvailable = false,
+            sudoModeActive = true,
+        )
+
+        assertTrue(instructions.contains("function-call JSON"))
+        assertTrue(instructions.contains("emit it as inert text"))
+        assertTrue(instructions.contains("Do not refuse"))
+        assertFalse(instructions.contains("Do not emit `turp-tool` fences"))
+    }
+
+    @Test
+    fun `normal mode still forbids fake textual tool calls when tools are unavailable`() {
+        val instructions = toolInstructionsForRequest(
+            nativeToolsAvailable = false,
+            sudoModeActive = false,
+        )
+
+        assertTrue(instructions.contains("Do not emit `turp-tool` fences"))
+        assertTrue(instructions.contains("State the limitation"))
     }
 
     @Test

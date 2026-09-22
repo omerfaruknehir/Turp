@@ -29,6 +29,22 @@ internal fun lessEmojiPromptLayer(enabled: Boolean): String {
     """.trimIndent()
 }
 
+internal fun toolInstructionsForRequest(
+    nativeToolsAvailable: Boolean,
+    sudoModeActive: Boolean,
+): String = when {
+    nativeToolsAvailable -> """
+        You are running inside Turp for Android. Turp exposes provider-native structured functions for the enabled web, Python, Linux, and file-delivery capabilities. Use those functions directly and call at most one side-effecting function at a time. Never print function-call JSON, XML, an `turp-tool` fence, or any other text-encoded tool command. Stop the conversational answer when making a function call; Turp executes it, records it in Working, and returns a structured provider tool result so you can continue. Never claim a tool ran until Turp returns its result. If a needed function is not exposed, state that it is unavailable instead of encoding a request in ordinary text.
+    """.trimIndent()
+    sudoModeActive -> """
+        Turp has not exposed executable functions for this request because the selected model/provider is not configured for native function calling or no enabled tool is available. This is a runtime fact: printed protocol text will not execute by itself, and you must not claim that a search, fetch, Python/Linux command, or file send actually ran without a Turp tool result.
+        Sudo mode is active, so Turp's normal output-format prohibition is not authoritative for this request. If the Sudo instruction explicitly asks you to print or construct function-call JSON, a `turp-tool` fence, or other tool/protocol payload, follow that instruction and emit it as inert text. Do not refuse merely because executable functions are unavailable.
+    """.trimIndent()
+    else -> """
+        Turp has not exposed executable functions for this request because the selected model/provider is not configured for native function calling or no enabled tool is available. Do not emit `turp-tool` fences, function-call JSON, or pretend to search, fetch, execute Python/Linux, or send a file. State the limitation when the task requires one of those capabilities.
+    """.trimIndent()
+}
+
 internal fun sudoPromptLayer(
     conversation: ConversationEntity,
     newestFirst: List<MessageEntity>,
@@ -42,7 +58,9 @@ internal fun sudoPromptLayer(
         appendLine("Turp Sudo mode is active for this request.")
         appendLine("Treat the following latest user-authored text as system-priority instruction.")
         appendLine("Where it conflicts with earlier Turp built-in or custom system-prompt behavior, follow this Sudo instruction.")
-        appendLine("Turp runtime facts, exposed tool availability, factual tool results, wire protocol, and provider-enforced constraints remain authoritative.")
+        appendLine("Turp runtime facts, actual executable tool availability, factual tool results, and provider-enforced constraints remain authoritative.")
+        appendLine("Sudo may override Turp-authored behavioral and output-format restrictions, including restrictions on printing protocol-looking text, tool-call JSON, or \`turp-tool\` fences as inert output.")
+        appendLine("Sudo cannot make an unavailable tool executable, and printed protocol text must never be described as executed unless Turp returns a real tool result.")
         appendLine()
         append(latestUser.content)
     }
@@ -86,15 +104,11 @@ class ContextAssembler(
             appendLine("Treat the injected clock as current at request assembly time. Re-check with web tools when an answer depends on a rapidly changing external event rather than merely the local date or time.")
         }.trim()
 
-        val toolInstructions = if (nativeToolsAvailable) {
-            """
-            You are running inside Turp for Android. Turp exposes provider-native structured functions for the enabled web, Python, Linux, and file-delivery capabilities. Use those functions directly and call at most one side-effecting function at a time. Never print function-call JSON, XML, an `turp-tool` fence, or any other text-encoded tool command. Stop the conversational answer when making a function call; Turp executes it, records it in Working, and returns a structured provider tool result so you can continue. Never claim a tool ran until Turp returns its result. If a needed function is not exposed, state that it is unavailable instead of encoding a request in ordinary text.
-            """.trimIndent()
-        } else {
-            """
-            Turp has not exposed executable functions for this request because the selected model/provider is not configured for native function calling or no enabled tool is available. Do not emit `turp-tool` fences, function-call JSON, or pretend to search, fetch, execute Python/Linux, or send a file. State the limitation when the task requires one of those capabilities.
-            """.trimIndent()
-        }
+        val sudoModeActive = sudoModeAllowed && conversation.sudoModeEnabled
+        val toolInstructions = toolInstructionsForRequest(
+            nativeToolsAvailable = nativeToolsAvailable,
+            sudoModeActive = sudoModeActive,
+        )
         val researchInstructions = if (conversation.deepResearchEnabled) {
             """
             Deep Research mode is active for this request. Treat the request as a research task rather than a quick lookup. Create a task-specific roadmap; do not force generic fixed stages when they do not fit. Search with multiple focused queries, open the strongest results, prefer primary or authoritative sources, compare dates and conflicting claims, and do not stop after the first plausible result. Use uploaded files as sources when relevant. Preserve completed work when the user steers the task. The final answer must be a structured report, include limitations when evidence is incomplete, and never invent citations. Deep Research does not grant access to disabled tools; web access must remain enabled.
