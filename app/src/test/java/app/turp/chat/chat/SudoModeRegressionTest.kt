@@ -44,7 +44,7 @@ class SudoModeRegressionTest {
         val chat = File("src/main/java/app/turp/chat/ui/ChatScreen.kt").readText()
 
         assertTrue(entity.contains("val sudoModeEnabled: Boolean = false"))
-        assertTrue(database.contains("version = 17"))
+        assertTrue(database.contains("version = 18"))
         assertTrue(database.contains("ALTER TABLE conversations ADD COLUMN sudoModeEnabled INTEGER NOT NULL DEFAULT 0"))
         assertTrue(snapshot.contains("sudoModeEnabled = conversation.sudoModeEnabled"))
         assertTrue(settings.contains("Enable Sudo control"))
