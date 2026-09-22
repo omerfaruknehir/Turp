@@ -1293,13 +1293,19 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
 
     fun ensureOpenRouterKeyInfo(providerId: String) {
         viewModelScope.launch {
-            runCatching { container.openRouter.keyInfo(providerId, forceRefresh = false) }
+            val provider = container.repository.provider(providerId) ?: return@launch
+            runCatching { container.openRouter.keyInfo(provider, forceRefresh = false) }
         }
     }
 
     fun refreshOpenRouterKeyInfo(providerId: String) {
         viewModelScope.launch {
-            runCatching { container.openRouter.keyInfo(providerId, forceRefresh = true) }
+            val provider = container.repository.provider(providerId)
+            if (provider == null) {
+                notices.emit("OpenRouter provider is missing")
+                return@launch
+            }
+            runCatching { container.openRouter.keyInfo(provider, forceRefresh = true) }
                 .onFailure { notices.emit(it.message ?: "OpenRouter key usage could not be refreshed") }
         }
     }
@@ -1325,6 +1331,9 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
     fun consumeProviderSetupRequest() {
         providerSetupRequested.value = false
     }
+
+    suspend fun discoverModels(provider: ProviderEntity, apiKey: String) =
+        container.modelDiscovery.discover(provider, apiKey)
 
     suspend fun discoverModels(kind: ProviderKind, baseUrl: String, apiKey: String, headers: String) =
         container.modelDiscovery.discover(kind, baseUrl, apiKey, headers)
