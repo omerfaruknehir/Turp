@@ -1,5 +1,6 @@
 package app.turp.chat.provider
 
+import app.turp.chat.data.ProviderEntity
 import app.turp.chat.data.ProviderKind
 
 /**
@@ -11,6 +12,20 @@ class AlibabaCloudModelDiscoveryService(
     private val delegate: ModelDiscoveryService,
 ) {
     constructor(oauth: OpenAiOAuthManager?) : this(ModelDiscoveryService(oauth))
+
+    suspend fun discover(
+        provider: ProviderEntity,
+        apiKey: String,
+    ): List<DiscoveredModel> {
+        val discovered = delegate.discover(provider, apiKey)
+        return when {
+            ModelRequestPolicy.isAlibabaModelStudio(provider) ->
+                discovered.map(AlibabaCloudModelPolicy::correct)
+            ModelRequestPolicy.isOpenCode(provider) ->
+                discovered.map { model -> ModelRequestPolicy.enrichOpenCodeModel(provider, model) }
+            else -> discovered
+        }
+    }
 
     suspend fun discover(
         kind: ProviderKind,
