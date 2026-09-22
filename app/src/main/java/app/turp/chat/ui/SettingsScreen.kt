@@ -2520,7 +2520,7 @@ private fun ChatOptionsEditor(
                 }
             }
             Text(
-                "Turp adds request-specific date, enabled-tool, research, memory, attachment, and generated-content instructions at runtime. Developer Options → System prompt laboratory can inspect and override those Turp-controlled layers and show their effective context. Provider/API-owned prompts that Turp never receives remain outside Turp's control.",
+                "Turp adds request-specific date, enabled-tool, research, memory, attachment, and generated-content instructions at runtime. Developer Options → System prompts lets you inspect and directly edit those Turp-controlled components and see the effective context. Provider/API-owned prompts that Turp never receives remain outside Turp's control.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
