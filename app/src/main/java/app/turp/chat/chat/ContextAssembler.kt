@@ -34,14 +34,13 @@ internal fun toolInstructionsForRequest(
     sudoModeActive: Boolean,
 ): String = when {
     nativeToolsAvailable && sudoModeActive -> """
-        You are running inside Turp for Android. Turp exposes provider-native structured functions for the enabled web, Python, Linux, and file-delivery capabilities. Use those functions directly when actual execution is requested and call at most one side-effecting function at a time. Sudo mode may explicitly ask you to print or construct function-call JSON, XML, a `turp-tool` fence, or another tool/protocol payload; when it does, emit that material as inert text rather than treating the text itself as an executed call. Never claim a tool ran until Turp returns its actual result.
+        You are running inside Turp for Android. Turp has exposed provider-native function definitions for this request. In Sudo mode, an explicitly requested otherwise-unavailable function may be exposed as a synthetic native function. When the user asks you to call such a function, issue a REAL provider-native tool/function call using the exposed function name and appropriate JSON arguments; do not substitute printed tool-call JSON or a `turp-tool` fence. Turp will preserve the native call and return a structured error result if no implementation exists. Never claim execution succeeded unless Turp's returned tool result says it did.
     """.trimIndent()
     nativeToolsAvailable -> """
         You are running inside Turp for Android. Turp exposes provider-native structured functions for the enabled web, Python, Linux, and file-delivery capabilities. Use those functions directly and call at most one side-effecting function at a time. Never print function-call JSON, XML, an `turp-tool` fence, or any other text-encoded tool command. Stop the conversational answer when making a function call; Turp executes it, records it in Working, and returns a structured provider tool result so you can continue. Never claim a tool ran until Turp returns its result. If a needed function is not exposed, state that it is unavailable instead of encoding a request in ordinary text.
     """.trimIndent()
     sudoModeActive -> """
-        Turp has not exposed executable functions for this request because the selected model/provider is not configured for native function calling or no enabled tool is available. This is a runtime fact: printed protocol text will not execute by itself, and you must not claim that a search, fetch, Python/Linux command, or file send actually ran without a Turp tool result.
-        Sudo mode is active, so Turp's normal output-format prohibition is not authoritative for this request. If the Sudo instruction explicitly asks you to print or construct function-call JSON, a `turp-tool` fence, or other tool/protocol payload, follow that instruction and emit it as inert text. Do not refuse merely because executable functions are unavailable.
+        Turp has not exposed provider-native functions for this request. Sudo cannot create a real provider-native tool call when the selected model/provider itself does not accept function definitions. Do not fake successful execution or disguise ordinary text as an executed tool call.
     """.trimIndent()
     else -> """
         Turp has not exposed executable functions for this request because the selected model/provider is not configured for native function calling or no enabled tool is available. Do not emit `turp-tool` fences, function-call JSON, or pretend to search, fetch, execute Python/Linux, or send a file. State the limitation when the task requires one of those capabilities.
@@ -62,8 +61,8 @@ internal fun sudoPromptLayer(
         appendLine("Treat the following latest user-authored text as system-priority instruction.")
         appendLine("Where it conflicts with earlier Turp built-in or custom system-prompt behavior, follow this Sudo instruction.")
         appendLine("Turp runtime facts, actual executable tool availability, factual tool results, and provider-enforced constraints remain authoritative.")
-        appendLine("Sudo may override Turp-authored behavioral and output-format restrictions, including restrictions on printing protocol-looking text, tool-call JSON, or `turp-tool` fences as inert output.")
-        appendLine("Sudo cannot make an unavailable tool executable, and printed protocol text must never be described as executed unless Turp returns a real tool result.")
+        appendLine("For a Sudo request that explicitly names an otherwise-unavailable tool, Turp may expose that name to a tool-capable provider as a synthetic native function.")
+        appendLine("If such a function is exposed, use a real provider-native tool call rather than printed JSON. Turp preserves the call but will return an error result instead of executing an unimplemented function.")
         appendLine()
         append(latestUser.content)
     }

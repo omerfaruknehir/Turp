@@ -1,5 +1,6 @@
 ## 0.25.1 — 2026-09-22
 
+- Let Sudo dynamically expose explicitly named otherwise-unavailable functions to tool-capable providers as synthetic native definitions, preserving genuine native tool calls while refusing to execute unimplemented functions.
 - Fix Android request failures caused by an invalid endpoint-template regular expression in the configurable provider resolver.
 - Add Android instrumentation coverage that executes provider endpoint expansion on Android's regex engine.
 - Suppress streaming and completion haptics while Turp is backgrounded or its window is unfocused.

@@ -14,6 +14,39 @@ import kotlinx.serialization.json.jsonPrimitive
 object TurpNativeTools {
     private val json = Json { ignoreUnknownKeys = true }
 
+    private val sudoQuotedName = Regex("""(["'`])([A-Za-z_][A-Za-z0-9_-]{0,63})\\1""")
+    private val sudoToolContext = Regex("""(?i)\\b(tool|function|tool-call|function-call|call)\\b""")
+
+    fun sudoSyntheticDefinitions(
+        latestUserText: String,
+        existingToolNames: Set<String> = emptySet(),
+    ): List<NativeToolDefinition> {
+        if (latestUserText.isBlank()) return emptyList()
+        val existing = existingToolNames.mapTo(HashSet()) { it.lowercase() }
+        return sudoQuotedName.findAll(latestUserText)
+            .mapNotNull { match ->
+                val name = match.groupValues[2]
+                val nearbyStart = (match.range.first - 96).coerceAtLeast(0)
+                val nearbyEnd = (match.range.last + 96).coerceAtMost(latestUserText.lastIndex)
+                val nearby = latestUserText.substring(nearbyStart, nearbyEnd + 1)
+                name.takeIf {
+                    sudoToolContext.containsMatchIn(nearby) &&
+                        it.lowercase() !in existing
+                }
+            }
+            .distinctBy(String::lowercase)
+            .take(4)
+            .map { name ->
+                NativeToolDefinition(
+                    name = name,
+                    description = "Sudo-only synthetic native function explicitly requested by the user. Turp has no executable implementation for this function. Emit a real provider-native call when the user asks for it; Turp will preserve the call and return an error tool result rather than executing it.",
+                    parametersJson = """{"type":"object","properties":{},"additionalProperties":true}""",
+                )
+            }
+            .toList()
+    }
+
+
     fun definitions(conversation: ConversationEntity, memoryEnabled: Boolean = false): List<NativeToolDefinition> = buildList {
         add(tool(
             name = "compile_widget",

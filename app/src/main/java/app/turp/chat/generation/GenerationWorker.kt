@@ -210,12 +210,28 @@ class GenerationWorker(
             repository.memoriesForContext(newest, conversation.id)
         } else emptyList()
         val webSearchSettings = container.appPreferences.webSearchSettings.value.normalized()
-        val nativeToolDefinitions = if (model.supportsTools && !directImageModel) {
+        val sudoModeAllowed = container.appPreferences.developerSettings.value.let {
+            it.enabled && it.sudoModeControlEnabled
+        }
+        val sudoModeActive = sudoModeAllowed && conversation.sudoModeEnabled
+        val latestUserText = newest.firstOrNull {
+            it.role == MessageRole.USER && it.content.isNotBlank()
+        }?.content.orEmpty()
+        val regularNativeToolDefinitions = if (model.supportsTools && !directImageModel) {
             TurpNativeTools.definitions(conversation, memoryEnabled = automationSettings.memoryEnabled)
                 .filterNot { tool ->
                     !webSearchSettings.pageFetchEnabled && tool.name.equals("web_fetch", ignoreCase = true)
                 }
         } else emptyList()
+        val sudoSyntheticToolDefinitions = if (model.supportsTools && sudoModeActive && !directImageModel) {
+            TurpNativeTools.sudoSyntheticDefinitions(
+                latestUserText = latestUserText,
+                existingToolNames = regularNativeToolDefinitions.mapTo(linkedSetOf()) { it.name },
+            )
+        } else emptyList()
+        val sudoSyntheticToolNames = sudoSyntheticToolDefinitions
+            .mapTo(linkedSetOf()) { it.name.lowercase() }
+        val nativeToolDefinitions = regularNativeToolDefinitions + sudoSyntheticToolDefinitions
         val messages = ContextAssembler(
             attachmentDao = container.database.attachmentDao(),
             appVersion = installedVersion.versionName,
@@ -230,9 +246,7 @@ class GenerationWorker(
             memoryEnabled = automationSettings.memoryEnabled,
             memoryAutoSave = automationSettings.memoryAutoSave,
             lessEmojiEnabled = container.appPreferences.lessEmojiEnabled.value,
-            sudoModeAllowed = container.appPreferences.developerSettings.value.let {
-                it.enabled && it.sudoModeControlEnabled
-            },
+            sudoModeAllowed = sudoModeAllowed,
         ).toMutableList()
         var nativeToolsDisabled = false
         val effectiveContinuation = continuation || initial.streamOffset > 0
@@ -1016,9 +1030,18 @@ class GenerationWorker(
                     nativeProviderPayloadJson = passNativePayload,
                 )
                 val results = calls.map { call ->
-                    val parsed = runCatching { TurpNativeTools.request(call) }
+                    val syntheticSudoCall = call.name.lowercase() in sudoSyntheticToolNames
+                    val parsed = if (syntheticSudoCall) {
+                        Result.failure(IllegalStateException("Sudo synthetic tool has no Turp implementation"))
+                    } else {
+                        runCatching { TurpNativeTools.request(call) }
+                    }
                     if (parsed.isFailure) {
-                        val rejection = "Turp rejected this tool call: ${parsed.exceptionOrNull()?.message ?: "invalid arguments"}"
+                        val rejection = if (syntheticSudoCall) {
+                            "Turp received the Sudo native tool call '${call.name}', but no executable implementation is registered for it. The call was preserved and was not executed."
+                        } else {
+                            "Turp rejected this tool call: ${parsed.exceptionOrNull()?.message ?: "invalid arguments"}"
+                        }
                         rejectPreparedToolCall(call, rejection)
                         NativeToolResult(
                             callId = call.id,
