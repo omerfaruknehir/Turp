@@ -16,7 +16,7 @@ object TurpNativeTools {
 
     private val sudoQuotedName = Regex("""["\'`]([A-Za-z_][A-Za-z0-9_-]{0,63})["\'`]""")
     private val sudoToolContext = Regex("""(?i)\b(tool|function|tool-call|function-call|call|invoke)\b""")
-    private val sudoUnquotedName = Regex("""(?i)\b(?:tool|function)(?:[- ]?call)?\s+(?:for\s+|named\s+|called\s+)?((?!(?:call|for|named|called)\b)[A-Za-z_][A-Za-z0-9_-]{0,63})\b""")
+    private val sudoUnquotedName = Regex("""(?i)\b(?:tool|function)(?:[- ]?call)?+\s+(?:(?:for|named|called)\s+)?+([A-Za-z_][A-Za-z0-9_-]{0,63})\b""")
 
     fun sudoSyntheticDefinitions(
         latestUserText: String,
