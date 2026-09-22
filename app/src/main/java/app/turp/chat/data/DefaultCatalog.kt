@@ -2,21 +2,23 @@ package app.turp.chat.data
 
 object DefaultCatalog {
     val providers = listOf(
-        ProviderEntity("deepseek", "DeepSeek", ProviderKind.OPENAI_COMPATIBLE, "https://api.deepseek.com"),
-        ProviderEntity("openai", "OpenAI", ProviderKind.OPENAI_COMPATIBLE, "https://api.openai.com/v1"),
-        ProviderEntity("openai-oauth", "ChatGPT account", ProviderKind.OPENAI_OAUTH, "https://chatgpt.com/backend-api/codex", apiKeyRequired = false),
-        ProviderEntity("anthropic", "Anthropic", ProviderKind.ANTHROPIC, "https://api.anthropic.com/v1"),
-        ProviderEntity("gemini", "Google Gemini", ProviderKind.GEMINI, "https://generativelanguage.googleapis.com/v1beta"),
-        ProviderEntity("openrouter", "OpenRouter", ProviderKind.OPENAI_COMPATIBLE, "https://openrouter.ai/api/v1"),
-        ProviderEntity("opencode-go", "OpenCode Go", ProviderKind.OPENAI_COMPATIBLE, "https://opencode.ai/zen/go/v1"),
-        ProviderEntity("opencode-zen", "OpenCode Zen", ProviderKind.OPENAI_COMPATIBLE, "https://opencode.ai/zen/v1"),
-        ProviderEntity("groq", "Groq", ProviderKind.OPENAI_COMPATIBLE, "https://api.groq.com/openai/v1"),
-        ProviderEntity("mistral", "Mistral", ProviderKind.OPENAI_COMPATIBLE, "https://api.mistral.ai/v1"),
-        ProviderEntity("xai", "xAI", ProviderKind.OPENAI_COMPATIBLE, "https://api.x.ai/v1"),
-        ProviderEntity("qwen-cloud", "Qwen Cloud", ProviderKind.OPENAI_COMPATIBLE, "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"),
-        ProviderEntity("generic", "OpenAI-compatible", ProviderKind.OPENAI_COMPATIBLE, "https://example.com/v1"),
-        ProviderEntity("ollama", "Ollama / llama.cpp / LM Studio", ProviderKind.OPENAI_COMPATIBLE, "http://127.0.0.1:11434/v1", apiKeyRequired = false),
+        ProviderEntity("deepseek", "DeepSeek", ProviderKind.OPENAI_COMPATIBLE, "https://api.deepseek.com", protocol = ProviderProtocol.OPENAI_COMPATIBLE, profile = ProviderProfile.DEEPSEEK),
+        ProviderEntity("openai", "OpenAI", ProviderKind.OPENAI_COMPATIBLE, "https://api.openai.com/v1", protocol = ProviderProtocol.OPENAI_COMPATIBLE, profile = ProviderProfile.OPENAI),
+        ProviderEntity("openai-oauth", "ChatGPT account", ProviderKind.OPENAI_OAUTH, "https://chatgpt.com/backend-api/codex", apiKeyRequired = false, protocol = ProviderProtocol.OPENAI_OAUTH, profile = ProviderProfile.OPENAI_OAUTH),
+        ProviderEntity("anthropic", "Anthropic", ProviderKind.ANTHROPIC, "https://api.anthropic.com/v1", protocol = ProviderProtocol.ANTHROPIC, profile = ProviderProfile.ANTHROPIC),
+        ProviderEntity("gemini", "Google Gemini", ProviderKind.GEMINI, "https://generativelanguage.googleapis.com/v1beta", protocol = ProviderProtocol.GEMINI, profile = ProviderProfile.GEMINI),
+        ProviderEntity("openrouter", "OpenRouter", ProviderKind.OPENAI_COMPATIBLE, "https://openrouter.ai/api/v1", protocol = ProviderProtocol.OPENAI_COMPATIBLE, profile = ProviderProfile.OPENROUTER),
+        ProviderEntity("opencode-v2", "OpenCode V2 server", ProviderKind.OPENAI_COMPATIBLE, "http://127.0.0.1:4096", apiKeyRequired = false, protocol = ProviderProtocol.OPENCODE_V2, profile = ProviderProfile.OPENCODE_V2),
+        ProviderEntity("opencode-go", "OpenCode Go", ProviderKind.OPENAI_COMPATIBLE, "https://opencode.ai/zen/go/v1", protocol = ProviderProtocol.OPENAI_COMPATIBLE, profile = ProviderProfile.OPENCODE_GO),
+        ProviderEntity("opencode-zen", "OpenCode Zen", ProviderKind.OPENAI_COMPATIBLE, "https://opencode.ai/zen/v1", protocol = ProviderProtocol.OPENAI_COMPATIBLE, profile = ProviderProfile.OPENCODE_ZEN),
+        ProviderEntity("groq", "Groq", ProviderKind.OPENAI_COMPATIBLE, "https://api.groq.com/openai/v1", protocol = ProviderProtocol.OPENAI_COMPATIBLE, profile = ProviderProfile.GROQ),
+        ProviderEntity("mistral", "Mistral", ProviderKind.OPENAI_COMPATIBLE, "https://api.mistral.ai/v1", protocol = ProviderProtocol.OPENAI_COMPATIBLE, profile = ProviderProfile.MISTRAL),
+        ProviderEntity("xai", "xAI", ProviderKind.OPENAI_COMPATIBLE, "https://api.x.ai/v1", protocol = ProviderProtocol.OPENAI_COMPATIBLE, profile = ProviderProfile.XAI),
+        ProviderEntity("qwen-cloud", "Qwen Cloud", ProviderKind.OPENAI_COMPATIBLE, "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", protocol = ProviderProtocol.OPENAI_COMPATIBLE, profile = ProviderProfile.QWEN_CLOUD),
+        ProviderEntity("generic", "OpenAI-compatible", ProviderKind.OPENAI_COMPATIBLE, "https://example.com/v1", protocol = ProviderProtocol.OPENAI_COMPATIBLE, profile = ProviderProfile.GENERIC),
+        ProviderEntity("ollama", "Ollama / llama.cpp / LM Studio", ProviderKind.OPENAI_COMPATIBLE, "http://127.0.0.1:11434/v1", apiKeyRequired = false, protocol = ProviderProtocol.OPENAI_COMPATIBLE, profile = ProviderProfile.OLLAMA),
     )
+
 
     // Prices are USD per million tokens, verified against DeepSeek's API pricing page on 2026-07-16.
     val models = listOf(
