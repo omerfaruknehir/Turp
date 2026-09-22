@@ -307,8 +307,10 @@ class ModelDiscoveryService(
         return null
     }
 
+    // OpenRouter advertises catalog pricing as USD per token. Turp persists model
+    // pricing as USD per million tokens, so fractional token prices are normalized here.
     private fun JsonObject?.pricePerMillion(name: String): Double? = this?.get(name)
-        ?.jsonPrimitive?.doubleOrNull?.takeIf { it >= 0.0 }?.times(1_000_000.0)
+        ?.jsonPrimitive?.doubleOrNull?.takeIf { it >= 0.0 }?.times(TOKENS_PER_MILLION)
 
     private fun JsonObject.int(vararg names: String): Int? {
         names.forEach { name -> this[name]?.jsonPrimitive?.intOrNull?.let { return it } }
@@ -343,6 +345,7 @@ class ModelDiscoveryService(
     }
 
     private companion object {
+        const val TOKENS_PER_MILLION = 1_000_000.0
         const val MAX_MODELS = 1_000
         const val MAX_PAGES = 10
         const val MAX_DISCOVERY_BYTES = 2L * 1024 * 1024
