@@ -33,17 +33,31 @@ class AnthropicProvider(
             .also { builder -> request.customHeaders.forEach(builder::header) }
             .build()
         val state = AnthropicStreamState()
-        DeveloperHttpTraceStore.record(request.developerTraceId, httpRequest)
-        client.newCall(httpRequest).useCancellable { response ->
-            if (!response.isSuccessful) throw ProviderHttpException(response.code, response.body?.readErrorSnippet().orEmpty())
-            val source = response.body?.source() ?: error("Provider returned an empty response")
-            while (!source.exhausted()) {
-                coroutineContext.ensureActive()
-                val line = source.readUtf8Line() ?: break
-                if (!line.startsWith("data:")) continue
-                val payload = line.removePrefix("data:").trim()
-                parseChunk(payload, state)?.let { emit(it) }
+        val exchangeId = DeveloperHttpTraceStore.record(request, httpRequest, "ANTHROPIC")
+        var traceError: String? = null
+        try {
+            client.newCall(httpRequest).useCancellable { response ->
+                DeveloperHttpTraceStore.responseStarted(exchangeId, response)
+                if (!response.isSuccessful) {
+                    val error = response.body?.readErrorSnippet().orEmpty()
+                    DeveloperHttpTraceStore.appendResponse(exchangeId, error)
+                    throw ProviderHttpException(response.code, error)
+                }
+                val source = response.body?.source() ?: error("Provider returned an empty response")
+                while (!source.exhausted()) {
+                    coroutineContext.ensureActive()
+                    val line = source.readUtf8Line() ?: break
+                    DeveloperHttpTraceStore.appendResponse(exchangeId, line + "\n")
+                    if (!line.startsWith("data:")) continue
+                    val payload = line.removePrefix("data:").trim()
+                    parseChunk(payload, state)?.let { emit(it) }
+                }
             }
+        } catch (error: Throwable) {
+            traceError = error.message
+            throw error
+        } finally {
+            DeveloperHttpTraceStore.complete(exchangeId, traceError)
         }
         state.finalChunk()?.let { emit(it) }
         }
