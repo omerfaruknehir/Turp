@@ -15,7 +15,8 @@ object TurpNativeTools {
     private val json = Json { ignoreUnknownKeys = true }
 
     private val sudoQuotedName = Regex("""["\'`]([A-Za-z_][A-Za-z0-9_-]{0,63})["\'`]""")
-    private val sudoToolContext = Regex("""(?i)\b(tool|function|tool-call|function-call|call)\b""")
+    private val sudoToolContext = Regex("""(?i)\b(tool|function|tool-call|function-call|call|invoke)\b""")
+    private val sudoUnquotedName = Regex("""(?i)\b(?:tool|function)(?:[- ]?call)?\s+(?:for\s+|named\s+|called\s+)?([A-Za-z_][A-Za-z0-9_-]{0,63})\b""")
 
     fun sudoSyntheticDefinitions(
         latestUserText: String,
@@ -23,17 +24,17 @@ object TurpNativeTools {
     ): List<NativeToolDefinition> {
         if (latestUserText.isBlank()) return emptyList()
         val existing = existingToolNames.mapTo(HashSet()) { it.lowercase() }
-        return sudoQuotedName.findAll(latestUserText)
-            .mapNotNull { match ->
-                val name = match.groupValues[1]
+        val candidates = buildList {
+            sudoUnquotedName.findAll(latestUserText).forEach { match -> add(match.groupValues[1]) }
+            sudoQuotedName.findAll(latestUserText).forEach { match ->
                 val nearbyStart = (match.range.first - 96).coerceAtLeast(0)
                 val nearbyEnd = (match.range.last + 96).coerceAtMost(latestUserText.lastIndex)
                 val nearby = latestUserText.substring(nearbyStart, nearbyEnd + 1)
-                name.takeIf {
-                    sudoToolContext.containsMatchIn(nearby) &&
-                        it.lowercase() !in existing
-                }
+                if (sudoToolContext.containsMatchIn(nearby)) add(match.groupValues[1])
             }
+        }
+        return candidates.asSequence()
+            .filter { it.lowercase() !in existing }
             .distinctBy(String::lowercase)
             .take(4)
             .map { name ->
