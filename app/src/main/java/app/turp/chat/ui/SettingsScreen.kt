@@ -2322,7 +2322,7 @@ private fun ChatOptionsEditor(
                 }
             }
             Text(
-                "Turp adds request-specific date, enabled-tool, research, memory, attachment, and generated-content instructions at runtime. Those dynamic layers are not editable either and are not presented as one misleading static block.",
+                "Turp adds request-specific date, enabled-tool, research, memory, attachment, and generated-content instructions at runtime. Developer Options → System prompt laboratory can inspect and override those Turp-controlled layers and show their effective context. Provider/API-owned prompts that Turp never receives remain outside Turp's control.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

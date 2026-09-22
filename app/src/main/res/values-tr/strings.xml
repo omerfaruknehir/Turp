@@ -1158,7 +1158,7 @@
     <string name="ui_copy_workspace_4ca0a75c" formatted="false">Çalışma alanı</string>
     <string name="ui_copy_writing_report_37d1a667" formatted="false">Rapor yazılıyor</string>
     <string name="ui_copy_writing_source_request_3021661d" formatted="false">Kaynak isteği yazılıyor…</string>
-    <string name="ui_copy_turp_adds_request_specific_date_enabled__388d9dd8" formatted="false">Turp çalışma zamanında isteğe özel tarih, etkin araç, araştırma, hafıza, ek ve oluşturulan içerik talimatları ekler. Bu dinamik katmanlar da düzenlenemez ve yanıltıcı tek bir statik blok olarak sunulmaz.</string>
+    <string name="ui_copy_turp_adds_request_specific_date_enabled__388d9dd8" formatted="false">Turp çalışma zamanında isteğe özel tarih, etkin araç, araştırma, hafıza, ek ve oluşturulan içerik talimatları ekler. Geliştirici Seçenekleri → Sistem istemi laboratuvarı bu Turp denetimli katmanları inceleyip geçersiz kılabilir ve etkili bağlamlarını gösterebilir. Turp\'un hiç almadığı sağlayıcı/API kaynaklı istemler Turp'un kontrolü dışındadır.</string>
     <string name="ui_copy_turp_asks_for_the_non_sensitive_drive_ap_1514dc2b" formatted="false">Turp yalnızca hassas olmayan drive.appdata kapsamını ister. Yedek dosyaları normal Drive gezintisinden ve diğer uygulamalardan gizli kalır.</string>
     <string name="ui_copy_turp_cannot_send_messages_until_chatgpt__31d3179a" formatted="false">ChatGPT, bir API sağlayıcısı veya yerel model sunucusu bağlanana kadar Turp mesaj gönderemez.</string>
     <string name="ui_copy_turp_chat_cb1f11e8" formatted="false">Turp sohbeti</string>
