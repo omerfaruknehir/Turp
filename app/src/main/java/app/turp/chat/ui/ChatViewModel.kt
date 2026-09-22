@@ -1164,6 +1164,8 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
         val validatedUrl = ProviderEndpointPolicy.validate(provider.baseUrl)
         parseHeaders(provider.customHeadersJson)
         container.secureStore.setApiKey(provider.id, apiKey)
+        if (ModelRequestPolicy.isOpenCode(provider)) container.openCode.clear(provider.id)
+        if (ModelRequestPolicy.isOpenRouter(provider)) container.openRouter.clear(provider.id)
         container.repository.saveProvider(provider.copy(baseUrl = validatedUrl, registered = true))
         _credentialRevision.value++
     }
@@ -1172,6 +1174,7 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
         if (provider.kind == ProviderKind.OPENAI_OAUTH) container.openAiOAuth.signOut(provider.id)
         container.secureStore.setApiKey(provider.id, "")
         if (ModelRequestPolicy.isOpenCode(provider)) container.openCode.clear(provider.id)
+        if (ModelRequestPolicy.isOpenRouter(provider)) container.openRouter.clear(provider.id)
         container.repository.saveProvider(provider.copy(registered = false))
         _credentialRevision.value++
         notices.emit("Removed ${provider.displayName} credentials")
