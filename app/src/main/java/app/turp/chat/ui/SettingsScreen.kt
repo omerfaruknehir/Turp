@@ -3505,7 +3505,7 @@ private fun ProviderEditor(
                 supportingText = {
                     Text(
                         if (endpointOverridesValid) {
-                            """Relative paths use the base URL. Example: {"models":"models","account":"key"}"""
+                            """Relative paths use the base URL. Keys: models, chat, responses, messages, geminiStream, images, imageModels, account, info, providers, generate."""
                         } else {
                             "Must be a JSON object whose values are endpoint paths or absolute URLs."
                         },
@@ -3804,7 +3804,7 @@ private fun AddProviderDialog(
                     label = { Text("Endpoint overrides JSON") },
                     supportingText = {
                         Text(
-                            if (endpointOverridesValid) """Optional. Example: {"models":"models","account":"key"}"""
+                            if (endpointOverridesValid) """Optional keys: models, chat, responses, messages, geminiStream, images, imageModels, account, info, providers, generate."""
                             else "Must be a JSON object whose values are endpoint paths or absolute URLs.",
                         )
                     },
