@@ -2889,6 +2889,162 @@ private fun ChatGptOAuthCard(
 }
 
 @Composable
+private fun OpenRouterKeyUsagePanel(
+    state: OpenRouterKeyState,
+    onRefresh: () -> Unit,
+) {
+    val snapshot = when (state) {
+        is OpenRouterKeyState.Loaded -> state.snapshot
+        is OpenRouterKeyState.Loading -> state.previous
+        is OpenRouterKeyState.Error -> state.previous
+        OpenRouterKeyState.Unavailable -> null
+    }
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = .72f),
+        shape = MaterialTheme.shapes.large,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("OpenRouter key usage", fontWeight = FontWeight.SemiBold)
+                    Text(
+                        buildString {
+                            snapshot?.label?.takeIf(String::isNotBlank)?.let { append(it).append(" • ") }
+                            append(if (snapshot?.isFreeTier == true) "free tier" else "server-reported limits")
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (state is OpenRouterKeyState.Loading) {
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                }
+                IconButton(onClick = onRefresh, enabled = state !is OpenRouterKeyState.Loading) {
+                    Icon(Icons.Outlined.Refresh, "Refresh OpenRouter key usage")
+                }
+            }
+            if (snapshot == null) {
+                when (state) {
+                    is OpenRouterKeyState.Error -> Text(
+                        state.message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    OpenRouterKeyState.Unavailable -> Text(
+                        "Add an OpenRouter API key to load its usage and limits.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    else -> LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
+            } else {
+                OpenRouterLimitSummary(snapshot)
+                val usageValues = listOfNotNull(
+                    snapshot.usageUsd?.let { "Total" to it },
+                    snapshot.usageDailyUsd?.let { "Today" to it },
+                    snapshot.usageWeeklyUsd?.let { "This week" to it },
+                    snapshot.usageMonthlyUsd?.let { "This month" to it },
+                )
+                if (usageValues.isNotEmpty()) {
+                    usageValues.forEach { (label, value) -> OpenRouterMoneyRow(label, value) }
+                }
+                val byokValues = listOfNotNull(
+                    snapshot.byokUsageUsd?.takeIf { it > 0.0 }?.let { "BYOK total" to it },
+                    snapshot.byokUsageDailyUsd?.takeIf { it > 0.0 }?.let { "BYOK today" to it },
+                )
+                byokValues.forEach { (label, value) -> OpenRouterMoneyRow(label, value) }
+                if (byokValues.isNotEmpty()) {
+                    Text(
+                        if (snapshot.includeByokInLimit == true) "BYOK usage counts toward this key limit."
+                        else "BYOK usage is reported separately from this key limit.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                snapshot.freeModelDailyRequests?.let { allowance ->
+                    val total = allowance.limit
+                    val remaining = allowance.remaining
+                    Text(
+                        buildString {
+                            append("Free-model requests")
+                            if (remaining != null && total != null) append(": ").append(remaining).append(" / ").append(total).append(" left")
+                            else if (remaining != null) append(": ").append(remaining).append(" left")
+                            else if (allowance.used != null) append(": ").append(allowance.used).append(" used today")
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                if (snapshot.allowedDataRegions.isNotEmpty()) {
+                    Text(
+                        "Allowed data regions: " + snapshot.allowedDataRegions.joinToString(", "),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                snapshot.expiresAtEpochSeconds?.let { expires ->
+                    Text(
+                        "Key expires: " + DateFormat.getDateTimeInstance().format(Date(expires * 1_000L)),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (state is OpenRouterKeyState.Error) {
+                    Text(
+                        "Refresh failed • " + state.message,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OpenRouterLimitSummary(snapshot: OpenRouterKeySnapshot) {
+    val limit = snapshot.limitUsd
+    val remaining = snapshot.limitRemainingUsd
+    if (limit == null) {
+        Text(
+            "No spending cap is reported for this API key.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        return
+    }
+    val remainingValue = remaining?.coerceIn(0.0, limit)
+    val used = if (remainingValue != null) (limit - remainingValue).coerceIn(0.0, limit) else snapshot.usageUsd?.coerceAtLeast(0.0)
+    val fraction = if (limit > 0.0 && used != null) (used / limit).coerceIn(0.0, 1.0).toFloat() else 0f
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text("Key spending limit", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+        Text(
+            remainingValue?.let { formatOpenRouterUsd(it) + " left" } ?: formatOpenRouterUsd(limit),
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
+    LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
+    Text(
+        buildString {
+            append(used?.let(::formatOpenRouterUsd) ?: "Unknown").append(" used of ").append(formatOpenRouterUsd(limit))
+            snapshot.limitReset?.takeIf(String::isNotBlank)?.let { append(" • reset ").append(it) }
+        },
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+@Composable
+private fun OpenRouterMoneyRow(label: String, value: Double) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(label, style = MaterialTheme.typography.bodySmall)
+        Text(formatOpenRouterUsd(value), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+    }
+}
+
+private fun formatOpenRouterUsd(value: Double): String =
+    String.format(Locale.US, "$%.4f", value).trimEnd('0').trimEnd('.')
+@Composable
 private fun OpenCodeUsagePanel(
     state: OpenCodeUsageState,
     onRefresh: () -> Unit,
