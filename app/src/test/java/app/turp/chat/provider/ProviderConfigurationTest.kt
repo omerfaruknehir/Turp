@@ -88,6 +88,62 @@ class ProviderConfigurationTest {
     }
 
     @Test
+    fun `secondary transport endpoints can be independently overridden`() {
+        val provider = ProviderEntity(
+            id = "router-anywhere",
+            displayName = "Router proxy",
+            kind = ProviderKind.OPENAI_COMPATIBLE,
+            baseUrl = "https://proxy.example.test/root",
+            protocol = ProviderProtocol.OPENAI_COMPATIBLE,
+            profile = ProviderProfile.OPENROUTER,
+            endpointOverridesJson = """
+                {
+                  "responses": "rpc/responses",
+                  "messages": "https://messages.example.test/v2",
+                  "geminiStream": "gemini/{model}:stream?alt=sse"
+                }
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            "https://proxy.example.test/root/rpc/responses",
+            ProviderEndpointResolver.resolve(provider, ProviderEndpointKey.RESPONSES),
+        )
+        assertEquals(
+            "https://messages.example.test/v2",
+            ProviderEndpointResolver.resolve(provider, ProviderEndpointKey.MESSAGES),
+        )
+        assertEquals(
+            "https://proxy.example.test/root/gemini/gemini-test:stream?alt=sse",
+            ProviderEndpointResolver.resolve(
+                provider,
+                ProviderEndpointKey.GEMINI_STREAM,
+                mapOf("model" to "gemini-test"),
+            ),
+        )
+    }
+
+    @Test
+    fun `explicit profile controls behavior even when hostname suggests another provider`() {
+        val genericAtRouterHost = ProviderEntity(
+            id = "manual-generic",
+            displayName = "Generic proxy",
+            kind = ProviderKind.OPENAI_COMPATIBLE,
+            baseUrl = "https://openrouter.ai/api/v1",
+            protocol = ProviderProtocol.OPENAI_COMPATIBLE,
+            profile = ProviderProfile.GENERIC,
+        )
+        val routerAtCustomHost = genericAtRouterHost.copy(
+            id = "manual-router",
+            baseUrl = "https://llm.example.test/v1",
+            profile = ProviderProfile.OPENROUTER,
+        )
+
+        assertFalse(ModelRequestPolicy.isOpenRouter(genericAtRouterHost))
+        assertTrue(ModelRequestPolicy.isOpenRouter(routerAtCustomHost))
+    }
+
+    @Test
     fun `OpenCode V2 server endpoints resolve against configured base`() {
         val provider = ProviderEntity(
             id = "remote-opencode",
