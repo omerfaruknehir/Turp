@@ -46,16 +46,17 @@ class OpenCodeDirectIntegrationTest {
     fun `model discovery enriches native OpenCode lists`() {
         val discovery = File("src/main/java/app/turp/chat/provider/ModelDiscoveryService.kt").readText()
 
-        assertTrue(discovery.contains("ModelRequestPolicy.isOpenCodeGoBaseUrl(baseUrl)"))
-        assertTrue(discovery.contains("ModelRequestPolicy.isOpenCodeZenBaseUrl(baseUrl)"))
-        assertTrue(discovery.contains("ModelRequestPolicy.enrichOpenCodeModel(providerId, baseUrl, model)"))
+        assertTrue(discovery.contains("ModelRequestPolicy.isOpenCodeGo"))
+        assertTrue(discovery.contains("ModelRequestPolicy.isOpenCodeZen"))
+        assertTrue(discovery.contains("ModelRequestPolicy.enrichOpenCodeModel(configuredProvider, model)"))
     }
 
     @Test
     fun `go usage uses the native usage endpoint`() {
         val manager = File("src/main/java/app/turp/chat/provider/OpenCodeManager.kt").readText()
 
-        assertTrue(manager.contains("https://opencode.ai/zen/go/v1/usage"))
+        assertTrue(manager.contains("ProviderEndpointKey.ACCOUNT"))
+        assertFalse(manager.contains("https://opencode.ai/zen/go/v1/usage"))
         assertTrue(manager.contains("Authorization"))
         assertTrue(manager.contains("Bearer "))
         assertTrue(manager.contains("rolling"))
