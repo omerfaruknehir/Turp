@@ -1,3 +1,13 @@
+## 0.25.0 — 2026-09-22
+
+- Separate provider wire protocol from provider profile so provider-specific behavior works through arbitrary proxy and self-hosted base URLs.
+- Add editable endpoint overrides for discovery, chat/Responses/Messages/Gemini, images, account usage, and OpenCode server APIs.
+- Add first-class OpenCode V2 server support while retaining direct OpenCode Go and Zen gateway profiles.
+- Expand OpenRouter limits, usage, metadata, reasoning, image discovery, pricing normalization, and proxy support.
+- Refine Turp's neutral theme, preserve Arbor as a distinct green identity, and keep launcher icon application explicit.
+- Stabilize the model picker while preserving native gestures and scrolling, and improve rich Markdown/source inspection.
+- Add Room/provider migrations and regression coverage for the new configurable-provider architecture and UI behavior.
+
 ## 0.24.10 — 2026-08-06
 
 - Add first-class Qwen Cloud / Alibaba Cloud Model Studio support with a ready-to-edit international endpoint and bundled Qwen3.7/Qwen3.6 models.
