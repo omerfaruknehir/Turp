@@ -108,6 +108,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
@@ -372,6 +373,7 @@ private fun SettingsHome(
     onOpen: (SettingsRoute) -> Unit,
 ) = SettingsPage {
     val context = LocalContext.current
+    val configuration = LocalConfiguration.current
     val selectedLanguageLabel = when (currentAppLanguage(context)) {
         AppLanguage.SYSTEM -> stringResource(R.string.language_system)
         AppLanguage.ENGLISH -> stringResource(R.string.language_english)
@@ -2018,7 +2020,7 @@ private fun AboutSettingsPage(
                     }
                 }
                 is RepositoryUpdateState.Ahead -> {
-                    val isTurkish = context.resources.configuration.locales[0].language.equals("tr", ignoreCase = true)
+                    val isTurkish = configuration.locales[0].language.equals("tr", ignoreCase = true)
                     Text(
                         if (isTurkish) "Trup daha güncel!?" else "Trup is upper to date!?",
                         fontWeight = FontWeight.SemiBold,
