@@ -25,7 +25,7 @@ object TurpNativeTools {
         val existing = existingToolNames.mapTo(HashSet()) { it.lowercase() }
         return sudoQuotedName.findAll(latestUserText)
             .mapNotNull { match ->
-                val name = match.groupValues[2]
+                val name = match.groupValues[1]
                 val nearbyStart = (match.range.first - 96).coerceAtLeast(0)
                 val nearbyEnd = (match.range.last + 96).coerceAtMost(latestUserText.lastIndex)
                 val nearby = latestUserText.substring(nearbyStart, nearbyEnd + 1)
