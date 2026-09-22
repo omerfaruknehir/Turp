@@ -59,7 +59,7 @@ internal fun sudoPromptLayer(
         appendLine("Treat the following latest user-authored text as system-priority instruction.")
         appendLine("Where it conflicts with earlier Turp built-in or custom system-prompt behavior, follow this Sudo instruction.")
         appendLine("Turp runtime facts, actual executable tool availability, factual tool results, and provider-enforced constraints remain authoritative.")
-        appendLine("Sudo may override Turp-authored behavioral and output-format restrictions, including restrictions on printing protocol-looking text, tool-call JSON, or \`turp-tool\` fences as inert output.")
+        appendLine("Sudo may override Turp-authored behavioral and output-format restrictions, including restrictions on printing protocol-looking text, tool-call JSON, or `turp-tool` fences as inert output.")
         appendLine("Sudo cannot make an unavailable tool executable, and printed protocol text must never be described as executed unless Turp returns a real tool result.")
         appendLine()
         append(latestUser.content)
