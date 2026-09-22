@@ -63,6 +63,7 @@ data class DeveloperSettings(
     val enabled: Boolean = false,
     val demoModeEnabled: Boolean = false,
     val showMessageSourceEnabled: Boolean = false,
+    val showHttpRequestEnabled: Boolean = false,
     val sudoModeControlEnabled: Boolean = false,
     val toolDiagnosticsEnabled: Boolean = false,
     val performanceOverlayEnabled: Boolean = false,
@@ -347,6 +348,7 @@ class AppPreferences(context: Context) {
             putBoolean(KEY_DEVELOPER_ENABLED, normalized.enabled)
             putBoolean(KEY_DEMO_MODE_ENABLED, normalized.demoModeEnabled)
             putBoolean(KEY_SHOW_MESSAGE_SOURCE_ENABLED, normalized.showMessageSourceEnabled)
+            putBoolean(KEY_SHOW_HTTP_REQUEST_ENABLED, normalized.showHttpRequestEnabled)
             putBoolean(KEY_SUDO_MODE_CONTROL_ENABLED, normalized.sudoModeControlEnabled)
             putBoolean(KEY_TOOL_DIAGNOSTICS_ENABLED, normalized.toolDiagnosticsEnabled)
             putBoolean(KEY_PERFORMANCE_OVERLAY_ENABLED, normalized.performanceOverlayEnabled)
@@ -447,6 +449,7 @@ class AppPreferences(context: Context) {
         enabled = preferences.getBoolean(KEY_DEVELOPER_ENABLED, false),
         demoModeEnabled = BuildConfig.DEBUG && preferences.getBoolean(KEY_DEMO_MODE_ENABLED, false),
         showMessageSourceEnabled = preferences.getBoolean(KEY_SHOW_MESSAGE_SOURCE_ENABLED, false),
+        showHttpRequestEnabled = preferences.getBoolean(KEY_SHOW_HTTP_REQUEST_ENABLED, false),
         sudoModeControlEnabled = preferences.getBoolean(KEY_SUDO_MODE_CONTROL_ENABLED, false),
         toolDiagnosticsEnabled = preferences.getBoolean(KEY_TOOL_DIAGNOSTICS_ENABLED, false),
         performanceOverlayEnabled = preferences.getBoolean(KEY_PERFORMANCE_OVERLAY_ENABLED, false),
@@ -524,6 +527,7 @@ class AppPreferences(context: Context) {
         const val KEY_DEVELOPER_ENABLED = "developer_settings_enabled"
         const val KEY_DEMO_MODE_ENABLED = "demo_mode_enabled"
         const val KEY_SHOW_MESSAGE_SOURCE_ENABLED = "show_message_source_enabled"
+        const val KEY_SHOW_HTTP_REQUEST_ENABLED = "show_http_request_enabled"
         const val KEY_SUDO_MODE_CONTROL_ENABLED = "sudo_mode_control_enabled"
         const val KEY_TOOL_DIAGNOSTICS_ENABLED = "tool_diagnostics_enabled"
         const val KEY_DEVELOPER_PROMPT_OVERRIDES_ENABLED = "developer_prompt_overrides_enabled"

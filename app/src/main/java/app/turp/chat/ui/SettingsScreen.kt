@@ -65,6 +65,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -158,6 +159,10 @@ import app.turp.chat.settings.CHROME_EDGE_SOFTNESS_ROUNDED_SNAP_POINT
 import app.turp.chat.settings.ColorPalette
 import app.turp.chat.settings.LauncherIconManager
 import app.turp.chat.settings.DeveloperSettings
+import app.turp.chat.settings.DEVELOPER_PROMPT_DEFAULT_TOKEN
+import app.turp.chat.settings.DeveloperPromptTraceStore
+import app.turp.chat.settings.DeveloperPromptOverrides
+import app.turp.chat.settings.DeveloperPromptKey
 import app.turp.chat.settings.PerformanceOverlayPosition
 import app.turp.chat.settings.NewChatDefaults
 import app.turp.chat.settings.DEFAULT_TURP_SYSTEM_PROMPT
@@ -214,6 +219,7 @@ fun SettingsScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
     val automaticUpdateChecks by viewModel.automaticUpdateChecks.collectAsState()
     val generatedRepairMaxAttempts by viewModel.generatedRepairMaxAttempts.collectAsState()
     val developerSettings by viewModel.developerSettings.collectAsState()
+    val developerPromptOverrides by viewModel.developerPromptOverrides.collectAsState()
     val providerSetupRequested by viewModel.providerSetupRequested.collectAsState()
     val setupTemporarilyAway by viewModel.setupTemporarilyAway.collectAsState()
     val setupDismissed by viewModel.setupDismissed.collectAsState()
@@ -329,7 +335,7 @@ fun SettingsScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
                         )
                         SettingsRoute.BACKUP -> BackupSettingsPage(viewModel)
                         SettingsRoute.LOCAL_EXECUTION -> LocalCodeExecutionSettingsPage(defaults, automation, configuredProviders, viewModel)
-                        SettingsRoute.DEVELOPER -> DeveloperSettingsPage(developerSettings, viewModel)
+                        SettingsRoute.DEVELOPER -> DeveloperSettingsPage(developerSettings, developerPromptOverrides, viewModel)
                         SettingsRoute.SYSTEM_PROMPTS -> SystemPromptProfilesPage(promptProfiles, defaults.systemPromptProfileId, viewModel)
                         SettingsRoute.PROVIDERS -> ProviderSettings(
                             providers = providers,
@@ -1466,6 +1472,7 @@ private fun LocalCodeExecutionSettingsPage(
 @Composable
 private fun DeveloperSettingsPage(
     settings: DeveloperSettings,
+    promptOverrides: DeveloperPromptOverrides,
     viewModel: ChatViewModel,
 ) = SettingsPage {
     SectionTitle(
@@ -1514,7 +1521,21 @@ private fun DeveloperSettingsPage(
         enabled = settings.enabled,
     )
     Text(
-        "Adds a Source / Rendered control to every message. Source mode shows the raw stored message.content without Markdown rendering.",
+        "Adds a Source / Rendered control to messages. Source mode shows stored content, provider-returned reasoning, tool diagnostics, request metadata, and—when enabled below—the redacted direct HTTP request.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+
+    SettingsSwitch(
+        label = "Show direct HTTP request",
+        checked = settings.showHttpRequestEnabled,
+        onCheckedChange = { enabled ->
+            viewModel.updateDeveloperSettings { it.copy(showHttpRequestEnabled = enabled) }
+        },
+        enabled = settings.enabled && settings.showMessageSourceEnabled,
+    )
+    Text(
+        "Captures the final provider request for each message after endpoint/profile/tool/prompt processing. Authorization, cookies, API keys, tokens, passwords, and secret-like fields are redacted before display.",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
@@ -1556,6 +1577,121 @@ private fun DeveloperSettingsPage(
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
+
+    HorizontalDivider()
+    SectionTitle(
+        "System prompt laboratory",
+        "Edit every Turp-authored system-prompt layer. Changes apply to subsequent model requests while developer overrides are enabled.",
+    )
+    SettingsSwitch(
+        label = "Enable system prompt overrides",
+        checked = promptOverrides.enabled,
+        onCheckedChange = viewModel::setDeveloperPromptOverridesEnabled,
+        enabled = settings.enabled,
+    )
+    Text(
+        "Each entry defaults to $DEVELOPER_PROMPT_DEFAULT_TOKEN. Replace it to fully override that layer, include $DEVELOPER_PROMPT_DEFAULT_TOKEN inside custom text to wrap the built-in value, or save an empty value to remove that layer. “Every final system message” is the catch-all applied last.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+
+    var selectedPromptKeyName by rememberSaveable { mutableStateOf(DeveloperPromptKey.CORE_PROMPT.name) }
+    var promptMenuExpanded by remember { mutableStateOf(false) }
+    val selectedPromptKey = DeveloperPromptKey.entries.firstOrNull { it.name == selectedPromptKeyName }
+        ?: DeveloperPromptKey.CORE_PROMPT
+
+    Box(Modifier.fillMaxWidth()) {
+        OutlinedButton(
+            onClick = { promptMenuExpanded = true },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = settings.enabled,
+        ) {
+            Text(selectedPromptKey.title, Modifier.weight(1f))
+            Icon(Icons.Outlined.ExpandMore, null)
+        }
+        DropdownMenu(
+            expanded = promptMenuExpanded,
+            onDismissRequest = { promptMenuExpanded = false },
+        ) {
+            DeveloperPromptKey.entries.forEach { key ->
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text(key.title, fontWeight = FontWeight.Medium)
+                            Text(
+                                key.id,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    },
+                    onClick = {
+                        selectedPromptKeyName = key.name
+                        promptMenuExpanded = false
+                    },
+                )
+            }
+        }
+    }
+    Text(
+        selectedPromptKey.description,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    OutlinedTextField(
+        value = promptOverrides.editValue(selectedPromptKey),
+        onValueChange = { viewModel.setDeveloperPromptOverride(selectedPromptKey, it) },
+        label = { Text(selectedPromptKey.title) },
+        supportingText = {
+            Text(
+                if (promptOverrides.hasOverride(selectedPromptKey)) "Custom value saved"
+                else "Built-in default via $DEVELOPER_PROMPT_DEFAULT_TOKEN",
+            )
+        },
+        enabled = settings.enabled && promptOverrides.enabled,
+        minLines = 8,
+        maxLines = 24,
+        modifier = Modifier.fillMaxWidth(),
+        textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+    )
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        OutlinedButton(
+            onClick = { viewModel.setDeveloperPromptOverride(selectedPromptKey, null) },
+            enabled = settings.enabled && promptOverrides.hasOverride(selectedPromptKey),
+            modifier = Modifier.weight(1f),
+        ) {
+            Text("Reset selected")
+        }
+        OutlinedButton(
+            onClick = viewModel::resetDeveloperPromptOverrides,
+            enabled = settings.enabled && promptOverrides.values.isNotEmpty(),
+            modifier = Modifier.weight(1f),
+        ) {
+            Text("Reset all")
+        }
+    }
+
+    val latestPromptTrace by DeveloperPromptTraceStore.latest.collectAsState()
+    latestPromptTrace?.let { trace ->
+        Text(
+            "Last assembled request · ${trace.systemMessages.size} system message${if (trace.systemMessages.size == 1) "" else "s"}",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+        )
+        SelectionContainer {
+            Text(
+                trace.systemMessages.mapIndexed { index, value ->
+                    "[SYSTEM ${index + 1}]\n$value"
+                }.joinToString("\n\n"),
+                style = MaterialTheme.typography.bodySmall,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()),
+            )
+        }
+    }
 
     HorizontalDivider()
     SectionTitle(

@@ -209,6 +209,8 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
     val automaticUpdateChecks: StateFlow<Boolean> = container.appPreferences.automaticUpdateChecks
     val generatedRepairMaxAttempts: StateFlow<Int> = container.appPreferences.generatedRepairMaxAttempts
     val developerSettings: StateFlow<app.turp.chat.settings.DeveloperSettings> = container.appPreferences.developerSettings
+    val developerPromptOverrides: StateFlow<app.turp.chat.settings.DeveloperPromptOverrides> =
+        container.appPreferences.developerPromptOverrides
     val palette = container.appPreferences.palette
     val themeMode = container.appPreferences.themeMode
     val matchLauncherIconToPalette = container.appPreferences.matchLauncherIconToPalette
@@ -1493,6 +1495,15 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
     fun setGeneratedRepairMaxAttempts(value: Int) = container.appPreferences.setGeneratedRepairMaxAttempts(value)
     fun updateDeveloperSettings(transform: (app.turp.chat.settings.DeveloperSettings) -> app.turp.chat.settings.DeveloperSettings) =
         container.appPreferences.updateDeveloperSettings(transform)
+
+    fun setDeveloperPromptOverridesEnabled(enabled: Boolean) =
+        container.appPreferences.setDeveloperPromptOverridesEnabled(enabled)
+
+    fun setDeveloperPromptOverride(key: app.turp.chat.settings.DeveloperPromptKey, value: String?) =
+        container.appPreferences.setDeveloperPromptOverride(key, value)
+
+    fun resetDeveloperPromptOverrides() =
+        container.appPreferences.resetDeveloperPromptOverrides()
 
     fun setDemoModeEnabled(enabled: Boolean, openWalkthrough: Boolean = false) = launchAction {
         if (!BuildConfig.DEBUG) return@launchAction
