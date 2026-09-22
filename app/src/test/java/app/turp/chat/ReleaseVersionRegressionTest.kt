@@ -19,5 +19,10 @@ class ReleaseVersionRegressionTest {
         assertTrue(gradle.contains("versionName = \"0.25.1\""))
         assertTrue(english.startsWith("# Turp 0.25.1"))
         assertTrue(turkish.startsWith("# Turp 0.25.1"))
+
+        val settings = repositoryFile("app/src/main/java/app/turp/chat/ui/SettingsScreen.kt").readText()
+        assertTrue(settings.contains("\"Trup is upper to date!?\""))
+        assertTrue(settings.contains("\"Trup daha güncel!?\""))
+        assertTrue(settings.contains("configuration.locales[0].language.equals(\"tr\""))
     }
 }

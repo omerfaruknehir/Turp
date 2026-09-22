@@ -2018,7 +2018,11 @@ private fun AboutSettingsPage(
                     }
                 }
                 is RepositoryUpdateState.Ahead -> {
-                    Text("Trup is upper to date!?", fontWeight = FontWeight.SemiBold)
+                    val isTurkish = context.resources.configuration.locales[0].language.equals("tr", ignoreCase = true)
+                    Text(
+                        if (isTurkish) "Trup daha güncel!?" else "Trup is upper to date!?",
+                        fontWeight = FontWeight.SemiBold,
+                    )
                     Text(
                         "Installed: ${installedVersion.versionName} · latest release: ${state.latestVersion} · checked ${DateFormat.getDateTimeInstance().format(Date(state.checkedAt))}",
                         style = MaterialTheme.typography.bodySmall,
