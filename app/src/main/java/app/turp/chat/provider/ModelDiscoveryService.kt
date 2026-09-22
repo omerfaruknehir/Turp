@@ -1,6 +1,9 @@
 package app.turp.chat.provider
 
+import app.turp.chat.data.ProviderEntity
 import app.turp.chat.data.ProviderKind
+import app.turp.chat.data.ProviderProfile
+import app.turp.chat.data.ProviderProtocol
 import app.turp.chat.data.ThinkingEffort
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -51,13 +54,27 @@ class ModelDiscoveryService(
         .callTimeout(45, TimeUnit.SECONDS)
         .build(),
 ) {
+    suspend fun discover(provider: ProviderEntity, apiKey: String): List<DiscoveredModel> =
+        discover(
+            kind = provider.effectiveProtocol.legacyKind(),
+            rawBaseUrl = provider.baseUrl,
+            apiKey = apiKey,
+            customHeadersJson = provider.customHeadersJson,
+            providerId = provider.id,
+            configuredProvider = provider,
+        )
+
     suspend fun discover(
         kind: ProviderKind,
         rawBaseUrl: String,
         apiKey: String,
         customHeadersJson: String,
         providerId: String? = null,
+        configuredProvider: ProviderEntity? = null,
     ): List<DiscoveredModel> = withContext(Dispatchers.IO) {
+        if (configuredProvider?.effectiveProtocol == ProviderProtocol.OPENCODE_V2) {
+            return@withContext discoverOpenCodeV2(configuredProvider, apiKey)
+        }
         if (kind == ProviderKind.OPENAI_OAUTH) {
             val oauthManager = requireNotNull(oauth) { "OAuth model discovery requires an OAuth manager" }
             return@withContext oauthManager.modelCatalog(providerId ?: OpenAiOAuthManager.PROVIDER_ID, forceRefresh = true).map { model ->
@@ -76,13 +93,26 @@ class ModelDiscoveryService(
         }
         val baseUrl = ProviderEndpointPolicy.validate(rawBaseUrl)
         val customHeaders = parseHeaders(customHeadersJson)
+        val openRouter = configuredProvider?.let(ModelRequestPolicy::isOpenRouter)
+            ?: ModelRequestPolicy.isOpenRouterBaseUrl(baseUrl)
+        val officialOpenAi = configuredProvider?.let(ModelRequestPolicy::isOfficialOpenAi)
+            ?: ModelRequestPolicy.isOfficialOpenAiBaseUrl(baseUrl)
+        val openCodeGo = configuredProvider?.let(ModelRequestPolicy::isOpenCodeGo)
+            ?: ModelRequestPolicy.isOpenCodeGoBaseUrl(baseUrl)
+        val openCodeZen = configuredProvider?.let(ModelRequestPolicy::isOpenCodeZen)
+            ?: ModelRequestPolicy.isOpenCodeZenBaseUrl(baseUrl)
+        val qwenCloud = configuredProvider?.let(ModelRequestPolicy::isAlibabaModelStudio)
+            ?: (ModelRequestPolicy.matchesPresetId(providerId, "qwen-cloud") || ModelRequestPolicy.isQwenCloudBaseUrl(baseUrl))
+        val modelListUrl = configuredProvider?.let {
+            ProviderEndpointResolver.resolve(it, ProviderEndpointKey.MODELS)
+        } ?: "$baseUrl/models"
         val collected = mutableListOf<DiscoveredModel>()
         val seenCursors = mutableSetOf<String>()
         var cursor: String? = null
         for (page in 0 until MAX_PAGES) {
-            val endpoint = "$baseUrl/models".toHttpUrl().newBuilder().apply {
+            val endpoint = modelListUrl.toHttpUrl().newBuilder().apply {
                 when (kind) {
-                    ProviderKind.OPENAI_COMPATIBLE -> if (ModelRequestPolicy.isOpenRouterBaseUrl(baseUrl)) {
+                    ProviderKind.OPENAI_COMPATIBLE -> if (openRouter) {
                         addQueryParameter("output_modalities", "all")
                         addQueryParameter("limit", MAX_MODELS.toString())
                     }
@@ -97,9 +127,14 @@ class ModelDiscoveryService(
                     }
                 }
             }.build()
-            val body = fetchPage(kind, endpoint, apiKey, customHeaders)
+            val body = fetchPage(kind, endpoint, apiKey, customHeaders, largeCatalog = openRouter)
             collected += when (kind) {
-                ProviderKind.OPENAI_COMPATIBLE, ProviderKind.ANTHROPIC -> parseDataModels(body["data"] as? JsonArray, baseUrl)
+                ProviderKind.OPENAI_COMPATIBLE, ProviderKind.ANTHROPIC -> parseDataModels(
+                    body["data"] as? JsonArray,
+                    baseUrl,
+                    openRouterOverride = openRouter,
+                    officialOpenAiOverride = officialOpenAi,
+                )
                 ProviderKind.OPENAI_OAUTH -> error("OAuth discovery is handled before paging")
                 ProviderKind.GEMINI -> parseGeminiModels(body["models"] as? JsonArray)
             }
@@ -115,31 +150,44 @@ class ModelDiscoveryService(
             if (next == null || !seenCursors.add(next)) break
             cursor = next
         }
-        if (kind == ProviderKind.OPENAI_COMPATIBLE && ModelRequestPolicy.isOpenRouterBaseUrl(baseUrl)) {
-            val imageEndpoint = "$baseUrl/images/models".toHttpUrl()
+        if (kind == ProviderKind.OPENAI_COMPATIBLE && openRouter) {
+            val imageEndpoint = (
+                configuredProvider?.let { ProviderEndpointResolver.resolve(it, ProviderEndpointKey.IMAGE_MODELS) }
+                    ?: "$baseUrl/images/models"
+            ).toHttpUrl()
             val imageBody = try {
-                fetchPage(kind, imageEndpoint, apiKey, customHeaders)
+                fetchPage(kind, imageEndpoint, apiKey, customHeaders, largeCatalog = true)
             } catch (error: ProviderHttpException) {
                 if (error.status in setOf(404, 405)) null else throw error
             }
-            collected += parseDataModels(imageBody?.get("data") as? JsonArray, baseUrl)
+            collected += parseDataModels(
+                imageBody?.get("data") as? JsonArray,
+                baseUrl,
+                openRouterOverride = true,
+                officialOpenAiOverride = false,
+            )
         }
         val distinct = mergeDiscoveredModels(collected)
             .sortedBy { it.displayName.lowercase() }
             .take(MAX_MODELS)
         val merged = if (kind == ProviderKind.OPENAI_COMPATIBLE) {
-            val withOfficialOpenAi = ModelRequestPolicy.mergeOfficialOpenAiCatalog(baseUrl, distinct)
-            val withOpenCodeMetadata = if (
-                ModelRequestPolicy.isOpenCodeGoBaseUrl(baseUrl) ||
-                ModelRequestPolicy.isOpenCodeZenBaseUrl(baseUrl)
-            ) {
+            val withOfficialOpenAi = ModelRequestPolicy.mergeOfficialOpenAiCatalog(
+                baseUrl,
+                distinct,
+                force = officialOpenAi,
+            )
+            val withOpenCodeMetadata = if (openCodeGo || openCodeZen) {
                 withOfficialOpenAi.map { model ->
-                    ModelRequestPolicy.enrichOpenCodeModel(providerId, baseUrl, model)
+                    if (configuredProvider != null) {
+                        ModelRequestPolicy.enrichOpenCodeModel(configuredProvider, model)
+                    } else {
+                        ModelRequestPolicy.enrichOpenCodeModel(providerId, baseUrl, model)
+                    }
                 }
             } else {
                 withOfficialOpenAi
             }
-            if (ModelRequestPolicy.matchesPresetId(providerId, "qwen-cloud") || ModelRequestPolicy.isQwenCloudBaseUrl(baseUrl)) {
+            if (qwenCloud) {
                 ModelRequestPolicy.mergeQwenCloudCatalog(providerId ?: "qwen-cloud", withOpenCodeMetadata)
             } else {
                 withOpenCodeMetadata
@@ -147,6 +195,102 @@ class ModelDiscoveryService(
         } else distinct
         merged.ifEmpty { throw IllegalStateException("The provider returned no usable models") }
     }
+
+    private suspend fun discoverOpenCodeV2(
+        provider: ProviderEntity,
+        apiKey: String,
+    ): List<DiscoveredModel> {
+        val endpoint = ProviderEndpointResolver.resolve(provider, ProviderEndpointKey.MODELS)
+        val customHeaders = parseHeaders(provider.customHeadersJson)
+        val request = Request.Builder().url(endpoint).get().apply {
+            if (apiKey.isNotBlank()) header("Authorization", "Bearer $apiKey")
+            customHeaders.forEach { (name, value) -> header(name, value) }
+        }.build()
+        val root = client.newCall(request).useCancellable { response ->
+            if (!response.isSuccessful) {
+                val detail = response.body?.readErrorSnippet()?.trim().orEmpty()
+                throw ProviderHttpException(
+                    response.code,
+                    "OpenCode V2 model discovery failed (${response.code}): " +
+                        detail.take(1_000).ifBlank { response.message },
+                )
+            }
+            val body = response.body ?: throw IllegalStateException("OpenCode V2 returned an empty model list")
+            val source = body.source()
+            source.request(MAX_OPENROUTER_DISCOVERY_BYTES + 1L)
+            require(source.buffer.size <= MAX_OPENROUTER_DISCOVERY_BYTES) {
+                "The OpenCode V2 model list is unexpectedly large"
+            }
+            ProviderJson.parseToJsonElement(source.buffer.readUtf8()).jsonObject
+        }
+        val values = root["data"] as? JsonArray
+            ?: throw ProviderProtocolException("OpenCode V2 model response did not contain data")
+        return parseOpenCodeV2Models(values)
+            .sortedBy { it.displayName.lowercase() }
+            .take(MAX_MODELS)
+            .ifEmpty { throw IllegalStateException("OpenCode V2 returned no usable models") }
+    }
+
+    internal fun parseOpenCodeV2Models(values: JsonArray?): List<DiscoveredModel> =
+        values.orEmpty().mapNotNull { element ->
+            val model = element as? JsonObject ?: return@mapNotNull null
+            if (model["enabled"]?.jsonPrimitive?.booleanOrNull == false) return@mapNotNull null
+            if (model["status"]?.jsonPrimitive?.contentOrNull.equals("deprecated", ignoreCase = true)) return@mapNotNull null
+            val providerId = model["providerID"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            val modelId = (
+                model["modelID"]?.jsonPrimitive?.contentOrNull
+                    ?: model["id"]?.jsonPrimitive?.contentOrNull
+            )?.trim().orEmpty()
+            if (providerId.isBlank() || modelId.isBlank()) return@mapNotNull null
+            val capabilities = model["capabilities"] as? JsonObject
+            val compatibility = model["compatibility"] as? JsonObject
+            val limit = model["limit"] as? JsonObject
+            val costs = (model["cost"] as? JsonArray)
+                ?.mapNotNull { it as? JsonObject }
+                .orEmpty()
+            val cost = costs.firstOrNull { it["tier"] == null } ?: costs.firstOrNull()
+            val cache = cost?.get("cache") as? JsonObject
+            val input = capabilities.stringSet("input")
+            val output = capabilities.stringSet("output")
+            val releasedRaw = (model["time"] as? JsonObject)
+                ?.get("released")?.jsonPrimitive?.longOrNull ?: 0L
+            val releasedSeconds = if (releasedRaw > 10_000_000_000L) releasedRaw / 1_000L else releasedRaw
+            val family = model["family"]?.jsonPrimitive?.contentOrNull.orEmpty()
+            val status = model["status"]?.jsonPrimitive?.contentOrNull.orEmpty()
+            DiscoveredModel(
+                id = "$providerId/$modelId",
+                displayName = model["name"]?.jsonPrimitive?.contentOrNull?.ifBlank { modelId } ?: modelId,
+                contextWindow = limit?.get("context")?.jsonPrimitive?.intOrNull,
+                maxOutputTokens = limit?.get("output")?.jsonPrimitive?.intOrNull,
+                // The current Turp OpenCode V2 transport uses stateless text generation.
+                // Do not advertise controls it does not yet bridge into that API.
+                supportsThinking = false,
+                supportsVision = false,
+                supportsFiles = false,
+                supportsTools = false,
+                supportsImageGeneration = false,
+                description = buildString {
+                    if (family.isNotBlank()) append(family)
+                    if (status.isNotBlank()) {
+                        if (isNotEmpty()) append(" • ")
+                        append(status)
+                    }
+                    if (input.isNotEmpty() || output.isNotEmpty()) {
+                        if (isNotEmpty()) append(" • ")
+                        append("server capabilities available")
+                    }
+                    if (compatibility?.get("reasoningField") != null) {
+                        if (isNotEmpty()) append(" • ")
+                        append("reasoning-capable upstream model")
+                    }
+                },
+                createdAtEpochSeconds = releasedSeconds,
+                inputCacheHitUsdPerMillion = cache?.get("read")?.jsonPrimitive?.doubleOrNull,
+                inputCacheMissUsdPerMillion = cost?.get("input")?.jsonPrimitive?.doubleOrNull,
+                outputUsdPerMillion = cost?.get("output")?.jsonPrimitive?.doubleOrNull,
+                metadataSource = "OpenCode V2",
+            )
+        }
 
     private fun mergeDiscoveredModels(models: List<DiscoveredModel>): List<DiscoveredModel> {
         fun mergeCapability(base: Boolean?, candidate: Boolean?): Boolean? = when {
@@ -188,6 +332,7 @@ class ModelDiscoveryService(
         endpoint: HttpUrl,
         apiKey: String,
         customHeaders: Map<String, String>,
+        largeCatalog: Boolean = false,
     ): JsonObject {
         val request = Request.Builder().url(endpoint).get().apply {
             when (kind) {
@@ -209,14 +354,19 @@ class ModelDiscoveryService(
             }
             val responseBody = response.body ?: throw IllegalStateException("The provider returned an empty model list")
             val source = responseBody.source()
-            val limit = if (endpoint.host.equals("openrouter.ai", ignoreCase = true)) MAX_OPENROUTER_DISCOVERY_BYTES else MAX_DISCOVERY_BYTES
+            val limit = if (largeCatalog) MAX_OPENROUTER_DISCOVERY_BYTES else MAX_DISCOVERY_BYTES
             source.request(limit + 1L)
             require(source.buffer.size <= limit) { "The provider's model list is unexpectedly large" }
             ProviderJson.parseToJsonElement(source.buffer.readUtf8()).jsonObject
         }
     }
 
-    internal fun parseDataModels(values: JsonArray?, baseUrlForParsing: String): List<DiscoveredModel> = values.orEmpty().mapNotNull { element ->
+    internal fun parseDataModels(
+        values: JsonArray?,
+        baseUrlForParsing: String,
+        openRouterOverride: Boolean? = null,
+        officialOpenAiOverride: Boolean? = null,
+    ): List<DiscoveredModel> = values.orEmpty().mapNotNull { element ->
         val model = element as? JsonObject ?: return@mapNotNull null
         val id = model["id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
         if (id.isBlank()) return@mapNotNull null
@@ -224,7 +374,7 @@ class ModelDiscoveryService(
             ?: model["displayName"]?.jsonPrimitive?.contentOrNull
             ?: model["name"]?.jsonPrimitive?.contentOrNull
             ?: humanize(id)
-        val openRouter = ModelRequestPolicy.isOpenRouterBaseUrl(baseUrlForParsing)
+        val openRouter = openRouterOverride ?: ModelRequestPolicy.isOpenRouterBaseUrl(baseUrlForParsing)
         val architecture = model["architecture"] as? JsonObject
         val inputModalities = architecture.stringSet("input_modalities")
         val outputModalities = architecture.stringSet("output_modalities")
@@ -248,7 +398,7 @@ class ModelDiscoveryService(
             supportsTools = if (openRouter) "tools" in supportedParameters else model.booleanCapability("supports_tools", "supportsTools", "tools"),
             supportsImageGeneration = model.booleanCapability("supports_image_generation", "supportsImageGeneration", "image_generation") ?: when {
                 openRouter -> "image" in outputModalities
-                ModelRequestPolicy.isOfficialOpenAiBaseUrl(baseUrlForParsing) -> imageGenerationModelHeuristic(id)
+                (officialOpenAiOverride ?: ModelRequestPolicy.isOfficialOpenAiBaseUrl(baseUrlForParsing)) -> imageGenerationModelHeuristic(id)
                 else -> null
             },
             description = model["description"]?.jsonPrimitive?.contentOrNull.orEmpty(),
