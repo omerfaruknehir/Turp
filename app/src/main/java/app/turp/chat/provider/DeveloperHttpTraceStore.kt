@@ -12,6 +12,7 @@ import okhttp3.Request
 import okhttp3.Response
 import okio.Buffer
 import java.time.Instant
+import java.util.IdentityHashMap
 import java.util.UUID
 
 data class DeveloperHttpTrace(
@@ -82,6 +83,7 @@ object DeveloperHttpTraceStore {
     private const val MAX_EXCHANGES_PER_TRACE = 16
     private val lock = Any()
     private val exchangeToTrace = LinkedHashMap<String, String>()
+    private val automaticRequests = IdentityHashMap<Request, String>()
     private val _traces = MutableStateFlow<Map<String, List<DeveloperHttpTrace>>>(emptyMap())
     val traces: StateFlow<Map<String, List<DeveloperHttpTrace>>> = _traces.asStateFlow()
 
@@ -97,8 +99,17 @@ object DeveloperHttpTraceStore {
     }
 
     /** Compatibility overload for focused unit tests and any diagnostic caller without a ChatRequest. */
-    fun record(traceId: String, request: Request): String =
-        begin(traceId, "", "", "", request)
+    fun record(traceId: String, request: Request): String {
+        val exchangeId = begin(traceId, "", "", "", request)
+        if (exchangeId.isNotBlank()) synchronized(lock) { automaticRequests[request] = exchangeId }
+        return exchangeId
+    }
+
+    internal fun automaticExchangeId(request: Request): String? = synchronized(lock) { automaticRequests[request] }
+
+    internal fun releaseAutomaticRequest(request: Request) {
+        synchronized(lock) { automaticRequests.remove(request) }
+    }
 
     private fun begin(
         traceId: String,
@@ -189,6 +200,11 @@ object DeveloperHttpTraceStore {
                 )
             }
         }
+    }
+
+    fun markResponseTruncated(exchangeId: String) {
+        if (exchangeId.isBlank()) return
+        update(exchangeId) { it.copy(responseBodyTruncated = true) }
     }
 
     fun complete(exchangeId: String, error: String? = null) {
