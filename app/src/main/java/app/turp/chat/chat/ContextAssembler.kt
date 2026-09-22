@@ -315,7 +315,7 @@ class ContextAssembler(
                         ))
                     }
 
-                    val workingAppendix = buildString {
+                    val workingAppendixDefault = buildString {
                         if (continuationPrefix || (working.reasoning.isBlank() && working.toolTrace.isBlank())) {
                             return@buildString
                         }
@@ -328,6 +328,9 @@ class ContextAssembler(
                             if (working.reasoning.isNotBlank()) append("\nReasoning:\n").append(working.reasoning)
                             if (working.toolTrace.isNotBlank()) append("\nTool activity:\n").append(working.toolTrace)
                         }
+                    }
+                    val workingAppendix = if (workingAppendixDefault.isBlank()) "" else {
+                        promptLayer(DeveloperPromptKey.WORKING_CONTEXT, workingAppendixDefault)
                     }
                     add(InputMessage(
                         role = message.role,

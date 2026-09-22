@@ -41,6 +41,10 @@ data class ChatRequest(
     val toolProtocolNames: Set<String> = emptySet(),
     /** Developer-only in-memory HTTP trace key. Blank disables request capture. */
     val developerTraceId: String = "",
+    /** Resolved developer-editable provider-stage system instructions. Null uses transport defaults. */
+    val deepSeekToolGuardPrompt: String? = null,
+    val deepSeekToolCorrectionPrompt: String? = null,
+    val toolDisabledProtocolCorrectionPrompt: String? = null,
 )
 
 

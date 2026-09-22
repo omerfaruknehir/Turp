@@ -1,6 +1,7 @@
 package app.turp.chat.provider
 
 import app.turp.chat.data.MessageRole
+import app.turp.chat.settings.DeveloperPromptTraceStore
 import app.turp.chat.data.ProviderProfile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -277,12 +278,15 @@ class OpenAiCompatibleProvider(
         if (correctionAttempt == 0 && !(request.isDeepSeekFamily() && hasExposedTools)) return request
         if (!hasExposedTools && !hasProtocolGuard) return request
         val instruction = buildString {
-            if (hasExposedTools) append(DEEPSEEK_TOOL_CALL_GUARD)
+            if (hasExposedTools) append(request.deepSeekToolGuardPrompt ?: DEEPSEEK_TOOL_CALL_GUARD)
             if (correctionAttempt > 0) {
                 if (isNotEmpty()) append("\n\n")
                 append(
-                    if (hasExposedTools) DEEPSEEK_TOOL_CALL_CORRECTION
-                    else TOOL_DISABLED_PROTOCOL_CORRECTION
+                    if (hasExposedTools) {
+                        request.deepSeekToolCorrectionPrompt ?: DEEPSEEK_TOOL_CALL_CORRECTION
+                    } else {
+                        request.toolDisabledProtocolCorrectionPrompt ?: TOOL_DISABLED_PROTOCOL_CORRECTION
+                    }
                 )
             }
         }
@@ -298,6 +302,7 @@ class OpenAiCompatibleProvider(
         } else {
             messages.add(0, InputMessage(MessageRole.SYSTEM, instruction))
         }
+        DeveloperPromptTraceStore.record(request.sessionId, messages)
         return request.copy(messages = messages)
     }
 
