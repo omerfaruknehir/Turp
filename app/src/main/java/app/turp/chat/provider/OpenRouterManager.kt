@@ -1,5 +1,6 @@
 package app.turp.chat.provider
 
+import app.turp.chat.data.ProviderEntity
 import app.turp.chat.security.SecureStore
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
@@ -72,8 +73,10 @@ class OpenRouterManager(
     private val _keyStates = MutableStateFlow<Map<String, OpenRouterKeyState>>(emptyMap())
     val keyStates: StateFlow<Map<String, OpenRouterKeyState>> = _keyStates.asStateFlow()
 
-    suspend fun keyInfo(providerId: String, forceRefresh: Boolean = false): OpenRouterKeySnapshot =
+    suspend fun keyInfo(provider: ProviderEntity, forceRefresh: Boolean = false): OpenRouterKeySnapshot =
         mutex.withLock {
+            require(ModelRequestPolicy.isOpenRouter(provider)) { "Provider profile is not OpenRouter" }
+            val providerId = provider.id
             val apiKey = secureStore.apiKey(providerId)
             if (apiKey.isBlank()) {
                 update(providerId, OpenRouterKeyState.Unavailable)
@@ -90,7 +93,7 @@ class OpenRouterManager(
             val previous = cached?.snapshot
             update(providerId, OpenRouterKeyState.Loading(previous))
             try {
-                val snapshot = withContext(Dispatchers.IO) { fetch(apiKey) }
+                val snapshot = withContext(Dispatchers.IO) { fetch(provider, apiKey) }
                 caches[providerId] = Cache(snapshot, System.currentTimeMillis() + CACHE_MS)
                 update(providerId, OpenRouterKeyState.Loaded(snapshot))
                 snapshot
@@ -106,9 +109,9 @@ class OpenRouterManager(
         _keyStates.update { it - providerId }
     }
 
-    private suspend fun fetch(apiKey: String): OpenRouterKeySnapshot {
+    private suspend fun fetch(provider: ProviderEntity, apiKey: String): OpenRouterKeySnapshot {
         val request = Request.Builder()
-            .url(KEY_ENDPOINT)
+            .url(ProviderEndpointResolver.resolve(provider, ProviderEndpointKey.ACCOUNT))
             .header("Authorization", "Bearer $apiKey")
             .header("Accept", "application/json")
             .header("User-Agent", "Turp-Android")
@@ -136,7 +139,6 @@ class OpenRouterManager(
     }
 
     private companion object {
-        const val KEY_ENDPOINT = "https://openrouter.ai/api/v1/key"
         const val CACHE_MS = 60_000L
     }
 }
