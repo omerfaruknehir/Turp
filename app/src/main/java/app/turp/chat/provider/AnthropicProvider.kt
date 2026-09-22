@@ -24,7 +24,7 @@ class AnthropicProvider(
         withContext(Dispatchers.IO) {
         val body = buildRequestBody(request)
         val httpRequest = Request.Builder()
-            .url(request.provider.baseUrl.trimEnd('/') + "/messages")
+            .url(ProviderEndpointResolver.resolve(request.provider, ProviderEndpointKey.MESSAGES))
             .header("x-api-key", request.apiKey)
             .header("anthropic-version", "2023-06-01")
             .header("Content-Type", "application/json")
