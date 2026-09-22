@@ -32,6 +32,7 @@ import app.turp.chat.data.PackageApprovalMode
 import app.turp.chat.data.PackageTransactionEntity
 import app.turp.chat.provider.ProviderCredentialPolicy
 import app.turp.chat.provider.ProviderEndpointPolicy
+import app.turp.chat.provider.ProviderEndpointResolver
 import app.turp.chat.provider.ModelRequestPolicy
 import app.turp.chat.provider.defaultThinkingEffort
 import app.turp.chat.provider.effectiveThinkingEnabled
@@ -1163,6 +1164,7 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
     fun saveProvider(provider: ProviderEntity, apiKey: String) = launchAction {
         val validatedUrl = ProviderEndpointPolicy.validate(provider.baseUrl)
         parseHeaders(provider.customHeadersJson)
+        ProviderEndpointResolver.parseEndpointOverrides(provider.endpointOverridesJson)
         container.secureStore.setApiKey(provider.id, apiKey)
         if (ModelRequestPolicy.isOpenCode(provider)) container.openCode.clear(provider.id)
         if (ModelRequestPolicy.isOpenRouter(provider)) container.openRouter.clear(provider.id)
@@ -1280,13 +1282,19 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
 
     fun ensureOpenCodeUsage(providerId: String) {
         viewModelScope.launch {
-            runCatching { container.openCode.usage(providerId, forceRefresh = false) }
+            val provider = container.repository.provider(providerId) ?: return@launch
+            runCatching { container.openCode.usage(provider, forceRefresh = false) }
         }
     }
 
     fun refreshOpenCodeUsage(providerId: String) {
         viewModelScope.launch {
-            runCatching { container.openCode.usage(providerId, forceRefresh = true) }
+            val provider = container.repository.provider(providerId)
+            if (provider == null) {
+                notices.emit("OpenCode Go provider is missing")
+                return@launch
+            }
+            runCatching { container.openCode.usage(provider, forceRefresh = true) }
                 .onFailure { notices.emit(it.message ?: "OpenCode Go usage could not be refreshed") }
         }
     }
@@ -1342,6 +1350,7 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
         require(provider.displayName.isNotBlank()) { "Provider name is required" }
         val validatedUrl = ProviderEndpointPolicy.validate(provider.baseUrl)
         parseHeaders(provider.customHeadersJson)
+        ProviderEndpointResolver.parseEndpointOverrides(provider.endpointOverridesJson)
         require(initialModels.isNotEmpty() && initialModels.all { it.modelId.isNotBlank() }) { "At least one model is required" }
         if (provider.apiKeyRequired) require(apiKey.isNotBlank()) { "API key is required" }
         container.secureStore.setApiKey(provider.id, apiKey)
