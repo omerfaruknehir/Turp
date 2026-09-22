@@ -228,7 +228,7 @@ class AuxiliaryModelService(
             sessionId = conversationId,
             customHeaders = parseHeaders(provider.customHeadersJson),
         )
-        providers.get(provider.kind).stream(request) { chunk ->
+        providers.get(provider).stream(request) { chunk ->
             output.append(chunk.text)
             inputTokens = chunk.inputTokens ?: inputTokens
             outputTokens = chunk.outputTokens ?: outputTokens
