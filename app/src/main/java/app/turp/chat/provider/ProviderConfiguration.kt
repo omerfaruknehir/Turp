@@ -13,6 +13,7 @@ enum class ProviderEndpointKey(val wireName: String) {
     MODELS("models"),
     CHAT("chat"),
     IMAGES("images"),
+    IMAGE_MODELS("imageModels"),
     ACCOUNT("account"),
     INFO("info"),
     PROVIDERS("providers"),
@@ -102,6 +103,7 @@ object ProviderEndpointResolver {
                 ProviderEndpointKey.MODELS -> "models"
                 ProviderEndpointKey.CHAT -> "chat/completions"
                 ProviderEndpointKey.IMAGES -> if (provider.effectiveProfile == ProviderProfile.OPENROUTER) "images" else "images/generations"
+                ProviderEndpointKey.IMAGE_MODELS -> if (provider.effectiveProfile == ProviderProfile.OPENROUTER) "images/models" else null
                 ProviderEndpointKey.ACCOUNT -> if (provider.effectiveProfile == ProviderProfile.OPENROUTER) "key" else null
                 else -> null
             }
