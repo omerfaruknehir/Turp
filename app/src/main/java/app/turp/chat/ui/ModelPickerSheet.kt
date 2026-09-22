@@ -2,9 +2,6 @@ package app.turp.chat.ui
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.draggable
-import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -50,11 +47,15 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.platform.LocalDensity
 import app.turp.chat.data.ModelEntity
 import app.turp.chat.data.ProviderEntity
 import app.turp.chat.provider.ImageInputMode
@@ -84,15 +85,6 @@ internal data class ModelPickerChoice(
     val provider: ProviderEntity,
     val model: ModelEntity,
 )
-
-internal fun shouldDismissModelPickerFromHandle(
-    dragDistancePx: Float,
-    velocityYPxPerSecond: Float,
-    distanceThresholdPx: Float,
-    velocityThresholdPxPerSecond: Float,
-): Boolean =
-    dragDistancePx >= distanceThresholdPx ||
-        velocityYPxPerSecond >= velocityThresholdPxPerSecond
 
 internal fun filteredModelChoices(
     providers: List<ProviderEntity>,
@@ -206,10 +198,53 @@ internal fun ModelPickerSheet(
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val listState = rememberLazyListState()
-    val density = LocalDensity.current
-    val dismissDistancePx = with(density) { 56.dp.toPx() }
-    val dismissVelocityPxPerSecond = with(density) { 700.dp.toPx() }
-    var handleDragDistancePx by remember { mutableStateOf(0f) }
+    // Preserve Material's native top-boundary pull-to-dismiss, but never hand
+    // upward leftover motion to an already fully-expanded sheet. That upward
+    // handoff is what causes the sheet/list rubber-band loop at the bottom.
+    val listBoundaryGuard = remember(listState) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(
+                available: Offset,
+                source: NestedScrollSource,
+            ): Offset =
+                if (
+                    source == NestedScrollSource.UserInput &&
+                    available.y < 0f &&
+                    !listState.canScrollForward
+                ) {
+                    // The list is already at its bottom and the sheet is already fully
+                    // expanded. Consume the impossible upward overscroll before Material's
+                    // sheet connection can try to "expand" again and start a rubber-band loop.
+                    available
+                } else {
+                    Offset.Zero
+                }
+
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource,
+            ): Offset =
+                if (
+                    source == NestedScrollSource.UserInput &&
+                    available.y < 0f &&
+                    !listState.canScrollForward
+                ) {
+                    available
+                } else {
+                    Offset.Zero
+                }
+
+            override suspend fun onPreFling(available: Velocity): Velocity =
+                if (available.y < 0f && !listState.canScrollForward) available else Velocity.Zero
+
+            override suspend fun onPostFling(
+                consumed: Velocity,
+                available: Velocity,
+            ): Velocity =
+                if (available.y < 0f && !listState.canScrollForward) available else Velocity.Zero
+        }
+    }
     val scope = rememberCoroutineScope()
     var dismissing by remember { mutableStateOf(false) }
 
@@ -232,39 +267,15 @@ internal fun ModelPickerSheet(
         }
     }
 
-    val handleDragState = rememberDraggableState { delta ->
-        // Positive delta is a downward pull. Upward pulls are intentionally
-        // consumed by the handle and never handed to ModalBottomSheet.
-        handleDragDistancePx = (handleDragDistancePx + delta).coerceAtLeast(0f)
-    }
-
     ModalBottomSheet(
         onDismissRequest = ::dismissSheet,
         sheetState = sheetState,
-        // Do not let Material's sheet connection compete with the LazyColumn.
-        // The sheet is already fully expanded, so upward sheet motion is invalid.
-        // Dismissal is owned only by the explicit drag handle below.
-        sheetGesturesEnabled = false,
+        // Native Material nested scrolling: the list consumes vertical motion
+        // while it can scroll; only unconsumed downward motion at its top
+        // boundary is handed to the sheet.
+        sheetGesturesEnabled = true,
         dragHandle = {
-            Box(
-                Modifier
-                    .testTag("model_picker_drag_handle")
-                    .draggable(
-                        state = handleDragState,
-                        orientation = Orientation.Vertical,
-                        onDragStarted = { handleDragDistancePx = 0f },
-                        onDragStopped = { velocity ->
-                            val shouldDismiss = shouldDismissModelPickerFromHandle(
-                                dragDistancePx = handleDragDistancePx,
-                                velocityYPxPerSecond = velocity,
-                                distanceThresholdPx = dismissDistancePx,
-                                velocityThresholdPxPerSecond = dismissVelocityPxPerSecond,
-                            )
-                            handleDragDistancePx = 0f
-                            if (shouldDismiss) dismissSheet()
-                        },
-                    ),
-            ) {
+            Box(Modifier.testTag("model_picker_drag_handle")) {
                 BottomSheetDefaults.DragHandle()
             }
         },
@@ -392,6 +403,7 @@ internal fun ModelPickerSheet(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
+                        .nestedScroll(listBoundaryGuard)
                         .testTag("model_picker_list"),
                     state = listState,
                 ) {
