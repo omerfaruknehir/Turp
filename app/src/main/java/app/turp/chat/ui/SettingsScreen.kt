@@ -373,7 +373,6 @@ private fun SettingsHome(
     onOpen: (SettingsRoute) -> Unit,
 ) = SettingsPage {
     val context = LocalContext.current
-    val configuration = LocalConfiguration.current
     val selectedLanguageLabel = when (currentAppLanguage(context)) {
         AppLanguage.SYSTEM -> stringResource(R.string.language_system)
         AppLanguage.ENGLISH -> stringResource(R.string.language_english)
@@ -1889,6 +1888,7 @@ private fun AboutSettingsPage(
 ) = SettingsPage {
     val appName = stringResource(R.string.app_name)
     val context = LocalContext.current
+    val configuration = LocalConfiguration.current
     val applicationInfo = context.applicationInfo
     val installedVersion = remember(context) { context.installedAppVersion() }
     val uriHandler = LocalUriHandler.current
