@@ -104,7 +104,11 @@ object ProviderEndpointResolver {
                 ProviderEndpointKey.CHAT -> "chat/completions"
                 ProviderEndpointKey.IMAGES -> if (provider.effectiveProfile == ProviderProfile.OPENROUTER) "images" else "images/generations"
                 ProviderEndpointKey.IMAGE_MODELS -> if (provider.effectiveProfile == ProviderProfile.OPENROUTER) "images/models" else null
-                ProviderEndpointKey.ACCOUNT -> if (provider.effectiveProfile == ProviderProfile.OPENROUTER) "key" else null
+                ProviderEndpointKey.ACCOUNT -> when (provider.effectiveProfile) {
+                    ProviderProfile.OPENROUTER -> "key"
+                    ProviderProfile.OPENCODE_GO -> "usage"
+                    else -> null
+                }
                 else -> null
             }
             ProviderProtocol.ANTHROPIC -> when (key) {
