@@ -30,6 +30,8 @@ data class ChatRequest(
     val thinkingEnabled: Boolean,
     val thinkingEffort: ThinkingEffort = ThinkingEffort.MEDIUM,
     val continuation: Boolean = false,
+    /** Stable Turp chat/workspace identity for providers that support request session affinity. */
+    val sessionId: String = "",
     val customHeaders: Map<String, String> = emptyMap(),
     val webSearchRoute: WebSearchRoute = WebSearchRoute.AUTO,
     val webSearchEngine: WebSearchEngine = WebSearchEngine.DUCKDUCKGO,

@@ -1,7 +1,8 @@
 package app.turp.chat.provider
 
 import app.turp.chat.data.MessageRole
-import app.turp.chat.data.ProviderKind
+import app.turp.chat.data.ProviderProfile
+import app.turp.chat.data.ProviderProtocol
 import app.turp.chat.settings.WebSearchRoute
 import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.json.JsonArray
@@ -39,14 +40,15 @@ internal object NativeWebSearch {
         if (!request.model.supportsTools || !requested(request) ||
             request.webSearchRoute == WebSearchRoute.SEARCH_ENGINE
         ) return NativeWebSearchMode.NONE
-        val providerId = request.provider.id.lowercase()
+        val profile = request.provider.effectiveProfile
+        val protocol = request.provider.effectiveProtocol
         val baseUrl = request.provider.baseUrl.lowercase()
         val modelId = request.model.modelId.lowercase()
         return when {
-            request.provider.kind == ProviderKind.OPENAI_OAUTH -> NativeWebSearchMode.RESPONSES
-            request.provider.kind == ProviderKind.ANTHROPIC -> NativeWebSearchMode.ANTHROPIC
-            request.provider.kind == ProviderKind.GEMINI && modelId.startsWith("gemini-3") -> NativeWebSearchMode.GEMINI
-            ModelRequestPolicy.matchesPreset(request.provider, "deepseek") || baseUrl.contains("api.deepseek.com") -> {
+            protocol == ProviderProtocol.OPENAI_OAUTH -> NativeWebSearchMode.RESPONSES
+            protocol == ProviderProtocol.ANTHROPIC -> NativeWebSearchMode.ANTHROPIC
+            protocol == ProviderProtocol.GEMINI && modelId.startsWith("gemini-3") -> NativeWebSearchMode.GEMINI
+            profile == ProviderProfile.DEEPSEEK -> {
                 if (modelId == "deepseek-v4-flash") NativeWebSearchMode.RESPONSES else NativeWebSearchMode.NONE
             }
             ModelRequestPolicy.supportsAlibabaResponsesWebSearch(
@@ -54,11 +56,10 @@ internal object NativeWebSearch {
                 request.model,
                 effectiveThinkingEnabled(request.model, request.thinkingEnabled),
             ) -> NativeWebSearchMode.RESPONSES
-            listOf("openai", "openrouter", "xai").any { ModelRequestPolicy.matchesPreset(request.provider, it) } -> NativeWebSearchMode.RESPONSES
-            baseUrl.contains("api.openai.com") ||
-                baseUrl.contains("openrouter.ai") ||
-                baseUrl.contains("api.x.ai") ||
-                baseUrl.contains("api.perplexity.ai") -> NativeWebSearchMode.RESPONSES
+            profile in setOf(ProviderProfile.OPENAI, ProviderProfile.OPENROUTER, ProviderProfile.XAI) ->
+                NativeWebSearchMode.RESPONSES
+            // Perplexity does not have a dedicated Turp profile yet; retain its legacy hint only.
+            baseUrl.contains("api.perplexity.ai") -> NativeWebSearchMode.RESPONSES
             else -> NativeWebSearchMode.NONE
         }
     }
@@ -76,29 +77,28 @@ internal object NativeWebSearch {
         else request.tools.filterNot { it.name.lowercase() in replaceableToolNames }
 
     fun nativeSourceLabel(request: ChatRequest): String {
-        val providerId = request.provider.id.lowercase()
+        val profile = request.provider.effectiveProfile
+        val protocol = request.provider.effectiveProtocol
         val baseUrl = request.provider.baseUrl.lowercase()
         return when {
-            ModelRequestPolicy.matchesPreset(request.provider, "deepseek") || baseUrl.contains("api.deepseek.com") -> "DeepSeek native search"
-            ModelRequestPolicy.matchesPreset(request.provider, "openai") || baseUrl.contains("api.openai.com") -> "OpenAI native search"
-            ModelRequestPolicy.matchesPreset(request.provider, "openrouter") || baseUrl.contains("openrouter.ai") -> "OpenRouter native search"
-            ModelRequestPolicy.matchesPreset(request.provider, "xai") || baseUrl.contains("api.x.ai") -> "xAI native search"
+            profile == ProviderProfile.DEEPSEEK -> "DeepSeek native search"
+            profile == ProviderProfile.OPENAI -> "OpenAI native search"
+            profile == ProviderProfile.OPENROUTER -> "OpenRouter native search"
+            profile == ProviderProfile.XAI -> "xAI native search"
             ModelRequestPolicy.supportsAlibabaResponsesWebSearch(
                 request.provider,
                 request.model,
                 effectiveThinkingEnabled(request.model, request.thinkingEnabled),
             ) -> "Qwen Cloud native search"
             baseUrl.contains("api.perplexity.ai") -> "Perplexity native search"
-            request.provider.kind == ProviderKind.ANTHROPIC -> "Anthropic native search"
-            request.provider.kind == ProviderKind.GEMINI -> "Google Search grounding"
+            protocol == ProviderProtocol.ANTHROPIC -> "Anthropic native search"
+            protocol == ProviderProtocol.GEMINI -> "Google Search grounding"
             else -> "${request.provider.displayName} native search"
         }
     }
 
     fun responsesServerToolType(request: ChatRequest): String =
-        if (ModelRequestPolicy.matchesPreset(request.provider, "openrouter") ||
-            request.provider.baseUrl.contains("openrouter.ai", ignoreCase = true)
-        ) {
+        if (ModelRequestPolicy.isOpenRouter(request.provider)) {
             "openrouter:web_search"
         } else {
             "web_search"
@@ -106,7 +106,10 @@ internal object NativeWebSearch {
 }
 
 /** OpenAI Responses-compatible transport shared by DeepSeek, OpenAI, xAI, OpenRouter and Perplexity. */
-internal class ResponsesApiTransport(private val client: OkHttpClient) {
+internal class ResponsesApiTransport(
+    private val client: OkHttpClient,
+    private val includeNativeWebSearch: Boolean = true,
+) {
     suspend fun stream(request: ChatRequest, emit: suspend (StreamChunk) -> Unit) {
         val builder = Request.Builder()
             .url(endpoint(request))
@@ -136,11 +139,15 @@ internal class ResponsesApiTransport(private val client: OkHttpClient) {
     }
 
     internal fun endpoint(request: ChatRequest): String {
+        val overrides = ProviderEndpointResolver.parseEndpointOverrides(request.provider.endpointOverridesJson)
+        if (overrides.containsKey(ProviderEndpointKey.RESPONSES.wireName)) {
+            return ProviderEndpointResolver.resolve(request.provider, ProviderEndpointKey.RESPONSES)
+        }
         val base = request.provider.baseUrl.trimEnd('/')
         return if (base.contains("api.perplexity.ai", ignoreCase = true) && !base.endsWith("/v1")) {
             "$base/v1/responses"
         } else {
-            "$base/responses"
+            ProviderEndpointResolver.resolve(request.provider, ProviderEndpointKey.RESPONSES)
         }
     }
 
@@ -174,32 +181,41 @@ internal class ResponsesApiTransport(private val client: OkHttpClient) {
             })
         }
 
-        val clientTools = NativeWebSearch.clientTools(request)
-        put("tools", buildJsonArray {
-            add(buildJsonObject {
-                put("type", JsonPrimitive(NativeWebSearch.responsesServerToolType(request)))
-                if (NativeWebSearch.responsesServerToolType(request) == "openrouter:web_search") {
-                    put("parameters", buildJsonObject {
-                        put("engine", JsonPrimitive("auto"))
-                        put("max_uses", JsonPrimitive(8))
-                        put("max_total_results", JsonPrimitive(request.webSearchMaxResults.coerceIn(3, 20)))
+        val clientTools = if (includeNativeWebSearch) {
+            NativeWebSearch.clientTools(request)
+        } else {
+            request.tools
+        }
+        val hasTools = includeNativeWebSearch || clientTools.isNotEmpty()
+        if (hasTools) {
+            put("tools", buildJsonArray {
+                if (includeNativeWebSearch) {
+                    add(buildJsonObject {
+                        put("type", JsonPrimitive(NativeWebSearch.responsesServerToolType(request)))
+                        if (NativeWebSearch.responsesServerToolType(request) == "openrouter:web_search") {
+                            put("parameters", buildJsonObject {
+                                put("engine", JsonPrimitive("auto"))
+                                put("max_uses", JsonPrimitive(8))
+                                put("max_total_results", JsonPrimitive(request.webSearchMaxResults.coerceIn(3, 20)))
+                            })
+                        }
+                    })
+                    if (isAlibabaNativeSearch && NativeWebSearch.requestedFetch(request)) {
+                        add(buildJsonObject { put("type", JsonPrimitive("web_extractor")) })
+                    }
+                }
+                clientTools.forEach { tool ->
+                    add(buildJsonObject {
+                        put("type", JsonPrimitive("function"))
+                        put("name", JsonPrimitive(tool.name))
+                        put("description", JsonPrimitive(tool.description))
+                        put("parameters", ProviderJson.parseToJsonElement(tool.parametersJson))
+                        put("strict", JsonPrimitive(false))
                     })
                 }
             })
-            if (isAlibabaNativeSearch && NativeWebSearch.requestedFetch(request)) {
-                add(buildJsonObject { put("type", JsonPrimitive("web_extractor")) })
-            }
-            clientTools.forEach { tool ->
-                add(buildJsonObject {
-                    put("type", JsonPrimitive("function"))
-                    put("name", JsonPrimitive(tool.name))
-                    put("description", JsonPrimitive(tool.description))
-                    put("parameters", ProviderJson.parseToJsonElement(tool.parametersJson))
-                    put("strict", JsonPrimitive(false))
-                })
-            }
-        })
-        put("tool_choice", JsonPrimitive("auto"))
+            put("tool_choice", JsonPrimitive("auto"))
+        }
         put("input", JsonArray(buildInput(request)))
     }
 

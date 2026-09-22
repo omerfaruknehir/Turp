@@ -230,6 +230,9 @@ class GenerationWorker(
             memoryEnabled = automationSettings.memoryEnabled,
             memoryAutoSave = automationSettings.memoryAutoSave,
             lessEmojiEnabled = container.appPreferences.lessEmojiEnabled.value,
+            sudoModeAllowed = container.appPreferences.developerSettings.value.let {
+                it.enabled && it.sudoModeControlEnabled
+            },
         ).toMutableList()
         var nativeToolsDisabled = false
         val effectiveContinuation = continuation || initial.streamOffset > 0
@@ -635,13 +638,14 @@ class GenerationWorker(
                     thinkingEnabled = false,
                     thinkingEffort = conversation.thinkingEffort,
                     continuation = false,
+                    sessionId = conversation.id,
                     customHeaders = parseHeaders(provider.customHeadersJson),
                     tools = emptyList(),
                 )
                 try {
                     val (counted, preflightInput) = prepareCountedRequest(request)
                     inputTokens = preflightInput
-                    container.providers.get(provider.kind).stream(counted) { chunk ->
+                    container.providers.get(provider).stream(counted) { chunk ->
                         if (chunk.text.isNotEmpty() || chunk.reasoning.isNotEmpty()) received = true
                         stateText.append(chunk.text)
                         stateReasoning.append(chunk.reasoning)
@@ -815,6 +819,7 @@ class GenerationWorker(
                         thinkingEnabled = conversation.thinkingEnabled && model.supportsThinking,
                         thinkingEffort = conversation.thinkingEffort,
                         continuation = effectiveContinuation && round == 0 && !universalFallback,
+                        sessionId = conversation.id,
                         customHeaders = parseHeaders(provider.customHeadersJson),
                         webSearchRoute = webSearchSettings.route,
                         webSearchEngine = webSearchSettings.engine,
@@ -826,7 +831,7 @@ class GenerationWorker(
                     )
                     val (request, preflightInputTokens) = prepareCountedRequest(baseRequest)
                     passInput = preflightInputTokens
-                    container.providers.get(provider.kind).stream(request) { chunk ->
+                    container.providers.get(provider).stream(request) { chunk ->
                         if (chunk.resetCurrentAttempt) {
                             closeOpenStreamEvents()
                             savedContent = savedContent.substring(0, callContentStart.coerceAtMost(savedContent.length))

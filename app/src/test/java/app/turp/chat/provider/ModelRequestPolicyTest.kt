@@ -62,6 +62,73 @@ class ModelRequestPolicyTest {
     }
 
     @Test
+    fun openCodeZenRoutesCurrentModelFamiliesToDocumentedProtocols() {
+        val zen = ProviderEntity(
+            id = "provider-opencode-zen-test",
+            displayName = "OpenCode Zen",
+            kind = ProviderKind.OPENAI_COMPATIBLE,
+            baseUrl = "https://opencode.ai/zen/v1",
+        )
+
+        assertTrue(ModelRequestPolicy.isOpenCodeZen(zen))
+        assertFalse(ModelRequestPolicy.usesManualRequestType(zen))
+        assertEquals(OpenCodeTransport.RESPONSES, ModelRequestPolicy.openCodeTransport(zen, model("gpt-5.6-sol", false, zen.id)))
+        assertEquals(OpenCodeTransport.ANTHROPIC_MESSAGES, ModelRequestPolicy.openCodeTransport(zen, model("claude-sonnet-5", false, zen.id)))
+        assertEquals(OpenCodeTransport.ANTHROPIC_MESSAGES, ModelRequestPolicy.openCodeTransport(zen, model("qwen3.7-max", false, zen.id)))
+        assertEquals(OpenCodeTransport.GEMINI, ModelRequestPolicy.openCodeTransport(zen, model("gemini-3.8-flash", false, zen.id)))
+        assertEquals(OpenCodeTransport.CHAT_COMPLETIONS, ModelRequestPolicy.openCodeTransport(zen, model("deepseek-v4-pro", false, zen.id)))
+    }
+
+    @Test
+    fun openCodeGoRoutesCurrentModelFamiliesToDocumentedProtocols() {
+        val go = ProviderEntity(
+            id = "provider-opencode-go-test",
+            displayName = "OpenCode Go",
+            kind = ProviderKind.OPENAI_COMPATIBLE,
+            baseUrl = "https://opencode.ai/zen/go/v1",
+        )
+
+        assertTrue(ModelRequestPolicy.isOpenCodeGo(go))
+        assertFalse(ModelRequestPolicy.usesManualRequestType(go))
+        assertEquals(OpenCodeTransport.RESPONSES, ModelRequestPolicy.openCodeTransport(go, model("gpt-5.6-luna", false, go.id)))
+        assertEquals(OpenCodeTransport.CHAT_COMPLETIONS, ModelRequestPolicy.openCodeTransport(go, model("grok-4.5", false, go.id)))
+        assertEquals(OpenCodeTransport.RESPONSES, ModelRequestPolicy.openCodeTransport(go, model("grok-4.6", false, go.id)))
+        assertEquals(OpenCodeTransport.RESPONSES, ModelRequestPolicy.openCodeTransport(go, model("muse-spark-1.3-contributor", false, go.id)))
+        assertEquals(OpenCodeTransport.ANTHROPIC_MESSAGES, ModelRequestPolicy.openCodeTransport(go, model("minimax-m3", false, go.id)))
+        assertEquals(OpenCodeTransport.ANTHROPIC_MESSAGES, ModelRequestPolicy.openCodeTransport(go, model("qwen3.8-max", false, go.id)))
+        assertEquals(OpenCodeTransport.CHAT_COMPLETIONS, ModelRequestPolicy.openCodeTransport(go, model("kimi-k3", false, go.id)))
+        assertEquals(OpenCodeTransport.CHAT_COMPLETIONS, ModelRequestPolicy.openCodeTransport(go, model("glm-5.3", false, go.id)))
+    }
+
+    @Test
+    fun openCodeDiscoveryEnrichesBothGoAndZenModels() {
+        val sparse = DiscoveredModel(
+            id = "gpt-5.6-sol",
+            displayName = "GPT-5.6 Sol",
+        )
+        val go = ModelRequestPolicy.enrichOpenCodeModel(
+            providerId = "provider-opencode-go-test",
+            rawBaseUrl = "https://opencode.ai/zen/go/v1",
+            model = sparse,
+        )
+        val zen = ModelRequestPolicy.enrichOpenCodeModel(
+            providerId = "provider-opencode-zen-test",
+            rawBaseUrl = "https://opencode.ai/zen/v1",
+            model = sparse.copy(id = "claude-sonnet-5", displayName = "Claude Sonnet 5"),
+        )
+
+        assertEquals("OpenCode Go", go.metadataSource)
+        assertEquals(true, go.supportsThinking)
+        assertEquals(true, go.supportsVision)
+        assertEquals(true, go.supportsTools)
+
+        assertEquals("OpenCode Zen", zen.metadataSource)
+        assertEquals(true, zen.supportsThinking)
+        assertEquals(true, zen.supportsVision)
+        assertEquals(true, zen.supportsTools)
+    }
+
+    @Test
     fun customOpenAiCompatibleProviderUsesCompactPersistedRequestType() {
         val custom = ProviderEntity(
             id = "provider-custom",

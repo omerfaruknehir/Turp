@@ -1,8 +1,10 @@
 package app.turp.chat.ui
 
+import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -42,17 +44,20 @@ import androidx.compose.material3.Text as MaterialText
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
+import app.turp.chat.BuildConfig
 import app.turp.chat.CatalogInitializationState
 import app.turp.chat.R
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -385,8 +390,26 @@ private fun OnboardingProgressHeader(
 
 @Composable
 private fun WelcomeStep(viewModel: ChatViewModel) {
+    val demoTapState = remember { longArrayOf(0L, 0L) }
     Spacer(Modifier.height(8.dp))
-    TurpMark(modifier = Modifier.size(64.dp), contentDescription = "Turp")
+    TurpMark(
+        modifier = Modifier
+            .size(64.dp)
+            .pointerInput(viewModel) {
+                detectTapGestures {
+                    if (!BuildConfig.DEBUG) return@detectTapGestures
+                    val now = SystemClock.elapsedRealtime()
+                    val count = if (now - demoTapState[1] <= 900L) demoTapState[0] + 1L else 1L
+                    demoTapState[0] = count
+                    demoTapState[1] = now
+                    if (count >= 3L) {
+                        demoTapState[0] = 0L
+                        viewModel.activateDemoModeFromOnboarding()
+                    }
+                }
+            },
+        contentDescription = "Turp",
+    )
     Text(
         "Welcome to Turp",
         style = MaterialTheme.typography.headlineMedium,

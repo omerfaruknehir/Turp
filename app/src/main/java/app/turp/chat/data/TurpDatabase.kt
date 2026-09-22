@@ -25,7 +25,7 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         SystemPromptProfileEntity::class,
         MemoryEntity::class,
     ],
-    version = 16,
+    version = 18,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -49,7 +49,7 @@ abstract class TurpDatabase : RoomDatabase() {
             val factory = SupportOpenHelperFactory(passphrase)
             return Room.databaseBuilder(context, TurpDatabase::class.java, "turp.db")
                 .openHelperFactory(factory)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18)
                 .addCallback(object : Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
                         super.onCreate(db)
@@ -269,6 +269,44 @@ abstract class TurpDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE models ADD COLUMN reasoningSupportsMaxTokens INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("ALTER TABLE models ADD COLUMN metadataSource TEXT NOT NULL DEFAULT ''")
                 db.execSQL("ALTER TABLE models ADD COLUMN metadataUpdatedAt INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        private val MIGRATION_16_17 = object : Migration(16, 17) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE conversations ADD COLUMN sudoModeEnabled INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        private val MIGRATION_17_18 = object : Migration(17, 18) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE providers ADD COLUMN protocol TEXT NOT NULL DEFAULT 'AUTO'")
+                db.execSQL("ALTER TABLE providers ADD COLUMN profile TEXT NOT NULL DEFAULT 'AUTO'")
+                db.execSQL("ALTER TABLE providers ADD COLUMN endpointOverridesJson TEXT NOT NULL DEFAULT '{}'")
+                db.execSQL(
+                    "UPDATE providers SET protocol = CASE kind " +
+                        "WHEN 'OPENAI_COMPATIBLE' THEN 'OPENAI_COMPATIBLE' " +
+                        "WHEN 'OPENAI_OAUTH' THEN 'OPENAI_OAUTH' " +
+                        "WHEN 'ANTHROPIC' THEN 'ANTHROPIC' " +
+                        "WHEN 'GEMINI' THEN 'GEMINI' ELSE 'AUTO' END",
+                )
+                db.execSQL(
+                    "UPDATE providers SET profile = CASE " +
+                        "WHEN lower(id) = 'openrouter' OR lower(id) LIKE 'provider-openrouter-%' OR lower(rtrim(baseUrl, '/')) = 'https://openrouter.ai/api/v1' THEN 'OPENROUTER' " +
+                        "WHEN lower(id) = 'opencode-go' OR lower(id) LIKE 'provider-opencode-go-%' OR lower(rtrim(baseUrl, '/')) = 'https://opencode.ai/zen/go/v1' THEN 'OPENCODE_GO' " +
+                        "WHEN lower(id) = 'opencode-zen' OR lower(id) LIKE 'provider-opencode-zen-%' OR lower(rtrim(baseUrl, '/')) = 'https://opencode.ai/zen/v1' THEN 'OPENCODE_ZEN' " +
+                        "WHEN lower(id) = 'openai' OR lower(id) LIKE 'provider-openai-%' OR lower(rtrim(baseUrl, '/')) = 'https://api.openai.com/v1' THEN 'OPENAI' " +
+                        "WHEN lower(id) = 'deepseek' OR lower(id) LIKE 'provider-deepseek-%' THEN 'DEEPSEEK' " +
+                        "WHEN lower(id) = 'groq' OR lower(id) LIKE 'provider-groq-%' THEN 'GROQ' " +
+                        "WHEN lower(id) = 'mistral' OR lower(id) LIKE 'provider-mistral-%' THEN 'MISTRAL' " +
+                        "WHEN lower(id) = 'xai' OR lower(id) LIKE 'provider-xai-%' THEN 'XAI' " +
+                        "WHEN lower(id) = 'qwen-cloud' OR lower(id) LIKE 'provider-qwen-cloud-%' OR lower(baseUrl) LIKE '%dashscope%compatible-mode/v1%' OR lower(baseUrl) LIKE '%maas.aliyuncs.com%compatible-mode/v1%' THEN 'QWEN_CLOUD' " +
+                        "WHEN lower(id) = 'ollama' OR lower(id) LIKE 'provider-ollama-%' THEN 'OLLAMA' " +
+                        "WHEN kind = 'ANTHROPIC' THEN 'ANTHROPIC' " +
+                        "WHEN kind = 'GEMINI' THEN 'GEMINI' " +
+                        "WHEN kind = 'OPENAI_OAUTH' THEN 'OPENAI_OAUTH' " +
+                        "ELSE 'GENERIC' END",
+                )
             }
         }
 

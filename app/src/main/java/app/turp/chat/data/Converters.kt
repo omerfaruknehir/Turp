@@ -9,6 +9,10 @@ class Converters {
     @TypeConverter fun toStatus(value: String): MessageStatus = MessageStatus.valueOf(value)
     @TypeConverter fun fromProviderKind(value: ProviderKind): String = value.name
     @TypeConverter fun toProviderKind(value: String): ProviderKind = ProviderKind.valueOf(value)
+    @TypeConverter fun fromProviderProtocol(value: ProviderProtocol): String = value.name
+    @TypeConverter fun toProviderProtocol(value: String): ProviderProtocol = ProviderProtocol.valueOf(value)
+    @TypeConverter fun fromProviderProfile(value: ProviderProfile): String = value.name
+    @TypeConverter fun toProviderProfile(value: String): ProviderProfile = ProviderProfile.valueOf(value)
     @TypeConverter fun fromReasoningVisibility(value: ReasoningVisibility): String = value.name
     @TypeConverter fun toReasoningVisibility(value: String): ReasoningVisibility =
         if (value == "HIDE") ReasoningVisibility.COLLAPSED else ReasoningVisibility.valueOf(value)

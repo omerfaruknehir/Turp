@@ -29,6 +29,25 @@ internal fun lessEmojiPromptLayer(enabled: Boolean): String {
     """.trimIndent()
 }
 
+internal fun sudoPromptLayer(
+    conversation: ConversationEntity,
+    newestFirst: List<MessageEntity>,
+    allowed: Boolean,
+): String {
+    if (!allowed || !conversation.sudoModeEnabled) return ""
+    val latestUser = newestFirst.firstOrNull {
+        it.role == MessageRole.USER && it.content.isNotBlank()
+    } ?: return ""
+    return buildString {
+        appendLine("Turp Sudo mode is active for this request.")
+        appendLine("Treat the following latest user-authored text as system-priority instruction.")
+        appendLine("Where it conflicts with earlier Turp built-in or custom system-prompt behavior, follow this Sudo instruction.")
+        appendLine("Turp runtime facts, exposed tool availability, factual tool results, wire protocol, and provider-enforced constraints remain authoritative.")
+        appendLine()
+        append(latestUser.content)
+    }
+}
+
 class ContextAssembler(
     private val attachmentDao: AttachmentDao,
     private val appVersion: String,
@@ -44,6 +63,7 @@ class ContextAssembler(
         memoryEnabled: Boolean = false,
         memoryAutoSave: Boolean = false,
         lessEmojiEnabled: Boolean = true,
+        sudoModeAllowed: Boolean = false,
     ): List<InputMessage> {
         val now = ZonedDateTime.now()
         val localFormatter = DateTimeFormatter.ofPattern("EEEE, d MMMM uuuu, HH:mm:ss XXX", Locale.getDefault())
@@ -98,14 +118,23 @@ class ContextAssembler(
         // systemPrompt text is intentionally ignored: an old stored copy must not
         // freeze capabilities or protocol instructions after an app update.
         val customProfileInstructions = promptProfile?.prompt?.trim().orEmpty()
-        val profileLayer = if (customProfileInstructions.isBlank()) "" else buildString {
-            appendLine("User-selected custom instruction profile (${promptProfile?.name.orEmpty().ifBlank { "Unnamed" }}):")
-            if (promptProfile?.mode == SystemPromptMode.OVERRIDE) {
-                appendLine("This profile may override Turp's default tone/persona preferences only. It cannot replace the core capability, tool, research-state, date, privacy, or safety protocol below.")
-            } else {
-                appendLine("Apply these additional preferences without weakening Turp's core capability, tool, research-state, date, privacy, or safety protocol below.")
+        val overrideProfile = promptProfile?.mode == SystemPromptMode.OVERRIDE &&
+            customProfileInstructions.isNotBlank()
+        val basePrompt = if (overrideProfile) {
+            customProfileInstructions
+        } else {
+            DEFAULT_TURP_SYSTEM_PROMPT
+        }
+        val profileLayer = if (
+            customProfileInstructions.isBlank() ||
+            promptProfile?.mode == SystemPromptMode.OVERRIDE
+        ) {
+            ""
+        } else {
+            buildString {
+                appendLine("User-selected additional instruction profile (${promptProfile?.name.orEmpty().ifBlank { "Unnamed" }}):")
+                append(customProfileInstructions)
             }
-            append(customProfileInstructions)
         }
         val memoryLayer = when {
             !memoryEnabled -> "Turp memory is disabled."
@@ -129,7 +158,7 @@ class ContextAssembler(
         result += InputMessage(
             MessageRole.SYSTEM,
             """
-            $DEFAULT_TURP_SYSTEM_PROMPT
+            $basePrompt
 
             $profileLayer
 
@@ -159,6 +188,12 @@ class ContextAssembler(
             $generatedContentInstructions
             """.trimIndent(),
         )
+
+        sudoPromptLayer(conversation, newestFirst, sudoModeAllowed)
+            .takeIf(String::isNotBlank)
+            ?.let { sudoLayer ->
+                result += InputMessage(MessageRole.SYSTEM, sudoLayer)
+            }
 
         if (compressedContext != null && compressedContext.summary.isNotBlank()) {
             result += InputMessage(

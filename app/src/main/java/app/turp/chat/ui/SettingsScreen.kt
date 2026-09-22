@@ -41,6 +41,7 @@ import androidx.compose.material.icons.outlined.PrivacyTip
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.DeveloperMode
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.DeleteOutline
@@ -120,6 +121,8 @@ import app.turp.chat.R
 import app.turp.chat.installedAppVersion
 import app.turp.chat.data.ProviderEntity
 import app.turp.chat.data.ProviderKind
+import app.turp.chat.data.ProviderProfile
+import app.turp.chat.data.ProviderProtocol
 import app.turp.chat.data.ModelEntity
 import app.turp.chat.data.DefaultCatalog
 import app.turp.chat.data.ReasoningVisibility
@@ -133,16 +136,27 @@ import app.turp.chat.data.SystemPromptProfileEntity
 import app.turp.chat.provider.DiscoveredModel
 import app.turp.chat.provider.ModelRequestPolicy
 import app.turp.chat.provider.ModelRequestType
+import app.turp.chat.provider.ProviderEndpointResolver
+import app.turp.chat.provider.effectiveProfile
+import app.turp.chat.provider.effectiveProtocol
+import app.turp.chat.provider.legacyKind
+import app.turp.chat.provider.providerProfileLabel
+import app.turp.chat.provider.providerProtocolLabel
 import app.turp.chat.provider.OpenAiOAuthState
 import app.turp.chat.provider.OpenAiOAuthUsageSnapshot
 import app.turp.chat.provider.OpenAiOAuthUsageState
 import app.turp.chat.provider.OpenAiOAuthUsageWindow
+import app.turp.chat.provider.OpenCodeUsageState
+import app.turp.chat.provider.OpenCodeUsageWindow
+import app.turp.chat.provider.OpenRouterKeySnapshot
+import app.turp.chat.provider.OpenRouterKeyState
 import app.turp.chat.provider.supportedThinkingLevels
 import app.turp.chat.provider.defaultThinkingEffort
 import app.turp.chat.provider.effectiveThinkingEnabled
 import app.turp.chat.settings.CHROME_EDGE_SOFTNESS_FLAT_SNAP_POINT
 import app.turp.chat.settings.CHROME_EDGE_SOFTNESS_ROUNDED_SNAP_POINT
 import app.turp.chat.settings.ColorPalette
+import app.turp.chat.settings.LauncherIconManager
 import app.turp.chat.settings.DeveloperSettings
 import app.turp.chat.settings.PerformanceOverlayPosition
 import app.turp.chat.settings.NewChatDefaults
@@ -163,6 +177,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.distinctUntilChanged
 import java.text.DateFormat
 import java.util.Date
+import java.util.Locale
 import java.util.UUID
 import kotlin.math.roundToInt
 
@@ -185,6 +200,8 @@ fun SettingsScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
     val credentialRevision by viewModel.credentialRevision.collectAsStateWithLifecycle()
     val openAiOAuthStates by viewModel.openAiOAuthStates.collectAsStateWithLifecycle()
     val openAiOAuthUsageStates by viewModel.openAiOAuthUsageStates.collectAsStateWithLifecycle()
+    val openCodeUsageStates by viewModel.openCodeUsageStates.collectAsStateWithLifecycle()
+    val openRouterKeyStates by viewModel.openRouterKeyStates.collectAsStateWithLifecycle()
     val amoled by viewModel.amoled.collectAsState()
     val palette by viewModel.palette.collectAsState()
     val themeMode by viewModel.themeMode.collectAsState()
@@ -320,6 +337,8 @@ fun SettingsScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
                             conversationProviderId = null,
                             openAiOAuthStates = openAiOAuthStates,
                             openAiOAuthUsageStates = openAiOAuthUsageStates,
+                            openCodeUsageStates = openCodeUsageStates,
+                            openRouterKeyStates = openRouterKeyStates,
                             viewModel = viewModel,
                         )
                         SettingsRoute.ABOUT -> AboutSettingsPage(
@@ -1019,8 +1038,12 @@ private fun AppearanceSettingsPage(
     chromeOverlayOpacity: Float,
     viewModel: ChatViewModel,
 ) = SettingsPage {
+    val context = LocalContext.current
     val appName = stringResource(R.string.app_name)
     val appNamePossessive = stringResource(R.string.app_name_possessive)
+    val launcherIconNeedsApply = remember(context, matchLauncherIconToPalette, palette) {
+        LauncherIconManager.needsChange(context, matchLauncherIconToPalette, palette)
+    }
     SectionTitle("Theme mode", "Choose whether $appName follows Android or stays light or dark.")
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         ThemeMode.entries.forEach { option ->
@@ -1035,8 +1058,17 @@ private fun AppearanceSettingsPage(
 
     HorizontalDivider()
     SectionTitle("Color scheme", "Choose a restrained built-in palette or Android dynamic colors. Every swatch is rendered from that palette, not the currently selected one.")
+    val appearancePaletteOrder = listOf(
+        ColorPalette.TURP,
+        ColorPalette.SYSTEM,
+        ColorPalette.ARBOR,
+        ColorPalette.GRAPHITE,
+        ColorPalette.OCEAN,
+        ColorPalette.VIOLET,
+        ColorPalette.SUNSET,
+    )
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        ColorPalette.entries.forEach { option ->
+        appearancePaletteOrder.forEach { option ->
             val preview = palettePreviewColors(option, themeMode)
             Surface(
                 onClick = { viewModel.setPalette(option) },
@@ -1060,32 +1092,52 @@ private fun AppearanceSettingsPage(
         color = if (matchLauncherIconToPalette) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer,
         contentColor = if (matchLauncherIconToPalette) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
         shape = MaterialTheme.shapes.extraLarge,
-        modifier = Modifier.fillMaxWidth().clickable {
-            viewModel.setMatchLauncherIconToPalette(!matchLauncherIconToPalette)
-        },
+        modifier = Modifier.fillMaxWidth(),
     ) {
-        Row(
-            Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            LauncherIconPreview(if (matchLauncherIconToPalette) palette else ColorPalette.TURP)
-            Column(Modifier.weight(1f)) {
-                Text("Match launcher icon to palette", fontWeight = FontWeight.SemiBold)
-                Text(
-                    if (matchLauncherIconToPalette) {
-                        "Changing the launcher icon briefly restarts Turp after saving the open page, chat drafts and files, and current scroll positions. Android themed icons can still override app-selected colors."
-                    } else {
-                        "Keep the classic Turp green icon regardless of the selected palette."
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Column {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        viewModel.setMatchLauncherIconToPalette(!matchLauncherIconToPalette)
+                    }
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                LauncherIconPreview(if (matchLauncherIconToPalette) palette else ColorPalette.TURP)
+                Column(Modifier.weight(1f)) {
+                    Text("Match launcher icon to palette", fontWeight = FontWeight.SemiBold)
+                    Text(
+                        if (matchLauncherIconToPalette) {
+                            "Use the selected palette for the launcher icon. Icon changes stay pending until you restart Turp with the button below. Android themed icons can still override app-selected colors."
+                        } else {
+                            "Keep the classic Turp icon regardless of the selected palette. If the current icon differs, apply the change with the restart button below."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = matchLauncherIconToPalette,
+                    onCheckedChange = viewModel::setMatchLauncherIconToPalette,
                 )
             }
-            Switch(
-                checked = matchLauncherIconToPalette,
-                onCheckedChange = viewModel::setMatchLauncherIconToPalette,
-            )
+            if (launcherIconNeedsApply) {
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = .55f),
+                )
+                FilledTonalButton(
+                    onClick = viewModel::reconcileLauncherIcon,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                ) {
+                    Icon(Icons.Outlined.Refresh, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Restart the app to apply")
+                }
+            }
         }
     }
     Text(
@@ -1250,7 +1302,7 @@ private fun SystemPromptProfilesPage(
     var creating by remember { mutableStateOf(false) }
     SectionTitle(
         "Custom instruction profiles",
-        "Turp's versioned core prompt is built into the app and updates with Turp. Profiles can adjust tone or add preferences, but cannot replace the core capability, tool, research, date, privacy, or safety protocol.",
+        "Prepend adds instructions after Turp's built-in prompt. Override replaces the built-in prompt text; Turp still supplies runtime/tool protocol required for app features.",
     )
     FilledTonalButton(onClick = { creating = true }, modifier = Modifier.fillMaxWidth()) {
         Icon(Icons.Outlined.Add, null)
@@ -1266,7 +1318,7 @@ private fun SystemPromptProfilesPage(
                     Column(Modifier.weight(1f)) {
                         Text(profile.name, fontWeight = FontWeight.SemiBold)
                         Text(
-                            if (profile.mode == SystemPromptMode.OVERRIDE) "Override default tone/persona" else "Additional instructions",
+                            if (profile.mode == SystemPromptMode.OVERRIDE) "Override built-in prompt" else "Additional instructions",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.primary,
                         )
@@ -1322,6 +1374,21 @@ private fun SystemPromptEditorDialog(
                     FilterChip(selected = mode == SystemPromptMode.PREPEND, onClick = { mode = SystemPromptMode.PREPEND }, label = { Text("Prepend") })
                     FilterChip(selected = mode == SystemPromptMode.OVERRIDE, onClick = { mode = SystemPromptMode.OVERRIDE }, label = { Text("Override") })
                 }
+                OutlinedButton(
+                    onClick = {
+                        prompt = DEFAULT_TURP_SYSTEM_PROMPT
+                        mode = SystemPromptMode.OVERRIDE
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Outlined.ContentCopy, null)
+                    Text("Use Turp template", Modifier.padding(start = 8.dp))
+                }
+                Text(
+                    "Copies Turp's current built-in system prompt into this editable profile and switches to Override.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 OutlinedTextField(prompt, { prompt = it.take(64_000) }, label = { Text("Instructions") }, minLines = 8, maxLines = 16, modifier = Modifier.fillMaxWidth())
             }
         },
@@ -1409,6 +1476,66 @@ private fun DeveloperSettingsPage(
         label = "Enable developer settings",
         checked = settings.enabled,
         onCheckedChange = { enabled -> viewModel.updateDeveloperSettings { it.copy(enabled = enabled) } },
+    )
+
+    if (BuildConfig.DEBUG) {
+        HorizontalDivider()
+        SectionTitle(
+            "Demo mode",
+            "Populate Turp with deterministic local fixture data for UI and interaction testing. Demo providers never make network requests.",
+        )
+        SettingsSwitch(
+            label = "Enable demo mode",
+            checked = settings.demoModeEnabled,
+            onCheckedChange = { enabled -> viewModel.setDemoModeEnabled(enabled) },
+        )
+        Text(
+            if (settings.demoModeEnabled) {
+                "Active: 5 providers, 100 models, 3 projects, and 12 seeded chats. Turning this off removes only demo-prefixed data."
+            } else {
+                "Debug builds only. You can also activate it by triple-tapping the large Turp logo on the Welcome screen."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+
+    HorizontalDivider()
+    SectionTitle(
+        "Message source",
+        "Expose the exact stored message content so rendered Markdown can be compared with its raw source.",
+    )
+    SettingsSwitch(
+        label = "Show source",
+        checked = settings.showMessageSourceEnabled,
+        onCheckedChange = { enabled ->
+            viewModel.updateDeveloperSettings { it.copy(showMessageSourceEnabled = enabled) }
+        },
+        enabled = settings.enabled,
+    )
+    Text(
+        "Adds a Source / Rendered control to every message. Source mode shows the raw stored message.content without Markdown rendering.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+
+    HorizontalDivider()
+    SectionTitle(
+        "Sudo mode",
+        "Expose a per-chat Sudo control that can promote the latest user turn to system priority for debugging prompt behavior.",
+    )
+    SettingsSwitch(
+        label = "Enable Sudo control",
+        checked = settings.sudoModeControlEnabled,
+        onCheckedChange = { enabled ->
+            viewModel.updateDeveloperSettings { it.copy(sudoModeControlEnabled = enabled) }
+        },
+        enabled = settings.enabled,
+    )
+    Text(
+        "Off by default. When exposed, Sudo is still disabled per chat until you turn it on from Add to chat → Tools.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
 
     HorizontalDivider()
@@ -1905,7 +2032,7 @@ private val ColorPalette.displayName: String
 
 private val ColorPalette.description: String
     get() = when (this) {
-        ColorPalette.TURP -> "Radish red, leafy green, and warm root-toned surfaces"
+        ColorPalette.TURP -> "Neutral graphite surfaces with a focused radish accent"
         ColorPalette.ARBOR -> "The original natural green Turp palette"
         ColorPalette.SYSTEM -> "Colors generated from your wallpaper on Android 12+"
         ColorPalette.GRAPHITE -> "Restrained blue-gray palette"
@@ -2195,6 +2322,8 @@ private fun ProviderSettings(
     conversationProviderId: String?,
     openAiOAuthStates: Map<String, OpenAiOAuthState>,
     openAiOAuthUsageStates: Map<String, OpenAiOAuthUsageState>,
+    openCodeUsageStates: Map<String, OpenCodeUsageState>,
+    openRouterKeyStates: Map<String, OpenRouterKeyState>,
     viewModel: ChatViewModel,
 ) {
     var selectedId by remember { mutableStateOf<String?>(null) }
@@ -2207,8 +2336,11 @@ private fun ProviderSettings(
     var baseUrl by remember { mutableStateOf("") }
     var apiKey by remember { mutableStateOf("") }
     var headers by remember { mutableStateOf("{}") }
+    var endpointOverrides by remember { mutableStateOf("{}") }
     var providerName by remember { mutableStateOf("") }
     var apiKeyRequired by remember { mutableStateOf(true) }
+    var protocol by remember { mutableStateOf(ProviderProtocol.OPENAI_COMPATIBLE) }
+    var profile by remember { mutableStateOf(ProviderProfile.GENERIC) }
     val scope = rememberCoroutineScope()
     var syncingModels by remember { mutableStateOf(false) }
     var modelSyncStatus by remember { mutableStateOf<String?>(null) }
@@ -2227,8 +2359,11 @@ private fun ProviderSettings(
             baseUrl = it.baseUrl
             apiKey = viewModel.apiKey(it.id)
             headers = it.customHeadersJson
+            endpointOverrides = it.endpointOverridesJson
             providerName = it.displayName
             apiKeyRequired = it.apiKeyRequired
+            protocol = it.effectiveProtocol
+            profile = it.effectiveProfile
         }
     }
     val selectedOAuthState = selected?.takeIf { it.kind == ProviderKind.OPENAI_OAUTH }
@@ -2239,9 +2374,29 @@ private fun ProviderSettings(
         val provider = selected?.takeIf { it.kind == ProviderKind.OPENAI_OAUTH } ?: return@LaunchedEffect
         if (selectedOAuthState is OpenAiOAuthState.SignedIn) viewModel.ensureChatGptUsage(provider.id)
     }
-    LaunchedEffect(selected?.id, selectedModels, apiKey, headers, baseUrl) {
+    val selectedOpenCodeUsageState = selected?.takeIf(ModelRequestPolicy::isOpenCodeGo)
+        ?.let { openCodeUsageStates[it.id] } ?: OpenCodeUsageState.Unavailable
+    LaunchedEffect(selected?.id, apiKey) {
+        val provider = selected?.takeIf(ModelRequestPolicy::isOpenCodeGo) ?: return@LaunchedEffect
+        if (apiKey.isNotBlank()) viewModel.ensureOpenCodeUsage(provider.id)
+    }
+    val selectedOpenRouterKeyState = selected?.takeIf(ModelRequestPolicy::isOpenRouter)
+        ?.let { openRouterKeyStates[it.id] } ?: OpenRouterKeyState.Unavailable
+    LaunchedEffect(selected?.id, apiKey) {
+        val provider = selected?.takeIf(ModelRequestPolicy::isOpenRouter) ?: return@LaunchedEffect
+        if (apiKey.isNotBlank()) viewModel.ensureOpenRouterKeyInfo(provider.id)
+    }
+    LaunchedEffect(selected?.id, selectedModels, apiKey, headers, endpointOverrides, baseUrl, protocol, profile) {
         val provider = selected ?: return@LaunchedEffect
-        if (!ModelRequestPolicy.isOpenRouter(provider) || provider.kind == ProviderKind.OPENAI_OAUTH) return@LaunchedEffect
+        val configuredProvider = provider.copy(
+            kind = protocol.legacyKind(),
+            baseUrl = baseUrl,
+            customHeadersJson = headers,
+            protocol = protocol,
+            profile = profile,
+            endpointOverridesJson = endpointOverrides,
+        )
+        if (!ModelRequestPolicy.isOpenRouter(configuredProvider) || protocol == ProviderProtocol.OPENAI_OAUTH) return@LaunchedEffect
         val newestMetadata = selectedModels.maxOfOrNull(ModelEntity::metadataUpdatedAt) ?: 0L
         val metadataFresh = selectedModels.any { it.metadataSource == "OpenRouter" } &&
             System.currentTimeMillis() - newestMetadata < OPENROUTER_METADATA_REFRESH_INTERVAL_MS
@@ -2250,7 +2405,7 @@ private fun ProviderSettings(
         automaticMetadataAttemptedFor = provider.id
         syncingModels = true
         modelSyncStatus = "Fetching OpenRouter capabilities, reasoning modes, limits, and pricing…"
-        runCatching { viewModel.discoverModels(provider.kind, baseUrl, apiKey, headers) }
+        runCatching { viewModel.discoverModels(configuredProvider, apiKey) }
             .onSuccess { discovered ->
                 viewModel.saveDiscoveredModels(provider.id, discovered)
                 modelSyncStatus = "Automatically updated metadata for ${discovered.size} models"
@@ -2265,6 +2420,9 @@ private fun ProviderSettings(
             "anthropic" to "Anthropic",
             "gemini" to "Gemini",
             "openrouter" to "OpenRouter",
+            "opencode-v2" to "OpenCode V2",
+            "opencode-go" to "OpenCode Go",
+            "opencode-zen" to "OpenCode Zen",
             "deepseek" to "DeepSeek",
             "groq" to "Groq",
             "mistral" to "Mistral",
@@ -2370,7 +2528,10 @@ private fun ProviderSettings(
                                             is OpenAiOAuthState.Error -> "ChatGPT OAuth • Needs attention"
                                             else -> "ChatGPT OAuth • Disconnected"
                                         }
-                                    } else providerKindLabel(provider.kind),
+                                    } else {
+                                        providerProtocolLabel(provider.effectiveProtocol) + " • " +
+                                            providerProfileLabel(provider.effectiveProfile)
+                                    },
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -2405,7 +2566,15 @@ private fun ProviderSettings(
                                 scope.launch {
                                     syncingModels = true
                                     modelSyncStatus = null
-                                    runCatching { viewModel.discoverModels(provider.kind, baseUrl, apiKey, headers) }
+                                    val configuredProvider = provider.copy(
+                                        kind = protocol.legacyKind(),
+                                        baseUrl = baseUrl,
+                                        customHeadersJson = headers,
+                                        protocol = protocol,
+                                        profile = profile,
+                                        endpointOverridesJson = endpointOverrides,
+                                    )
+                                    runCatching { viewModel.discoverModels(configuredProvider, apiKey) }
                                         .onSuccess { discovered ->
                                             viewModel.saveDiscoveredModels(provider.id, discovered)
                                             modelSyncStatus = "Updated ${discovered.size} models"
@@ -2426,6 +2595,17 @@ private fun ProviderSettings(
                     }
                     modelSyncStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
+            }
+            when {
+                ModelRequestPolicy.isOpenRouter(provider) -> OpenRouterKeyUsagePanel(
+                    state = selectedOpenRouterKeyState,
+                    onRefresh = { viewModel.refreshOpenRouterKeyInfo(provider.id) },
+                )
+                ModelRequestPolicy.isOpenCodeGo(provider) -> OpenCodeUsagePanel(
+                    state = selectedOpenCodeUsageState,
+                    onRefresh = { viewModel.refreshOpenCodeUsage(provider.id) },
+                )
+                ModelRequestPolicy.isOpenCodeZen(provider) -> OpenCodeZenBalanceNote()
             }
             ModelCatalogEditor(provider, viewModel)
         }
@@ -2484,10 +2664,28 @@ private fun ProviderSettings(
                             onKey = { apiKey = it },
                             headers = headers,
                             onHeaders = { headers = it },
+                            endpointOverrides = endpointOverrides,
+                            onEndpointOverrides = { endpointOverrides = it },
+                            protocol = protocol,
+                            onProtocol = { protocol = it },
+                            profile = profile,
+                            onProfile = { profile = it },
                             apiKeyRequired = apiKeyRequired,
                             onApiKeyRequired = { apiKeyRequired = it },
                         ) {
-                            viewModel.saveProvider(provider.copy(displayName = providerName.trim(), baseUrl = baseUrl.trimEnd('/'), customHeadersJson = headers, apiKeyRequired = apiKeyRequired), apiKey)
+                            viewModel.saveProvider(
+                                provider.copy(
+                                    displayName = providerName.trim(),
+                                    kind = protocol.legacyKind(),
+                                    baseUrl = baseUrl.trimEnd('/'),
+                                    customHeadersJson = headers,
+                                    apiKeyRequired = apiKeyRequired,
+                                    protocol = protocol,
+                                    profile = profile,
+                                    endpointOverridesJson = endpointOverrides.ifBlank { "{}" },
+                                ),
+                                apiKey,
+                            )
                             editingConnection = false
                         }
                     }
@@ -2541,21 +2739,24 @@ private fun ProviderSettings(
         templates = DefaultCatalog.providers.filter { provider -> provider.kind != ProviderKind.OPENAI_OAUTH },
         onDismiss = { addingProvider = false
             addingProviderTemplateId = null },
-        onDiscover = viewModel::discoverModels,
+        onDiscover = { provider, key -> viewModel.discoverModels(provider, key) },
         onAdd = { draft ->
             val templateId = draft.templateProviderId
-            val id = "provider-${templateId ?: draft.kind.name.lowercase()}-${UUID.randomUUID()}"
+            val id = "provider-${templateId ?: draft.protocol.name.lowercase()}-${UUID.randomUUID()}"
             val template = DefaultCatalog.providers.firstOrNull { it.id == templateId }
             val provider = (template ?: ProviderEntity(
-                id = id, displayName = draft.name, kind = draft.kind, baseUrl = draft.baseUrl,
+                id = id, displayName = draft.name, kind = draft.protocol.legacyKind(), baseUrl = draft.baseUrl,
             )).copy(
                 id = id,
                 displayName = draft.name,
-                kind = draft.kind,
+                kind = draft.protocol.legacyKind(),
                 baseUrl = draft.baseUrl.trimEnd('/'),
                 customHeadersJson = draft.headers,
                 registered = true,
                 apiKeyRequired = draft.apiKeyRequired,
+                protocol = draft.protocol,
+                profile = draft.profile,
+                endpointOverridesJson = draft.endpointOverrides,
             )
             val models = draft.selectedModels.map { candidate ->
                 val bundled = DefaultCatalog.models.firstOrNull { it.providerId == (templateId ?: id) && it.modelId == candidate.id }
@@ -2739,6 +2940,291 @@ private fun ChatGptOAuthCard(
 }
 
 @Composable
+private fun OpenRouterKeyUsagePanel(
+    state: OpenRouterKeyState,
+    onRefresh: () -> Unit,
+) {
+    val snapshot = when (state) {
+        is OpenRouterKeyState.Loaded -> state.snapshot
+        is OpenRouterKeyState.Loading -> state.previous
+        is OpenRouterKeyState.Error -> state.previous
+        OpenRouterKeyState.Unavailable -> null
+    }
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = .72f),
+        shape = MaterialTheme.shapes.large,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("OpenRouter key usage", fontWeight = FontWeight.SemiBold)
+                    Text(
+                        buildString {
+                            snapshot?.label?.takeIf(String::isNotBlank)?.let { append(it).append(" • ") }
+                            append(if (snapshot?.isFreeTier == true) "free tier" else "server-reported limits")
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (state is OpenRouterKeyState.Loading) {
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                }
+                IconButton(onClick = onRefresh, enabled = state !is OpenRouterKeyState.Loading) {
+                    Icon(Icons.Outlined.Refresh, "Refresh OpenRouter key usage")
+                }
+            }
+            if (snapshot == null) {
+                when (state) {
+                    is OpenRouterKeyState.Error -> Text(
+                        state.message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    OpenRouterKeyState.Unavailable -> Text(
+                        "Add an OpenRouter API key to load its usage and limits.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    else -> LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
+            } else {
+                OpenRouterLimitSummary(snapshot)
+                val usageValues = listOfNotNull(
+                    snapshot.usageUsd?.let { "Total" to it },
+                    snapshot.usageDailyUsd?.let { "Today" to it },
+                    snapshot.usageWeeklyUsd?.let { "This week" to it },
+                    snapshot.usageMonthlyUsd?.let { "This month" to it },
+                )
+                if (usageValues.isNotEmpty()) {
+                    usageValues.forEach { (label, value) -> OpenRouterMoneyRow(label, value) }
+                }
+                val byokValues = listOfNotNull(
+                    snapshot.byokUsageUsd?.takeIf { it > 0.0 }?.let { "BYOK total" to it },
+                    snapshot.byokUsageDailyUsd?.takeIf { it > 0.0 }?.let { "BYOK today" to it },
+                )
+                byokValues.forEach { (label, value) -> OpenRouterMoneyRow(label, value) }
+                if (byokValues.isNotEmpty()) {
+                    Text(
+                        if (snapshot.includeByokInLimit == true) "BYOK usage counts toward this key limit."
+                        else "BYOK usage is reported separately from this key limit.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                snapshot.freeModelDailyRequests?.let { allowance ->
+                    val total = allowance.limit
+                    val remaining = allowance.remaining
+                    Text(
+                        buildString {
+                            append("Free-model requests")
+                            if (remaining != null && total != null) append(": ").append(remaining).append(" / ").append(total).append(" left")
+                            else if (remaining != null) append(": ").append(remaining).append(" left")
+                            else if (allowance.used != null) append(": ").append(allowance.used).append(" used today")
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                if (snapshot.allowedDataRegions.isNotEmpty()) {
+                    Text(
+                        "Allowed data regions: " + snapshot.allowedDataRegions.joinToString(", "),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                snapshot.expiresAtEpochSeconds?.let { expires ->
+                    Text(
+                        "Key expires: " + DateFormat.getDateTimeInstance().format(Date(expires * 1_000L)),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (state is OpenRouterKeyState.Error) {
+                    Text(
+                        "Refresh failed • " + state.message,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OpenRouterLimitSummary(snapshot: OpenRouterKeySnapshot) {
+    val limit = snapshot.limitUsd
+    val remaining = snapshot.limitRemainingUsd
+    if (limit == null) {
+        Text(
+            "No spending cap is reported for this API key.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        return
+    }
+    val remainingValue = remaining?.coerceIn(0.0, limit)
+    val used = if (remainingValue != null) (limit - remainingValue).coerceIn(0.0, limit) else snapshot.usageUsd?.coerceAtLeast(0.0)
+    val fraction = if (limit > 0.0 && used != null) (used / limit).coerceIn(0.0, 1.0).toFloat() else 0f
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text("Key spending limit", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+        Text(
+            remainingValue?.let { formatOpenRouterUsd(it) + " left" } ?: formatOpenRouterUsd(limit),
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
+    LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
+    Text(
+        buildString {
+            append(used?.let(::formatOpenRouterUsd) ?: "Unknown").append(" used of ").append(formatOpenRouterUsd(limit))
+            snapshot.limitReset?.takeIf(String::isNotBlank)?.let { append(" • reset ").append(it) }
+        },
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+@Composable
+private fun OpenRouterMoneyRow(label: String, value: Double) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(label, style = MaterialTheme.typography.bodySmall)
+        Text(formatOpenRouterUsd(value), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+    }
+}
+
+private fun formatOpenRouterUsd(value: Double): String =
+    String.format(Locale.US, "$%.4f", value).trimEnd('0').trimEnd('.')
+@Composable
+private fun OpenCodeUsagePanel(
+    state: OpenCodeUsageState,
+    onRefresh: () -> Unit,
+) {
+    val snapshot = when (state) {
+        is OpenCodeUsageState.Loaded -> state.snapshot
+        is OpenCodeUsageState.Loading -> state.previous
+        is OpenCodeUsageState.Error -> state.previous
+        OpenCodeUsageState.Unavailable -> null
+    }
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = .72f),
+        shape = MaterialTheme.shapes.large,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("OpenCode Go usage", fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "Server-reported subscription windows",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (state is OpenCodeUsageState.Loading) {
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                }
+                IconButton(onClick = onRefresh, enabled = state !is OpenCodeUsageState.Loading) {
+                    Icon(Icons.Outlined.Refresh, "Refresh OpenCode usage")
+                }
+            }
+            if (snapshot == null) {
+                when (state) {
+                    is OpenCodeUsageState.Error -> Text(
+                        state.message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    OpenCodeUsageState.Unavailable -> Text(
+                        "Add an OpenCode Go API key to load usage limits.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    else -> LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
+            } else {
+                snapshot.rolling?.let { OpenCodeUsageWindowRow("5-hour limit", it) }
+                snapshot.weekly?.let { OpenCodeUsageWindowRow("Weekly limit", it) }
+                snapshot.monthly?.let { OpenCodeUsageWindowRow("Monthly limit", it) }
+                if (state is OpenCodeUsageState.Error) {
+                    Text(
+                        "Refresh failed • " + state.message,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OpenCodeUsageWindowRow(label: String, window: OpenCodeUsageWindow) {
+    val used = window.usedPercent.coerceIn(0.0, 100.0)
+    val left = (100.0 - used).coerceIn(0.0, 100.0)
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(label, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+            Text(
+                left.roundToInt().toString() + "% left",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (left <= 10.0 || window.status.equals("rate-limited", true)) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
+            )
+        }
+        LinearProgressIndicator(
+            progress = { (used / 100.0).toFloat() },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        val resetAt = window.resetsAtEpochSeconds
+        var nowEpochSeconds by remember(resetAt) { mutableLongStateOf(System.currentTimeMillis() / 1_000L) }
+        LaunchedEffect(resetAt) {
+            if (resetAt != null) {
+                while (true) {
+                    delay(1_000L)
+                    nowEpochSeconds = System.currentTimeMillis() / 1_000L
+                }
+            }
+        }
+        val reset = resetAt?.let { usageResetText(it, nowEpochSeconds) }
+        Text(
+            buildString {
+                append(used.roundToInt()).append("% used")
+                if (reset != null) append(" • ").append(reset)
+                if (window.status.equals("rate-limited", true)) append(" • rate limited")
+            },
+            style = MaterialTheme.typography.labelSmall,
+            color = if (window.status.equals("rate-limited", true)) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+        )
+    }
+}
+
+@Composable
+private fun OpenCodeZenBalanceNote() {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = .72f),
+        shape = MaterialTheme.shapes.large,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("OpenCode Zen billing", fontWeight = FontWeight.SemiBold)
+            Text(
+                "Zen is pay-as-you-go. OpenCode does not currently expose wallet balance through API-key authentication, so Turp will not display an estimated balance.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
 private fun ChatGptUsagePanel(
     state: OpenAiOAuthUsageState,
     onRefresh: () -> Unit,
@@ -2913,13 +3399,65 @@ private fun ProviderEditor(
     baseUrl: String, onBaseUrl: (String) -> Unit,
     key: String, onKey: (String) -> Unit,
     headers: String, onHeaders: (String) -> Unit,
+    endpointOverrides: String, onEndpointOverrides: (String) -> Unit,
+    protocol: ProviderProtocol, onProtocol: (ProviderProtocol) -> Unit,
+    profile: ProviderProfile, onProfile: (ProviderProfile) -> Unit,
     apiKeyRequired: Boolean, onApiKeyRequired: (Boolean) -> Unit,
     onSave: () -> Unit,
 ) {
     var advanced by rememberSaveable(provider.id) { mutableStateOf(false) }
+    var protocolMenu by remember { mutableStateOf(false) }
+    var profileMenu by remember { mutableStateOf(false) }
+    val endpointOverridesValid = remember(endpointOverrides) {
+        runCatching { ProviderEndpointResolver.parseEndpointOverrides(endpointOverrides.ifBlank { "{}" }) }.isSuccess
+    }
+    val profiles = providerProfilesForProtocol(protocol)
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(providerKindLabel(provider.kind), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
         OutlinedTextField(name, onName, label = { Text("Provider name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+
+        Box {
+            OutlinedButton(onClick = { protocolMenu = true }, modifier = Modifier.fillMaxWidth()) {
+                Text("Protocol: " + providerProtocolLabel(protocol), Modifier.weight(1f))
+                Icon(Icons.Outlined.ExpandMore, null)
+            }
+            TurpDropdownMenu(expanded = protocolMenu, onDismissRequest = { protocolMenu = false }) {
+                configurableProviderProtocols().forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text(providerProtocolLabel(option)) },
+                        onClick = {
+                            onProtocol(option)
+                            val allowed = providerProfilesForProtocol(option)
+                            if (profile !in allowed) onProfile(defaultProfileForProtocol(option))
+                            protocolMenu = false
+                        },
+                    )
+                }
+            }
+        }
+
+        Box {
+            OutlinedButton(onClick = { profileMenu = true }, modifier = Modifier.fillMaxWidth()) {
+                Text("Profile: " + providerProfileLabel(profile), Modifier.weight(1f))
+                Icon(Icons.Outlined.ExpandMore, null)
+            }
+            TurpDropdownMenu(expanded = profileMenu, onDismissRequest = { profileMenu = false }) {
+                profiles.forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text(providerProfileLabel(option)) },
+                        onClick = {
+                            onProfile(option)
+                            profileMenu = false
+                        },
+                    )
+                }
+            }
+        }
+
+        Text(
+            "Protocol controls the wire format. Profile enables provider-specific metadata and extras; neither depends on the hostname.",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         OutlinedTextField(baseUrl, onBaseUrl, label = { Text("API base URL") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(
             key, onKey,
@@ -2944,24 +3482,51 @@ private fun ProviderEditor(
             Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Outlined.Tune, null)
                 Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                    Text("Advanced headers", fontWeight = FontWeight.Medium)
-                    Text("Usually unnecessary", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Advanced routing", fontWeight = FontWeight.Medium)
+                    Text("Headers and endpoint overrides", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Icon(Icons.Outlined.ExpandMore, null)
             }
         }
-        if (advanced) OutlinedTextField(
-            headers,
-            onHeaders,
-            label = { Text("Custom headers JSON") },
-            minLines = 3,
-            visualTransformation = rememberCodeVisualTransformation("json"),
-            textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
-            modifier = Modifier.fillMaxWidth(),
-        )
+        if (advanced) {
+            OutlinedTextField(
+                headers,
+                onHeaders,
+                label = { Text("Custom headers JSON") },
+                minLines = 3,
+                visualTransformation = rememberCodeVisualTransformation("json"),
+                textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                endpointOverrides,
+                onEndpointOverrides,
+                label = { Text("Endpoint overrides JSON") },
+                supportingText = {
+                    Text(
+                        if (endpointOverridesValid) {
+                            """Relative paths use the base URL. Keys: models, chat, responses, messages, geminiStream, images, imageModels, account, info, providers, generate."""
+                        } else {
+                            "Must be a JSON object whose values are endpoint paths or absolute URLs."
+                        },
+                    )
+                },
+                isError = !endpointOverridesValid,
+                minLines = 3,
+                visualTransformation = rememberCodeVisualTransformation("json"),
+                textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text(
+                "Absolute endpoint overrides receive this connection's configured credentials and custom headers.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         Button(
             onClick = onSave,
-            enabled = name.isNotBlank() && baseUrl.isNotBlank() && (!apiKeyRequired || key.isNotBlank()),
+            enabled = name.isNotBlank() && baseUrl.isNotBlank() &&
+                (!apiKeyRequired || key.isNotBlank()) && endpointOverridesValid,
             modifier = Modifier.fillMaxWidth(),
         ) { Text("Save connection") }
     }
@@ -2970,13 +3535,52 @@ private fun ProviderEditor(
 private data class ProviderDraft(
     val templateProviderId: String?,
     val name: String,
-    val kind: ProviderKind,
+    val protocol: ProviderProtocol,
+    val profile: ProviderProfile,
     val baseUrl: String,
     val apiKey: String,
     val apiKeyRequired: Boolean,
     val headers: String,
+    val endpointOverrides: String,
     val selectedModels: List<DiscoveredModel>,
 )
+
+private fun configurableProviderProtocols(): List<ProviderProtocol> = listOf(
+    ProviderProtocol.OPENAI_COMPATIBLE,
+    ProviderProtocol.ANTHROPIC,
+    ProviderProtocol.GEMINI,
+    ProviderProtocol.OPENCODE_V2,
+)
+
+private fun providerProfilesForProtocol(protocol: ProviderProtocol): List<ProviderProfile> = when (protocol) {
+    ProviderProtocol.OPENAI_COMPATIBLE -> listOf(
+        ProviderProfile.GENERIC,
+        ProviderProfile.OPENAI,
+        ProviderProfile.OPENROUTER,
+        ProviderProfile.OPENCODE_GO,
+        ProviderProfile.OPENCODE_ZEN,
+        ProviderProfile.DEEPSEEK,
+        ProviderProfile.GROQ,
+        ProviderProfile.MISTRAL,
+        ProviderProfile.XAI,
+        ProviderProfile.QWEN_CLOUD,
+        ProviderProfile.OLLAMA,
+    )
+    ProviderProtocol.ANTHROPIC -> listOf(ProviderProfile.ANTHROPIC, ProviderProfile.GENERIC)
+    ProviderProtocol.GEMINI -> listOf(ProviderProfile.GEMINI, ProviderProfile.GENERIC)
+    ProviderProtocol.OPENCODE_V2 -> listOf(ProviderProfile.OPENCODE_V2, ProviderProfile.GENERIC)
+    ProviderProtocol.AUTO,
+    ProviderProtocol.OPENAI_OAUTH -> listOf(ProviderProfile.GENERIC)
+}
+
+private fun defaultProfileForProtocol(protocol: ProviderProtocol): ProviderProfile = when (protocol) {
+    ProviderProtocol.OPENAI_COMPATIBLE -> ProviderProfile.GENERIC
+    ProviderProtocol.ANTHROPIC -> ProviderProfile.ANTHROPIC
+    ProviderProtocol.GEMINI -> ProviderProfile.GEMINI
+    ProviderProtocol.OPENCODE_V2 -> ProviderProfile.OPENCODE_V2
+    ProviderProtocol.OPENAI_OAUTH -> ProviderProfile.OPENAI_OAUTH
+    ProviderProtocol.AUTO -> ProviderProfile.GENERIC
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -2984,21 +3588,25 @@ private fun AddProviderDialog(
     templates: List<ProviderEntity>,
     initialTemplateId: String? = null,
     onDismiss: () -> Unit,
-    onDiscover: suspend (ProviderKind, String, String, String) -> List<DiscoveredModel>,
+    onDiscover: suspend (ProviderEntity, String) -> List<DiscoveredModel>,
     onAdd: (ProviderDraft) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val initialTemplate = remember(initialTemplateId, templates) { templates.firstOrNull { it.id == initialTemplateId } }
-    val initialKind = initialTemplate?.kind ?: ProviderKind.OPENAI_COMPATIBLE
+    val initialProtocol = initialTemplate?.effectiveProtocol ?: ProviderProtocol.OPENAI_COMPATIBLE
+    val initialProfile = initialTemplate?.effectiveProfile ?: ProviderProfile.GENERIC
     var templateId by remember(initialTemplateId, templates) { mutableStateOf(initialTemplate?.id) }
     var templateMenu by remember { mutableStateOf(false) }
     var name by remember(initialTemplateId, templates) { mutableStateOf(initialTemplate?.displayName.orEmpty()) }
-    var kind by remember(initialTemplateId, templates) { mutableStateOf(initialKind) }
+    var protocol by remember(initialTemplateId, templates) { mutableStateOf(initialProtocol) }
+    var profile by remember(initialTemplateId, templates) { mutableStateOf(initialProfile) }
     var typeMenu by remember { mutableStateOf(false) }
-    var baseUrl by remember(initialTemplateId, templates) { mutableStateOf(initialTemplate?.baseUrl ?: defaultBaseUrl(initialKind)) }
+    var profileMenu by remember { mutableStateOf(false) }
+    var baseUrl by remember(initialTemplateId, templates) { mutableStateOf(initialTemplate?.baseUrl ?: defaultBaseUrl(initialProtocol)) }
     var apiKey by remember { mutableStateOf("") }
     var apiKeyRequired by remember(initialTemplateId, templates) { mutableStateOf(initialTemplate?.apiKeyRequired ?: true) }
     var headers by remember(initialTemplateId, templates) { mutableStateOf(initialTemplate?.customHeadersJson ?: "{}") }
+    var endpointOverrides by remember(initialTemplateId, templates) { mutableStateOf(initialTemplate?.endpointOverridesJson ?: "{}") }
     var manualModelId by remember { mutableStateOf("") }
     var manualModelName by remember { mutableStateOf("") }
     var discoveredModels by remember { mutableStateOf<List<DiscoveredModel>>(emptyList()) }
@@ -3008,7 +3616,10 @@ private fun AddProviderDialog(
     var discoveryError by remember { mutableStateOf<String?>(null) }
     var modelSearch by remember { mutableStateOf("") }
     var showManualModel by rememberSaveable { mutableStateOf(false) }
-    val connectionReady = baseUrl.isNotBlank() && (!apiKeyRequired || apiKey.isNotBlank())
+    val endpointOverridesValid = remember(endpointOverrides) {
+        runCatching { ProviderEndpointResolver.parseEndpointOverrides(endpointOverrides.ifBlank { "{}" }) }.isSuccess
+    }
+    val connectionReady = baseUrl.isNotBlank() && (!apiKeyRequired || apiKey.isNotBlank()) && endpointOverridesValid
     val manualModelReady = showManualModel && manualModelId.isNotBlank() && manualModelName.isNotBlank()
     val valid = name.isNotBlank() && connectionReady && (selectedModelIds.isNotEmpty() || manualModelReady)
     val visibleModels = remember(discoveredModels, modelSearch) {
@@ -3042,11 +3653,13 @@ private fun AddProviderDialog(
             ProviderDraft(
                 templateProviderId = templateId,
                 name = name.trim(),
-                kind = kind,
+                protocol = protocol,
+                profile = profile,
                 baseUrl = baseUrl.trim(),
                 apiKey = apiKey,
                 apiKeyRequired = apiKeyRequired,
                 headers = headers.ifBlank { "{}" },
+                endpointOverrides = endpointOverrides.ifBlank { "{}" },
                 selectedModels = (selected + manual).distinctBy { it.id },
             ),
         )
@@ -3092,9 +3705,12 @@ private fun AddProviderDialog(
                         DropdownMenuItem(text = { Text("Custom provider") }, onClick = {
                             templateId = null
                             name = ""
-                            kind = ProviderKind.OPENAI_COMPATIBLE
-                            baseUrl = defaultBaseUrl(kind)
+                            protocol = ProviderProtocol.OPENAI_COMPATIBLE
+                            profile = ProviderProfile.GENERIC
+                            baseUrl = defaultBaseUrl(protocol)
                             apiKeyRequired = true
+                            headers = "{}"
+                            endpointOverrides = "{}"
                             invalidateDiscovery()
                             templateMenu = false
                         })
@@ -3102,9 +3718,12 @@ private fun AddProviderDialog(
                             DropdownMenuItem(text = { Text(template.displayName) }, onClick = {
                                 templateId = template.id
                                 name = template.displayName
-                                kind = template.kind
+                                protocol = template.effectiveProtocol
+                                profile = template.effectiveProfile
                                 baseUrl = template.baseUrl
                                 apiKeyRequired = template.apiKeyRequired
+                                headers = template.customHeadersJson
+                                endpointOverrides = template.endpointOverridesJson
                                 invalidateDiscovery()
                                 templateMenu = false
                             })
@@ -3114,18 +3733,40 @@ private fun AddProviderDialog(
                 OutlinedTextField(name, { name = it }, label = { Text("Provider name") }, placeholder = { Text("My DeepSeek account") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 Box {
                     OutlinedButton(onClick = { typeMenu = true }, modifier = Modifier.fillMaxWidth()) {
-                        Text("Protocol: ${providerKindLabel(kind)}", Modifier.weight(1f))
+                        Text("Protocol: " + providerProtocolLabel(protocol), Modifier.weight(1f))
+                        Icon(Icons.Outlined.ExpandMore, null)
                     }
                     TurpDropdownMenu(expanded = typeMenu, onDismissRequest = { typeMenu = false }) {
-                        ProviderKind.entries.filter { it != ProviderKind.OPENAI_OAUTH }.forEach { option ->
+                        configurableProviderProtocols().forEach { option ->
                             DropdownMenuItem(
-                                text = { Text(providerKindLabel(option)) },
+                                text = { Text(providerProtocolLabel(option)) },
                                 onClick = {
-                                    kind = option
+                                    protocol = option
+                                    profile = defaultProfileForProtocol(option)
                                     baseUrl = defaultBaseUrl(option)
                                     templateId = null
+                                    endpointOverrides = "{}"
                                     invalidateDiscovery()
                                     typeMenu = false
+                                },
+                            )
+                        }
+                    }
+                }
+                Box {
+                    OutlinedButton(onClick = { profileMenu = true }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Profile: " + providerProfileLabel(profile), Modifier.weight(1f))
+                        Icon(Icons.Outlined.ExpandMore, null)
+                    }
+                    TurpDropdownMenu(expanded = profileMenu, onDismissRequest = { profileMenu = false }) {
+                        providerProfilesForProtocol(protocol).forEach { option ->
+                            DropdownMenuItem(
+                                text = { Text(providerProfileLabel(option)) },
+                                onClick = {
+                                    profile = option
+                                    templateId = null
+                                    invalidateDiscovery()
+                                    profileMenu = false
                                 },
                             )
                         }
@@ -3157,6 +3798,27 @@ private fun AddProviderDialog(
                     textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
                     modifier = Modifier.fillMaxWidth(),
                 )
+                OutlinedTextField(
+                    endpointOverrides,
+                    { endpointOverrides = it; invalidateDiscovery() },
+                    label = { Text("Endpoint overrides JSON") },
+                    supportingText = {
+                        Text(
+                            if (endpointOverridesValid) """Optional keys: models, chat, responses, messages, geminiStream, images, imageModels, account, info, providers, generate."""
+                            else "Must be a JSON object whose values are endpoint paths or absolute URLs.",
+                        )
+                    },
+                    isError = !endpointOverridesValid,
+                    minLines = 2,
+                    visualTransformation = rememberCodeVisualTransformation("json"),
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    "Relative endpoints use the base URL. Absolute overrides receive this connection's credentials and headers.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 Button(
                     enabled = connectionReady && !discovering,
                     onClick = {
@@ -3164,7 +3826,18 @@ private fun AddProviderDialog(
                         discoveryAttempted = true
                         discoveryError = null
                         scope.launch {
-                            runCatching { onDiscover(kind, baseUrl, apiKey, headers.ifBlank { "{}" }) }
+                            val discoveryProvider = ProviderEntity(
+                                id = "provider-preview",
+                                displayName = name.ifBlank { "Provider" },
+                                kind = protocol.legacyKind(),
+                                baseUrl = baseUrl,
+                                customHeadersJson = headers.ifBlank { "{}" },
+                                apiKeyRequired = apiKeyRequired,
+                                protocol = protocol,
+                                profile = profile,
+                                endpointOverridesJson = endpointOverrides.ifBlank { "{}" },
+                            )
+                            runCatching { onDiscover(discoveryProvider, apiKey) }
                                 .onSuccess { models ->
                                     discoveredModels = models
                                     selectedModelIds = models.mapTo(linkedSetOf()) { it.id }
@@ -3310,6 +3983,15 @@ private fun defaultBaseUrl(kind: ProviderKind): String = when (kind) {
     ProviderKind.OPENAI_OAUTH -> "https://chatgpt.com/backend-api/codex"
     ProviderKind.ANTHROPIC -> "https://api.anthropic.com/v1"
     ProviderKind.GEMINI -> "https://generativelanguage.googleapis.com/v1beta"
+}
+
+private fun defaultBaseUrl(protocol: ProviderProtocol): String = when (protocol) {
+    ProviderProtocol.OPENAI_COMPATIBLE -> "https://api.openai.com/v1"
+    ProviderProtocol.ANTHROPIC -> "https://api.anthropic.com/v1"
+    ProviderProtocol.GEMINI -> "https://generativelanguage.googleapis.com/v1beta"
+    ProviderProtocol.OPENCODE_V2 -> "http://127.0.0.1:4096"
+    ProviderProtocol.OPENAI_OAUTH -> "https://chatgpt.com/backend-api/codex"
+    ProviderProtocol.AUTO -> "https://api.openai.com/v1"
 }
 
 @Composable

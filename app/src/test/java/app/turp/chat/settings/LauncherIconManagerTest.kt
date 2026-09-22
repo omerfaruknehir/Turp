@@ -40,7 +40,7 @@ class LauncherIconManagerTest {
 
         val expectedTargets = listOf(
             ".LauncherTurpActivity",
-            ".LauncherTurpActivity",
+            ".LauncherArborActivity",
             ".LauncherSystemActivity",
             ".LauncherGraphiteActivity",
             ".LauncherOceanActivity",
@@ -59,6 +59,10 @@ class LauncherIconManagerTest {
 
         val trampoline = File("src/main/java/app/turp/chat/LauncherActivity.kt").readText()
         expectedTargets.forEach { target -> assertTrue(trampoline.contains("class ${target.removePrefix(".")}")) }
+        assertTrue(trampoline.contains("LauncherIconManager.appliedIconResource"))
+        assertTrue(manifest.contains("android:icon=\"@mipmap/ic_launcher_arbor\""))
+        assertTrue(File("src/main/java/app/turp/chat/settings/LauncherIconManager.kt").readText().contains("ARBOR_ALIAS -> R.mipmap.ic_launcher_arbor"))
+        assertFalse(trampoline.contains("iconResource(matchIcon"))
         assertTrue(trampoline.contains("Intent(this, MainActivity::class.java)"))
         assertTrue(trampoline.contains("finish()"))
     }
@@ -79,6 +83,27 @@ class LauncherIconManagerTest {
         val application = File("src/main/java/app/turp/chat/TurpApplication.kt").readText()
         assertFalse(application.contains("TRIM_MEMORY_UI_HIDDEN"))
         assertFalse(application.contains("flushPending"))
+    }
+
+
+    @Test
+    fun `launcher icon changes wait for explicit apply restart`() {
+        val viewModel = File("src/main/java/app/turp/chat/ui/ChatViewModel.kt").readText()
+        val setPalette = viewModel.substringAfter("fun setPalette(")
+            .substringBefore("fun setMatchLauncherIconToPalette(")
+        val setMatch = viewModel.substringAfter("fun setMatchLauncherIconToPalette(")
+            .substringBefore("fun setThemeMode(")
+        val reconcile = viewModel.substringAfter("fun reconcileLauncherIcon()")
+            .substringBefore("fun setChromeBlurStrength(")
+
+        assertFalse(setPalette.contains("requestLauncherRestartIfNeeded"))
+        assertFalse(setMatch.contains("requestLauncherRestartIfNeeded"))
+        assertTrue(reconcile.contains("requestLauncherRestartIfNeeded"))
+
+        val settings = File("src/main/java/app/turp/chat/ui/SettingsScreen.kt").readText()
+        assertTrue(settings.contains("LauncherIconManager.needsChange"))
+        assertTrue(settings.contains("Restart the app to apply"))
+        assertTrue(settings.contains("onClick = viewModel::reconcileLauncherIcon"))
     }
 
     @Test
@@ -105,9 +130,15 @@ class LauncherIconManagerTest {
         assertTrue(background.contains("@android:color/system_accent1_800"))
         assertTrue(background.contains("@android:color/system_accent2_700"))
         assertTrue(foreground.contains("@android:color/system_accent1_200"))
-        assertTrue(foreground.contains("@android:color/system_accent3_200"))
-        assertTrue(inAppMark.contains("@android:color/system_accent1_800"))
-        assertTrue(inAppMark.contains("@android:color/system_accent3_200"))
+        assertTrue(foreground.contains("@android:color/system_accent1_100"))
+        assertTrue(inAppMark.contains("@android:color/system_accent1_200"))
+        assertTrue(inAppMark.contains("@android:color/system_accent1_100"))
+        assertTrue(inAppMark.contains("@android:color/system_accent1_50"))
+        assertTrue(inAppMark.contains("@android:color/system_accent1_300"))
+        assertFalse(foreground.contains("@android:color/system_accent2_"))
+        assertFalse(foreground.contains("@android:color/system_accent3_"))
+        assertFalse(inAppMark.contains("@android:color/system_accent2_"))
+        assertFalse(inAppMark.contains("@android:color/system_accent3_"))
 
         val adaptiveIcon = File("src/main/res/mipmap-anydpi/ic_launcher_system.xml").readText()
         assertFalse(adaptiveIcon.contains("<monochrome"))

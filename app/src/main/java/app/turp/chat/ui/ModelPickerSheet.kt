@@ -4,9 +4,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
@@ -14,6 +16,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.CheckCircle
@@ -23,6 +26,7 @@ import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -44,6 +48,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -188,6 +193,7 @@ internal fun ModelPickerSheet(
     }
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     var dismissing by remember { mutableStateOf(false) }
 
@@ -213,11 +219,25 @@ internal fun ModelPickerSheet(
     ModalBottomSheet(
         onDismissRequest = ::dismissSheet,
         sheetState = sheetState,
+        // Material3 1.4 can enter an anchored-drag bounce loop for nearly full-height
+        // modal sheets when its default content insets participate in measurement.
+        // Keep native sheet gestures/nested scrolling, but make the content viewport stable.
+        contentWindowInsets = { WindowInsets(0.dp) },
+        // Native Material nested scrolling: the list consumes vertical motion
+        // while it can scroll; only unconsumed downward motion at its top
+        // boundary is handed to the sheet.
+        sheetGesturesEnabled = true,
+        dragHandle = {
+            Box(Modifier.testTag("model_picker_drag_handle")) {
+                BottomSheetDefaults.DragHandle()
+            }
+        },
     ) {
         Column(
             Modifier
                 .fillMaxWidth()
                 .fillMaxHeight(0.94f)
+                .testTag("model_picker_sheet")
                 .navigationBarsPadding()
                 .imePadding()
                 .padding(horizontal = 16.dp, vertical = 12.dp),
@@ -332,7 +352,13 @@ internal fun ModelPickerSheet(
                     }
                 }
                 HorizontalDivider()
-                LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .testTag("model_picker_list"),
+                    state = listState,
+                ) {
                     items(
                         items = choices,
                         key = { choice -> modelPreferenceKey(choice.provider.id, choice.model.modelId) },

@@ -11,6 +11,8 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import app.turp.chat.AppContainer
+import app.turp.chat.BuildConfig
+import app.turp.chat.demo.DemoModeController
 import app.turp.chat.data.AttachmentEntity
 import app.turp.chat.data.AutomationSettingsEntity
 import app.turp.chat.data.ConversationEntity
@@ -30,12 +32,15 @@ import app.turp.chat.data.PackageApprovalMode
 import app.turp.chat.data.PackageTransactionEntity
 import app.turp.chat.provider.ProviderCredentialPolicy
 import app.turp.chat.provider.ProviderEndpointPolicy
+import app.turp.chat.provider.ProviderEndpointResolver
 import app.turp.chat.provider.ModelRequestPolicy
 import app.turp.chat.provider.defaultThinkingEffort
 import app.turp.chat.provider.effectiveThinkingEnabled
 import app.turp.chat.provider.OpenAiOAuthManager
 import app.turp.chat.provider.OpenAiOAuthState
 import app.turp.chat.provider.OpenAiOAuthUsageState
+import app.turp.chat.provider.OpenCodeUsageState
+import app.turp.chat.provider.OpenRouterKeyState
 import app.turp.chat.provider.parseHeaders
 import app.turp.chat.sandbox.ExecutionResult
 import app.turp.chat.sandbox.ExecutionProgress
@@ -221,6 +226,8 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
     val credentialRevision: StateFlow<Long> = _credentialRevision
     val openAiOAuthStates: StateFlow<Map<String, OpenAiOAuthState>> = container.openAiOAuth.accountStates
     val openAiOAuthUsageStates: StateFlow<Map<String, OpenAiOAuthUsageState>> = container.openAiOAuth.usageStates
+    val openCodeUsageStates: StateFlow<Map<String, OpenCodeUsageState>> = container.openCode.usageStates
+    val openRouterKeyStates: StateFlow<Map<String, OpenRouterKeyState>> = container.openRouter.keyStates
     private val conversationSettingsMutex = Mutex()
     private val automationSettingsMutex = Mutex()
     private val initializationMutex = Mutex()
@@ -803,7 +810,7 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
         if (target == null) {
             val value = restoredNewDraft ?: container.repository.newConversationDraft(
                 projectId = selectedProjectId.value.takeUnless { showArchived.value },
-                defaults = newChatDefaults.value,
+                defaults = container.demoMode.effectiveNewChatDefaults(newChatDefaults.value),
             ).also { container.repository.persistConversationDraft(it) }
             selectedConversationId.value = null
             newDraftConversationId.value = value.id
@@ -833,7 +840,7 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
         selectedConversationId.value?.let { return it }
         val value = draftConversation.value ?: container.repository.newConversationDraft(
             projectId = selectedProjectId.value.takeUnless { showArchived.value },
-            defaults = newChatDefaults.value,
+            defaults = container.demoMode.effectiveNewChatDefaults(newChatDefaults.value),
         )
         container.repository.persistConversationDraft(value)
         persistCurrentDraft()
@@ -849,7 +856,7 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
         val existing = newDraftConversationId.value?.let { container.repository.conversationNow(it) }
         val value = existing ?: container.repository.newConversationDraft(
             projectId = selectedProjectId.value.takeUnless { showArchived.value },
-            defaults = newChatDefaults.value,
+            defaults = container.demoMode.effectiveNewChatDefaults(newChatDefaults.value),
         ).also { container.repository.persistConversationDraft(it) }
         selectedConversationId.value = null
         newDraftConversationId.value = value.id
@@ -986,6 +993,27 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
             importing.value = false
         }
         val effectiveMode = mode ?: if (container.repository.activeStream(id) != null) SendMode.QUEUE else SendMode.SEND_NOW
+        if (container.demoMode.handlesConversation(id)) {
+            runCatching { container.demoMode.submit(id, text, attachments.map { it.id }, effectiveMode) }
+                .onSuccess { assistantId ->
+                    setDraft("")
+                    withContext(Dispatchers.IO) { container.composerDrafts.remove(id) }
+                    stagedAttachments.value = emptyList()
+                    if (assistantId != null) {
+                        viewModelScope.launch {
+                            runCatching { container.demoMode.completeResponse(id, assistantId) }
+                                .onFailure { notices.emit("Demo response failed: " + it.readableMessage()) }
+                        }
+                    }
+                }
+                .onFailure { error ->
+                    setDraft(text)
+                    stagedAttachments.value = attachments
+                    notices.emit("Could not send demo message: " + error.readableMessage())
+                }
+            return@launch
+        }
+
         runCatching { container.scheduler.submit(id, text, attachments.map { it.id }, effectiveMode) }
             .onSuccess {
                 setDraft("")
@@ -1000,7 +1028,12 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
     }
 
     fun resume(message: MessageEntity) = launchAction {
-        container.scheduler.resume(message.conversationId, message.nodeId)
+        if (container.demoMode.handlesConversation(message.conversationId)) {
+            container.repository.markStreaming(message.nodeId)
+            container.demoMode.completeResponse(message.conversationId, message.nodeId)
+        } else {
+            container.scheduler.resume(message.conversationId, message.nodeId)
+        }
     }
 
     fun stop() = launchAction {
@@ -1017,7 +1050,11 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
             container.repository.markInterrupted(active.nodeId, "Replaced by an edited message")
         }
         val assistantId = container.repository.editUserMessage(message.nodeId, revised)
-        container.scheduler.start(message.conversationId, assistantId, continuation = false)
+        if (container.demoMode.handlesConversation(message.conversationId)) {
+            container.demoMode.completeResponse(message.conversationId, assistantId)
+        } else {
+            container.scheduler.start(message.conversationId, assistantId, continuation = false)
+        }
     }
 
     fun activateBranch(message: MessageEntity) = launchAction {
@@ -1037,7 +1074,11 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
             container.repository.markInterrupted(active.nodeId, "Replaced by retry")
         }
         val assistantId = container.repository.retryAssistant(message.nodeId)
-        container.scheduler.start(message.conversationId, assistantId, continuation = false)
+        if (container.demoMode.handlesConversation(message.conversationId)) {
+            container.demoMode.completeResponse(message.conversationId, assistantId)
+        } else {
+            container.scheduler.start(message.conversationId, assistantId, continuation = false)
+        }
     }
 
     fun submitWidgetResponse(text: String) {
@@ -1123,7 +1164,10 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
     fun saveProvider(provider: ProviderEntity, apiKey: String) = launchAction {
         val validatedUrl = ProviderEndpointPolicy.validate(provider.baseUrl)
         parseHeaders(provider.customHeadersJson)
+        ProviderEndpointResolver.parseEndpointOverrides(provider.endpointOverridesJson)
         container.secureStore.setApiKey(provider.id, apiKey)
+        if (ModelRequestPolicy.isOpenCode(provider)) container.openCode.clear(provider.id)
+        if (ModelRequestPolicy.isOpenRouter(provider)) container.openRouter.clear(provider.id)
         container.repository.saveProvider(provider.copy(baseUrl = validatedUrl, registered = true))
         _credentialRevision.value++
     }
@@ -1131,6 +1175,8 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
     fun removeProvider(provider: ProviderEntity) = launchAction {
         if (provider.kind == ProviderKind.OPENAI_OAUTH) container.openAiOAuth.signOut(provider.id)
         container.secureStore.setApiKey(provider.id, "")
+        if (ModelRequestPolicy.isOpenCode(provider)) container.openCode.clear(provider.id)
+        if (ModelRequestPolicy.isOpenRouter(provider)) container.openRouter.clear(provider.id)
         container.repository.saveProvider(provider.copy(registered = false))
         _credentialRevision.value++
         notices.emit("Removed ${provider.displayName} credentials")
@@ -1234,6 +1280,44 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
         }
     }
 
+    fun ensureOpenCodeUsage(providerId: String) {
+        viewModelScope.launch {
+            val provider = container.repository.provider(providerId) ?: return@launch
+            runCatching { container.openCode.usage(provider, forceRefresh = false) }
+        }
+    }
+
+    fun refreshOpenCodeUsage(providerId: String) {
+        viewModelScope.launch {
+            val provider = container.repository.provider(providerId)
+            if (provider == null) {
+                notices.emit("OpenCode Go provider is missing")
+                return@launch
+            }
+            runCatching { container.openCode.usage(provider, forceRefresh = true) }
+                .onFailure { notices.emit(it.message ?: "OpenCode Go usage could not be refreshed") }
+        }
+    }
+
+    fun ensureOpenRouterKeyInfo(providerId: String) {
+        viewModelScope.launch {
+            val provider = container.repository.provider(providerId) ?: return@launch
+            runCatching { container.openRouter.keyInfo(provider, forceRefresh = false) }
+        }
+    }
+
+    fun refreshOpenRouterKeyInfo(providerId: String) {
+        viewModelScope.launch {
+            val provider = container.repository.provider(providerId)
+            if (provider == null) {
+                notices.emit("OpenRouter provider is missing")
+                return@launch
+            }
+            runCatching { container.openRouter.keyInfo(provider, forceRefresh = true) }
+                .onFailure { notices.emit(it.message ?: "OpenRouter key usage could not be refreshed") }
+        }
+    }
+
     fun registeredProviders(values: List<ProviderEntity>): List<ProviderEntity> =
         values.filter { ProviderCredentialPolicy.isRegistered(it, container.secureStore.apiKey(it.id)) }
 
@@ -1256,6 +1340,9 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
         providerSetupRequested.value = false
     }
 
+    suspend fun discoverModels(provider: ProviderEntity, apiKey: String) =
+        container.modelDiscovery.discover(provider, apiKey)
+
     suspend fun discoverModels(kind: ProviderKind, baseUrl: String, apiKey: String, headers: String) =
         container.modelDiscovery.discover(kind, baseUrl, apiKey, headers)
 
@@ -1263,6 +1350,7 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
         require(provider.displayName.isNotBlank()) { "Provider name is required" }
         val validatedUrl = ProviderEndpointPolicy.validate(provider.baseUrl)
         parseHeaders(provider.customHeadersJson)
+        ProviderEndpointResolver.parseEndpointOverrides(provider.endpointOverridesJson)
         require(initialModels.isNotEmpty() && initialModels.all { it.modelId.isNotBlank() }) { "At least one model is required" }
         if (provider.apiKeyRequired) require(apiKey.isNotBlank()) { "API key is required" }
         container.secureStore.setApiKey(provider.id, apiKey)
@@ -1383,12 +1471,10 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
 
     fun setPalette(value: app.turp.chat.settings.ColorPalette) {
         container.appPreferences.setPalette(value)
-        requestLauncherRestartIfNeeded()
     }
 
     fun setMatchLauncherIconToPalette(enabled: Boolean) {
         container.appPreferences.setMatchLauncherIconToPalette(enabled)
-        requestLauncherRestartIfNeeded()
     }
 
     fun setThemeMode(value: app.turp.chat.settings.ThemeMode) = container.appPreferences.setThemeMode(value)
@@ -1407,6 +1493,55 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
     fun setGeneratedRepairMaxAttempts(value: Int) = container.appPreferences.setGeneratedRepairMaxAttempts(value)
     fun updateDeveloperSettings(transform: (app.turp.chat.settings.DeveloperSettings) -> app.turp.chat.settings.DeveloperSettings) =
         container.appPreferences.updateDeveloperSettings(transform)
+
+    fun setDemoModeEnabled(enabled: Boolean, openWalkthrough: Boolean = false) = launchAction {
+        if (!BuildConfig.DEBUG) return@launchAction
+        val selectedWasDemo = DemoModeController.isDemoConversationId(selectedConversationId.value)
+        container.demoMode.setEnabled(enabled)
+        _credentialRevision.value++
+
+        if (enabled && openWalkthrough) {
+            setupActive.value = false
+            setupDismissed.value = true
+            setupTemporarilyAway.value = false
+            showArchived.value = false
+            selectedProjectId.value = null
+            val id = DemoModeController.WALKTHROUGH_CHAT_ID
+            container.repository.repairActiveMessagePath(id)
+            switchDraftContext(id)
+            draftConversation.value = null
+            newDraftConversationId.value = null
+            focusedMessageNodeId.value = null
+            focusedMessageIndex.value = null
+            selectedConversationId.value = id
+            screen.value = Screen.CHAT
+            container.repository.markRead(id)
+            stagedAttachments.value = container.database.attachmentDao().stagedForConversation(id)
+        } else if (!enabled && selectedWasDemo) {
+            selectedConversationId.value = null
+            val fallback = container.repository.conversations.first()
+                .firstOrNull { !DemoModeController.isDemoConversationId(it.conversation.id) }
+                ?.conversation
+            if (fallback != null) {
+                switchDraftContext(fallback.id)
+                draftConversation.value = null
+                newDraftConversationId.value = null
+                focusedMessageNodeId.value = null
+                focusedMessageIndex.value = null
+                selectedConversationId.value = fallback.id
+                screen.value = Screen.CHAT
+                container.repository.markRead(fallback.id)
+                stagedAttachments.value = container.database.attachmentDao().stagedForConversation(fallback.id)
+            } else {
+                openEmptyDraft()
+            }
+        }
+
+        notices.emit(if (enabled) "Demo mode enabled" else "Demo mode disabled")
+    }
+
+    fun activateDemoModeFromOnboarding() =
+        setDemoModeEnabled(enabled = true, openWalkthrough = true)
 
     fun clearContextSummary() = launchAction {
         val id = selectedConversationId.value

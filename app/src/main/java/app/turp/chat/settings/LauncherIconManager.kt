@@ -57,8 +57,12 @@ internal object LauncherIconManager {
 
     @DrawableRes
     internal fun iconResource(matchPalette: Boolean, palette: ColorPalette): Int =
-        when (aliasClassName(matchPalette, palette)) {
-            ARBOR_ALIAS -> R.mipmap.ic_launcher
+        iconResourceForAlias(aliasClassName(matchPalette, palette))
+
+    @DrawableRes
+    internal fun iconResourceForAlias(aliasClassName: String): Int =
+        when (aliasClassName) {
+            ARBOR_ALIAS -> R.mipmap.ic_launcher_arbor
             SYSTEM_ALIAS -> R.mipmap.ic_launcher_system
             GRAPHITE_ALIAS -> R.mipmap.ic_launcher_graphite
             OCEAN_ALIAS -> R.mipmap.ic_launcher_ocean
@@ -67,8 +71,15 @@ internal object LauncherIconManager {
             else -> R.mipmap.ic_launcher
         }
 
+    internal fun appliedAlias(context: Context): String =
+        enabledAlias(context.applicationContext) ?: TURP_ALIAS
+
+    @DrawableRes
+    internal fun appliedIconResource(context: Context): Int =
+        iconResourceForAlias(appliedAlias(context))
+
     fun needsChange(context: Context, matchPalette: Boolean, palette: ColorPalette): Boolean =
-        enabledAlias(context.applicationContext) != aliasClassName(matchPalette, palette)
+        appliedAlias(context) != aliasClassName(matchPalette, palette)
 
     fun requestStatefulRestart(
         context: Context,

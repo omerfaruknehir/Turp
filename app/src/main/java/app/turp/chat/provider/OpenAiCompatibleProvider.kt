@@ -1,6 +1,7 @@
 package app.turp.chat.provider
 
 import app.turp.chat.data.MessageRole
+import app.turp.chat.data.ProviderProfile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -297,13 +298,8 @@ class OpenAiCompatibleProvider(
         return request.copy(messages = messages)
     }
 
-    private fun ChatRequest.isDeepSeekFamily(): Boolean = listOf(
-        provider.id,
-        provider.displayName,
-        provider.baseUrl,
-        model.modelId,
-        model.displayName,
-    ).any { it.contains("deepseek", ignoreCase = true) }
+    private fun ChatRequest.isDeepSeekFamily(): Boolean =
+        provider.effectiveProfile == ProviderProfile.DEEPSEEK
 
     private fun Long?.plusUsage(extra: Long): Long? = when {
         this != null -> this + extra
@@ -394,8 +390,9 @@ class OpenAiCompatibleProvider(
     }
 
     internal fun buildRequestBody(request: ChatRequest): JsonObject {
-        val isDeepSeek = ModelRequestPolicy.matchesPreset(request.provider, "deepseek")
-        val isOpenRouter = ModelRequestPolicy.isOpenRouter(request.provider)
+        val profile = request.provider.effectiveProfile
+        val isDeepSeek = profile == ProviderProfile.DEEPSEEK
+        val isOpenRouter = profile == ProviderProfile.OPENROUTER
         val isAlibaba = ModelRequestPolicy.isAlibabaModelStudio(request.provider)
         return buildJsonObject {
             put("model", JsonPrimitive(request.model.modelId))
@@ -404,7 +401,14 @@ class OpenAiCompatibleProvider(
                 if (isAlibaba) "max_completion_tokens" else "max_tokens",
                 JsonPrimitive(request.maxOutputTokens),
             )
-            if (listOf("openai", "deepseek", "openrouter", "xai", "qwen-cloud").any { ModelRequestPolicy.matchesPreset(request.provider, it) } || isOpenRouter || isAlibaba) {
+            if (profile in setOf(
+                    ProviderProfile.OPENAI,
+                    ProviderProfile.DEEPSEEK,
+                    ProviderProfile.OPENROUTER,
+                    ProviderProfile.XAI,
+                    ProviderProfile.QWEN_CLOUD,
+                ) || isAlibaba
+            ) {
                 put("stream_options", buildJsonObject { put("include_usage", JsonPrimitive(true)) })
             }
             if (request.tools.isNotEmpty() && request.model.supportsTools) {

@@ -203,11 +203,41 @@ Outro""",
         assertTrue(containsMarkdownTableCandidate("| A | B |\n| --- | --- |"))
     }
 
-    @Test fun completedSmallTablesCanUseMarkwonButStreamingTablesUseTheSafeGrid() {
+    @Test fun completedSmallTablesUseNativeCellRowsInsteadOfBoxDrawingText() {
         val small = "| A | B |\n| --- | --- |\n| 1 | 2 |"
-        // RichMessage routes every live table to StreamingTablePreviewText before
-        // consulting this size helper. Completed small tables can still use Markwon.
-        assertFalse(shouldUseLightweightTableRenderer(small, streaming = false))
+        val rows = parseMarkdownTableRows(small)
+        assertEquals(listOf(listOf("A", "B"), listOf("1", "2")), rows)
+
+        val widths = markdownTableColumnWidthsDp(rows, viewportDp = 360)
+        assertEquals(2, widths.size)
+        assertTrue(widths.sum() >= 360)
+        assertEquals(widths.sum() + 1, markdownTableTotalWidthDp(widths, viewportDp = 360))
+    }
+
+    @Test fun codeBlocksUseExplicitOverflowWidthInsideHorizontalScroller() {
+        val source = java.io.File("src/main/java/app/turp/chat/ui/RichMessage.kt").readText()
+        assertTrue(source.contains("codeBlockContentWidthDp(code, codeViewportDp)"))
+        assertTrue(source.contains(".width(codeContentWidthDp.dp)"))
+        assertTrue(source.contains("LowSensitivityHorizontalScroll(Modifier.fillMaxWidth())"))
+    }
+
+    @Test fun smallStreamingTablesStayOnNativeCellRenderer() {
+        val table = "| Surface | Demo data |\n| --- | --- |\n| Providers | 5 |\n| Models | 100 |"
+        assertFalse(shouldUseLightweightTableRenderer(table, streaming = true))
+        val rows = parseMarkdownTableRows(table)
+        assertEquals(listOf("Surface", "Demo data"), rows.first())
+        assertEquals(listOf("Models", "100"), rows.last())
+    }
+
+    @Test fun longCodeLinesProduceHorizontalOverflowWidth() {
+        val viewport = 320
+        val short = codeBlockContentWidthDp("println(\"ok\")", viewport)
+        val long = codeBlockContentWidthDp(
+            "val safe = BuildConfig.DEBUG && demoModeEnabled && anotherLongIdentifier",
+            viewport,
+        )
+        assertEquals(viewport, short)
+        assertTrue(long > viewport)
     }
 
     @Test fun oversizedStreamingTablesUseTheBoundedRenderer() {

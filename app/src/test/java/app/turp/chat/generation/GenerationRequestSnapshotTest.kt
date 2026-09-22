@@ -23,6 +23,7 @@ class GenerationRequestSnapshotTest {
             agentPythonEnabled = false,
             agentUbuntuEnabled = true,
             deepResearchEnabled = true,
+            sudoModeEnabled = true,
             hybridTokenCountingEnabled = true,
         )
         val provider = ProviderEntity("deepseek", "DeepSeek", ProviderKind.OPENAI_COMPATIBLE, "https://api.deepseek.com")
@@ -56,6 +57,8 @@ class GenerationRequestSnapshotTest {
         assertEquals(false, restored.agentPythonEnabled)
         assertEquals(true, restored.agentUbuntuEnabled)
         assertEquals(true, restored.deepResearchEnabled)
+        assertEquals(true, restored.sudoModeEnabled)
+        assertEquals(true, snapshot.sudoModeEnabled)
         assertEquals(true, restored.hybridTokenCountingEnabled)
         assertEquals(true, snapshot.supportsImageGeneration)
         assertEquals(true, snapshot.model().supportsImageGeneration)

@@ -10,7 +10,17 @@ class TurpMarkTest {
     fun `in app Turp marks reuse exact launcher artwork`() {
         val visuals = File("src/main/java/app/turp/chat/ui/PaletteVisuals.kt").readText()
         assertTrue(visuals.contains("LocalTurpIconPalette"))
-        assertTrue(visuals.contains("painterResource(palette.launcherPreviewDrawable)"))
+        assertTrue(visuals.contains("painterResource(palette.turpMarkDrawable)"))
+        assertTrue(visuals.contains("painterResource(palette.launcherBackgroundDrawable)"))
+        assertTrue(visuals.contains("painterResource(palette.launcherForegroundDrawable)"))
+        assertTrue(visuals.contains("ColorPalette.ARBOR -> R.drawable.ic_turp_mark_arbor"))
+        assertTrue(visuals.contains("ColorPalette.ARBOR -> R.drawable.ic_turp_background_arbor"))
+        assertTrue(visuals.contains("ColorPalette.ARBOR -> R.drawable.ic_turp_foreground_arbor"))
+        assertTrue(visuals.contains("R.drawable.ic_turp_background_ocean"))
+        assertTrue(visuals.contains("R.drawable.ic_turp_foreground_ocean"))
+        assertTrue(visuals.contains("22f / 108f"))
+        assertFalse(visuals.contains("launcherIconDrawable"))
+        assertFalse(visuals.contains("R.mipmap.ic_launcher"))
         assertFalse(visuals.contains("Canvas("))
         assertFalse(visuals.contains("drawPath("))
 

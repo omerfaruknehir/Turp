@@ -4,10 +4,14 @@ import app.turp.chat.data.DefaultCatalog
 import app.turp.chat.data.ModelEntity
 import app.turp.chat.data.ProviderEntity
 import app.turp.chat.data.ProviderKind
+import app.turp.chat.data.ProviderProfile
+import app.turp.chat.data.ProviderProtocol
 import app.turp.chat.data.ThinkingEffort
 import java.net.URI
 
 enum class ModelRequestType { CHAT, IMAGE_GENERATION }
+
+enum class OpenCodeTransport { RESPONSES, ANTHROPIC_MESSAGES, GEMINI, CHAT_COMPLETIONS }
 
 /**
  * Resolves transport from provider presets and model identity. The persisted
@@ -23,7 +27,10 @@ object ModelRequestPolicy {
         "gpt-image-1",
         "gpt-image-1-mini",
     )
-    private val automaticOpenAiCompatiblePresetIds = setOf("openai", "deepseek", "openrouter", "groq", "mistral", "xai", "qwen-cloud", "ollama")
+    private val automaticOpenAiCompatiblePresetIds = setOf(
+        "openai", "deepseek", "openrouter", "opencode-go", "opencode-zen",
+        "groq", "mistral", "xai", "qwen-cloud", "ollama",
+    )
     /**
      * Saved API-key connections get unique IDs so the same preset can be used more than once.
      * This helper keeps provider-specific protocol decisions attached to the preset identity
@@ -61,8 +68,88 @@ object ModelRequestPolicy {
     }
 
     fun isOpenRouter(provider: ProviderEntity): Boolean =
-        provider.kind == ProviderKind.OPENAI_COMPATIBLE &&
-            (matchesPreset(provider, "openrouter") || isOpenRouterBaseUrl(provider.baseUrl))
+        provider.effectiveProtocol == ProviderProtocol.OPENAI_COMPATIBLE &&
+            provider.effectiveProfile == ProviderProfile.OPENROUTER
+
+
+    fun isOpenCodeZenBaseUrl(rawBaseUrl: String): Boolean {
+        val uri = runCatching { URI(rawBaseUrl.trim()) }.getOrNull() ?: return false
+        return uri.scheme.equals("https", ignoreCase = true) &&
+            uri.host.equals("opencode.ai", ignoreCase = true) &&
+            uri.path?.trimEnd('/').equals("/zen/v1", ignoreCase = true)
+    }
+
+    fun isOpenCodeGoBaseUrl(rawBaseUrl: String): Boolean {
+        val uri = runCatching { URI(rawBaseUrl.trim()) }.getOrNull() ?: return false
+        return uri.scheme.equals("https", ignoreCase = true) &&
+            uri.host.equals("opencode.ai", ignoreCase = true) &&
+            uri.path?.trimEnd('/').equals("/zen/go/v1", ignoreCase = true)
+    }
+
+    fun isOpenCodeZen(provider: ProviderEntity): Boolean =
+        provider.effectiveProtocol == ProviderProtocol.OPENAI_COMPATIBLE &&
+            provider.effectiveProfile == ProviderProfile.OPENCODE_ZEN
+
+    fun isOpenCodeGo(provider: ProviderEntity): Boolean =
+        provider.effectiveProtocol == ProviderProtocol.OPENAI_COMPATIBLE &&
+            provider.effectiveProfile == ProviderProfile.OPENCODE_GO
+
+    fun isOpenCode(provider: ProviderEntity): Boolean = isOpenCodeZen(provider) || isOpenCodeGo(provider)
+
+    fun openCodeTransport(provider: ProviderEntity, model: ModelEntity): OpenCodeTransport {
+        require(isOpenCode(provider)) { "OpenCode routing requested for a non-OpenCode provider" }
+        val id = model.modelId.substringAfterLast('/').lowercase()
+        return if (isOpenCodeGo(provider)) {
+            // OpenCode V2's Console contract still uses the /zen/go/v1 wire
+            // gateway, but model families do not all share one protocol.
+            when {
+                id == "grok-4.5" -> OpenCodeTransport.CHAT_COMPLETIONS
+                id.startsWith("gpt-") || id.startsWith("grok-") ||
+                    id.startsWith("muse-spark-") -> OpenCodeTransport.RESPONSES
+                id.startsWith("minimax-") || id.startsWith("qwen") ->
+                    OpenCodeTransport.ANTHROPIC_MESSAGES
+                else -> OpenCodeTransport.CHAT_COMPLETIONS
+            }
+        } else {
+            when {
+                id.startsWith("claude-") || id.startsWith("qwen") ->
+                    OpenCodeTransport.ANTHROPIC_MESSAGES
+                id.startsWith("gemini-") -> OpenCodeTransport.GEMINI
+                id.startsWith("gpt-") || id.startsWith("grok-") ||
+                    id.startsWith("muse-spark-") -> OpenCodeTransport.RESPONSES
+                else -> OpenCodeTransport.CHAT_COMPLETIONS
+            }
+        }
+    }
+
+    fun enrichOpenCodeModel(provider: ProviderEntity, model: DiscoveredModel): DiscoveredModel {
+        if (!isOpenCode(provider)) return model
+        val id = model.id.substringAfterLast('/').lowercase()
+        val reasoningFamily = listOf(
+            "gpt-", "grok-", "claude-", "qwen", "deepseek-", "glm-", "kimi-",
+            "minimax-", "muse-spark-", "mimo-",
+        ).any(id::startsWith)
+        val visionFamily = id.startsWith("gemini-") || id.startsWith("claude-") ||
+            id.startsWith("gpt-") || id.contains("vision")
+        return model.copy(
+            supportsThinking = model.supportsThinking ?: reasoningFamily,
+            supportsVision = model.supportsVision ?: visionFamily,
+            supportsTools = model.supportsTools ?: true,
+            metadataSource = model.metadataSource.ifBlank {
+                if (isOpenCodeGo(provider)) "OpenCode Go" else "OpenCode Zen"
+            },
+        )
+    }
+
+    fun enrichOpenCodeModel(providerId: String?, rawBaseUrl: String, model: DiscoveredModel): DiscoveredModel {
+        val provider = ProviderEntity(
+            id = providerId ?: if (isOpenCodeGoBaseUrl(rawBaseUrl)) "opencode-go" else "opencode-zen",
+            displayName = "OpenCode",
+            kind = ProviderKind.OPENAI_COMPATIBLE,
+            baseUrl = rawBaseUrl,
+        )
+        return enrichOpenCodeModel(provider, model)
+    }
 
     fun isQwenCloudBaseUrl(rawBaseUrl: String): Boolean {
         val uri = runCatching { URI(rawBaseUrl.trim()) }.getOrNull() ?: return false
@@ -75,8 +162,8 @@ object ModelRequestPolicy {
 
     /** True for the Alibaba Model Studio OpenAI-compatible provider, including hosted third-party models. */
     fun isAlibabaModelStudio(provider: ProviderEntity): Boolean =
-        provider.kind == ProviderKind.OPENAI_COMPATIBLE &&
-            (matchesPreset(provider, "qwen-cloud") || isQwenCloudBaseUrl(provider.baseUrl))
+        provider.effectiveProtocol == ProviderProtocol.OPENAI_COMPATIBLE &&
+            provider.effectiveProfile == ProviderProfile.QWEN_CLOUD
 
     /** Kept for request code that needs Alibaba's provider-level compatibility behavior. */
     fun isQwenCloud(provider: ProviderEntity, model: ModelEntity): Boolean =
@@ -136,14 +223,12 @@ object ModelRequestPolicy {
     }
 
     fun isOfficialOpenAi(provider: ProviderEntity): Boolean =
-        provider.kind == ProviderKind.OPENAI_COMPATIBLE &&
-            (matchesPreset(provider, "openai") || isOfficialOpenAiBaseUrl(provider.baseUrl))
+        provider.effectiveProtocol == ProviderProtocol.OPENAI_COMPATIBLE &&
+            provider.effectiveProfile == ProviderProfile.OPENAI
 
     fun usesManualRequestType(provider: ProviderEntity): Boolean =
-        provider.kind == ProviderKind.OPENAI_COMPATIBLE &&
-            !isOfficialOpenAi(provider) &&
-            !isOpenRouter(provider) &&
-            automaticOpenAiCompatiblePresetIds.none { presetId -> matchesPreset(provider, presetId) }
+        provider.effectiveProtocol == ProviderProtocol.OPENAI_COMPATIBLE &&
+            provider.effectiveProfile == ProviderProfile.GENERIC
 
     fun requestType(provider: ProviderEntity, model: ModelEntity): ModelRequestType = when {
         isOfficialOpenAi(provider) -> if (model.modelId.substringAfterLast('/') in officialOpenAiImageIds) {
@@ -161,8 +246,8 @@ object ModelRequestPolicy {
         DefaultCatalog.models.filter { it.providerId == "openai" && it.modelId in officialOpenAiImageIds }
             .map { it.copy(providerId = providerId, supportsImageGeneration = true) }
 
-    fun mergeOfficialOpenAiCatalog(rawBaseUrl: String, discovered: List<DiscoveredModel>): List<DiscoveredModel> {
-        if (!isOfficialOpenAiBaseUrl(rawBaseUrl)) return discovered
+    fun mergeOfficialOpenAiCatalog(rawBaseUrl: String, discovered: List<DiscoveredModel>, force: Boolean = false): List<DiscoveredModel> {
+        if (!force && !isOfficialOpenAiBaseUrl(rawBaseUrl)) return discovered
         val byId = discovered.associateByTo(linkedMapOf()) { it.id }
         officialOpenAiImageModels().forEach { bundled ->
             val existing = byId[bundled.modelId]
@@ -255,16 +340,21 @@ object ModelRequestPolicy {
     }
 
     fun endpoint(provider: ProviderEntity, model: ModelEntity, continuation: Boolean = false): String {
-        val root = provider.baseUrl.trimEnd('/')
         return when (requestType(provider, model)) {
             ModelRequestType.IMAGE_GENERATION -> when {
-                isOpenRouter(provider) -> "$root/images"
                 isQwenCloudImageModel(provider, model) -> qwenCloudImageEndpoint(provider)
-                else -> "$root/images/generations"
+                else -> ProviderEndpointResolver.resolve(provider, ProviderEndpointKey.IMAGES)
             }
-            ModelRequestType.CHAT -> if (provider.id == "deepseek" && continuation) {
-                "$root/beta/chat/completions"
-            } else "$root/chat/completions"
+            ModelRequestType.CHAT -> {
+                val configuredChat = ProviderEndpointResolver.resolve(provider, ProviderEndpointKey.CHAT)
+                if (
+                    provider.effectiveProfile == ProviderProfile.DEEPSEEK &&
+                    continuation &&
+                    ProviderEndpointResolver.parseEndpointOverrides(provider.endpointOverridesJson)["chat"] == null
+                ) {
+                    provider.baseUrl.trimEnd('/') + "/beta/chat/completions"
+                } else configuredChat
+            }
         }
     }
 

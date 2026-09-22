@@ -25,7 +25,11 @@ class GeminiProvider(
     override suspend fun stream(request: ChatRequest, emit: suspend (StreamChunk) -> Unit) {
         withContext(Dispatchers.IO) {
         val body = buildRequestBody(request)
-        val url = request.provider.baseUrl.trimEnd('/') + "/models/${request.model.modelId}:streamGenerateContent?alt=sse"
+        val url = ProviderEndpointResolver.resolve(
+            request.provider,
+            ProviderEndpointKey.GEMINI_STREAM,
+            mapOf("model" to request.model.modelId),
+        )
         val httpRequest = Request.Builder().url(url).header("Accept", "text/event-stream")
             .also { builder -> if (request.apiKey.isNotBlank()) builder.header("x-goog-api-key", request.apiKey) }
             .post(body.toString().toRequestBody("application/json".toMediaType()))

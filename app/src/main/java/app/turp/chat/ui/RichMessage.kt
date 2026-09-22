@@ -24,16 +24,20 @@ import android.view.textclassifier.TextClassifier
 import android.widget.TextView
 import android.util.TypedValue
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.ContentCopy
@@ -43,11 +47,13 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.Text as MaterialText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -760,37 +766,18 @@ internal fun MarkdownBlock(
     var pendingReference by remember(key) { mutableStateOf<LinkReferencePreview?>(null) }
     val renderedMarkdown = remember(markdown) { renderMarkdownLinksLiterally(markdown) }
     when {
-        // Never feed an actively growing table to Markwon. Its TablePlugin assumes
-        // the parser has already produced a complete alignment/cell matrix and can
-        // throw from TableRowSpan when a provider update ends mid-row. The bounded
-        // native grid is still a rendered table and is cheap enough to refresh at
-        // the 250 ms streaming cadence used by RichMessage.
-        horizontallyScrollable && streaming -> {
-            StreamingTablePreviewText(markdown = markdown, streaming = true)
-        }
-        horizontallyScrollable && shouldUseLightweightTableRenderer(markdown, streaming = false) -> {
-            StreamingTablePreviewText(markdown = markdown, streaming = false)
+        horizontallyScrollable && shouldUseLightweightTableRenderer(markdown, streaming) -> {
+            // Only genuinely oversized tables use the bounded monospaced safety
+            // preview. Normal tables, including small live tables, stay on the
+            // native cell renderer so they never look like terminal/ASCII output.
+            StreamingTablePreviewText(markdown = markdown, streaming = streaming)
         }
         horizontallyScrollable -> {
-            val tableViewportDp = with(LocalDensity.current) {
-                LocalWindowInfo.current.containerSize.width.toDp().value.roundToInt()
-            }.minus(48).coerceAtLeast(240)
-            val tableWidth = remember(markdown, tableViewportDp) {
-                estimateMarkdownTableWidthDp(markdown, tableViewportDp).dp
-            }
-            LowSensitivityHorizontalScroll(Modifier.fillMaxWidth()) {
-                MarkdownAndroidView(
-                    markwon = markwon,
-                    markdown = renderedMarkdown,
-                    textColor = color,
-                    linkColor = linkColor,
-                    pillBackground = pillBackground,
-                    pillForeground = pillForeground,
-                    selectionColor = selectionColor,
-                    onReference = { pendingReference = it },
-                    modifier = Modifier.width(tableWidth),
-                )
-            }
+            NativeMarkdownTable(
+                markwon = markwon,
+                markdown = markdown,
+                onReference = { pendingReference = it },
+            )
         }
         else -> {
             MarkdownAndroidView(
@@ -1045,6 +1032,187 @@ internal fun boundedTablePreviewTextRange(
     }.take(maxChars)
 }
 
+internal fun parseMarkdownTableRows(markdown: String): List<List<String>> =
+    markdown.lineSequence()
+        .mapNotNull { line ->
+            if (markdownTableSeparatorColumns(line) != null) null
+            else splitMarkdownTableCells(line)?.map { it.trim() }
+        }
+        .filter { it.isNotEmpty() }
+        .toList()
+
+internal fun markdownTableColumnWidthsDp(
+    rows: List<List<String>>,
+    viewportDp: Int,
+): List<Int> {
+    val columnCount = rows.maxOfOrNull { it.size } ?: return emptyList()
+    if (columnCount == 0) return emptyList()
+    val widths = MutableList(columnCount) { column ->
+        val longest = rows.maxOfOrNull { row ->
+            row.getOrNull(column)
+                .orEmpty()
+                .replace("\\|", "|")
+                .replace(MarkdownTableFormatting, "")
+                .trim()
+                .length
+        } ?: 0
+        (longest.coerceIn(4, 34) * 8 + 28).coerceIn(88, 320)
+    }
+    val minimum = viewportDp.coerceAtLeast(240)
+    val current = widths.sum()
+    if (current < minimum) {
+        val extra = minimum - current
+        val perColumn = extra / columnCount
+        var remainder = extra % columnCount
+        widths.indices.forEach { index ->
+            widths[index] += perColumn + if (remainder-- > 0) 1 else 0
+        }
+    }
+    return widths
+}
+
+internal fun markdownTableTotalWidthDp(
+    widths: List<Int>,
+    viewportDp: Int,
+): Int =
+    (widths.sum() + (widths.size - 1).coerceAtLeast(0))
+        .coerceAtLeast(viewportDp.coerceAtLeast(240))
+
+@Composable
+private fun NativeMarkdownTable(
+    markwon: Markwon,
+    markdown: String,
+    onReference: (LinkReferencePreview) -> Unit,
+) {
+    val rows = remember(markdown) { parseMarkdownTableRows(markdown) }
+    if (rows.isEmpty()) {
+        LightweightTableText(markdown = markdown, streaming = false)
+        return
+    }
+
+    val viewportDp = with(LocalDensity.current) {
+        LocalWindowInfo.current.containerSize.width.toDp().value.roundToInt()
+    }.minus(48).coerceAtLeast(240)
+    val widths = remember(rows, viewportDp) { markdownTableColumnWidthsDp(rows, viewportDp) }
+    val totalWidth = remember(widths, viewportDp) {
+        markdownTableTotalWidthDp(widths, viewportDp)
+    }
+
+    val textColor = MaterialTheme.colorScheme.onSurface.toArgbCompat()
+    val linkColor = MaterialTheme.colorScheme.primary.toArgbCompat()
+    val pillBackground = MaterialTheme.colorScheme.secondaryContainer.toArgbCompat()
+    val pillForeground = MaterialTheme.colorScheme.onSecondaryContainer.toArgbCompat()
+    val selectionColor = MaterialTheme.colorScheme.primary.copy(alpha = .32f).toArgbCompat()
+
+    LowSensitivityHorizontalScroll(Modifier.fillMaxWidth()) {
+        Surface(
+            modifier = Modifier.width(totalWidth.dp),
+            shape = RoundedCornerShape(10.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        ) {
+            Column {
+                rows.forEachIndexed { rowIndex, row ->
+                    if (rowIndex > 0) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    }
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = if (rowIndex == 0) {
+                            MaterialTheme.colorScheme.surfaceContainerHigh
+                        } else {
+                            MaterialTheme.colorScheme.surfaceContainerLow
+                        },
+                    ) {
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .height(IntrinsicSize.Min),
+                        ) {
+                            widths.forEachIndexed { column, widthDp ->
+                                if (column > 0) {
+                                    VerticalDivider(
+                                        modifier = Modifier.fillMaxHeight(),
+                                        color = MaterialTheme.colorScheme.outlineVariant,
+                                    )
+                                }
+                                Box(
+                                    Modifier
+                                        .width(widthDp.dp)
+                                        .padding(horizontal = 12.dp, vertical = 9.dp),
+                                ) {
+                                    MarkdownAndroidView(
+                                        markwon = markwon,
+                                        markdown = row.getOrNull(column).orEmpty(),
+                                        textColor = textColor,
+                                        linkColor = linkColor,
+                                        pillBackground = pillBackground,
+                                        pillForeground = pillForeground,
+                                        selectionColor = selectionColor,
+                                        onReference = onReference,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+internal data class ComposeTablePreview(
+    val rows: List<List<String>?>,
+    val columnWidthsDp: List<Int>,
+)
+
+internal fun composeTablePreview(
+    markdown: String,
+    startOffset: Int = 0,
+    maxChars: Int = CompletedTablePreviewMaxChars,
+    maxLines: Int = CompletedTablePreviewMaxLines,
+    viewportDp: Int = 320,
+    maxCellCharacters: Int = 120,
+): ComposeTablePreview {
+    val bounded = boundedTablePreviewTextRange(markdown, startOffset, maxChars, maxLines)
+    val rows = mutableListOf<List<String>?>()
+    bounded.lineSequence().forEach { rawLine ->
+        when {
+            rawLine.contains("hidden from the inline preview") -> rows += null
+            markdownTableSeparatorColumns(rawLine) != null -> Unit
+            else -> splitMarkdownTableCells(rawLine)?.let { cells ->
+                rows += cells.map { cell ->
+                    cell.trim()
+                        .replace("\\|", "|")
+                        .replace(MarkdownTableFormatting, "")
+                        .replace(Regex("\\s+"), " ")
+                        .take(maxCellCharacters.coerceAtLeast(8))
+                }
+            }
+        }
+    }
+    val concrete = rows.filterNotNull()
+    val columnCount = concrete.maxOfOrNull { it.size }?.coerceAtMost(24) ?: 0
+    if (columnCount == 0) return ComposeTablePreview(rows, emptyList())
+
+    val widths = MutableList(columnCount) { column ->
+        val longest = concrete.maxOfOrNull { it.getOrNull(column)?.length ?: 0 } ?: 0
+        (longest * 8 + 28).coerceIn(96, 320)
+    }
+    val total = widths.sum()
+    if (total < viewportDp) {
+        var remaining = viewportDp - total
+        var index = 0
+        while (remaining > 0 && widths.isNotEmpty()) {
+            widths[index] += 1
+            remaining--
+            index = (index + 1) % widths.size
+        }
+    }
+    return ComposeTablePreview(rows, widths)
+}
+
 @Composable
 private fun StreamingTablePreviewText(
     markdown: String,
@@ -1053,49 +1221,73 @@ private fun StreamingTablePreviewText(
 ) {
     val maxChars = if (streaming) StreamingTablePreviewMaxChars else CompletedTablePreviewMaxChars
     val maxLines = if (streaming) StreamingTablePreviewMaxLines else CompletedTablePreviewMaxLines
-    val rendered = remember(markdown, startOffset, maxChars, maxLines) {
-        renderStreamingTableGrid(markdown, startOffset, maxChars, maxLines)
-    }
     val viewportDp = with(LocalDensity.current) {
         LocalWindowInfo.current.containerSize.width.toDp().value.roundToInt()
     }.minus(48).coerceAtLeast(240)
-    val widthDp = (rendered.widestLineCharacters * 8 + 20).coerceIn(viewportDp, 2_400)
-    val color = MaterialTheme.colorScheme.onSurface.toArgbCompat()
-    val background = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .34f).toArgbCompat()
-    val selectionColor = MaterialTheme.colorScheme.primary.copy(alpha = .32f).toArgbCompat()
-    val textSizeSp = MaterialTheme.typography.bodySmall.fontSize.value
+    val table = remember(markdown, startOffset, maxChars, maxLines, viewportDp) {
+        composeTablePreview(markdown, startOffset, maxChars, maxLines, viewportDp)
+    }
 
+    if (table.columnWidthsDp.isEmpty()) {
+        LightweightTableText(markdown = markdown, streaming = streaming)
+        return
+    }
+
+    val divider = MaterialTheme.colorScheme.outlineVariant
+    val totalWidthDp = table.columnWidthsDp.sum().coerceAtLeast(viewportDp)
     LowSensitivityHorizontalScroll(Modifier.fillMaxWidth()) {
-        AndroidView(
-            factory = { context ->
-                TurpMarkdownTextView(context).apply {
-                    setTextIsSelectable(true)
-                    setTextClassifier(TextClassifier.NO_OP)
-                    includeFontPadding = false
-                    typeface = Typeface.MONOSPACE
-                    setHorizontallyScrolling(false)
-                    setLineSpacing(0f, 1.04f)
-                    setPadding(10, 8, 10, 8)
+        Surface(
+            modifier = Modifier.width(totalWidthDp.dp),
+            shape = RoundedCornerShape(10.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
+            border = BorderStroke(1.dp, divider),
+        ) {
+            Column {
+                table.rows.forEachIndexed { rowIndex, cells ->
+                    if (cells == null) {
+                        SelectionContainer {
+                            Text(
+                                "… omitted table rows from inline preview …",
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    } else {
+                        val header = table.rows.take(rowIndex).none { it != null }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(IntrinsicSize.Min),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            table.columnWidthsDp.forEachIndexed { column, width ->
+                                if (column > 0) VerticalDivider(color = divider)
+                                Box(
+                                    modifier = Modifier
+                                        .width(width.dp)
+                                        .fillMaxHeight()
+                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    contentAlignment = Alignment.CenterStart,
+                                ) {
+                                    SelectionContainer {
+                                        Text(
+                                            cells.getOrNull(column).orEmpty(),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = if (header) FontWeight.SemiBold else FontWeight.Normal,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (rowIndex != table.rows.lastIndex) {
+                        HorizontalDivider(color = divider)
+                    }
                 }
-            },
-            onReset = { it.resetForReuse() },
-            onRelease = { it.resetForReuse() },
-            update = { view ->
-                val appearanceKey = (((color * 31) + background) * 31 + selectionColor) * 31 + textSizeSp.toBits()
-                if (view.appliedStyleKey != appearanceKey) {
-                    view.setTextColor(color)
-                    view.setBackgroundColor(background)
-                    view.highlightColor = selectionColor
-                    view.setTextSize(TypedValue.COMPLEX_UNIT_SP, textSizeSp)
-                    view.appliedStyleKey = appearanceKey
-                }
-                if (view.renderedSource != rendered.text) {
-                    view.setText(rendered.text, TextView.BufferType.SPANNABLE)
-                    view.renderedSource = rendered.text
-                }
-            },
-            modifier = Modifier.width(widthDp.dp),
-        )
+            }
+        }
     }
 }
 
@@ -1566,6 +1758,26 @@ private class LinkPillSpan(
     }
 }
 
+
+internal fun codeBlockContentWidthDp(
+    code: String,
+    viewportDp: Int,
+    maxWidthDp: Int = 4_800,
+): Int {
+    val safeViewport = viewportDp.coerceAtLeast(160)
+    val longestLineCharacters = code.lineSequence()
+        .maxOfOrNull { line ->
+            line.fold(0) { width, char -> width + if (char == '\t') 4 else 1 }
+        }
+        ?: 0
+    // bodyMedium monospace is roughly 8–9 dp per glyph at the app's default
+    // density. Slight over-estimation is intentional: it guarantees that long
+    // source lines produce actual horizontal overflow instead of being clipped
+    // to the viewport by an intrinsic-width measurement.
+    val estimated = longestLineCharacters.coerceAtMost(520) * 10 + 40
+    return estimated.coerceIn(safeViewport, maxWidthDp.coerceAtLeast(safeViewport))
+}
+
 @Composable
 private fun CodeBlock(
     language: String,
@@ -1581,6 +1793,12 @@ private fun CodeBlock(
     var liveProgress by remember { mutableStateOf<ExecutionProgress?>(null) }
     var result by remember { mutableStateOf<ExecutionResult?>(null) }
     var ubuntuResult by remember { mutableStateOf<UbuntuExecutionResult?>(null) }
+    val codeViewportDp = with(LocalDensity.current) {
+        LocalWindowInfo.current.containerSize.width.toDp().value.roundToInt()
+    }.minus(56).coerceAtLeast(240)
+    val codeContentWidthDp = remember(code, codeViewportDp) {
+        codeBlockContentWidthDp(code, codeViewportDp)
+    }
     Surface(color = MaterialTheme.colorScheme.surfaceContainerHighest, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
         Column {
             Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 4.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1622,13 +1840,20 @@ private fun CodeBlock(
                     copied = true
                 }) { Icon(if (copied) Icons.Outlined.Check else Icons.Outlined.ContentCopy, "Copy") }
             }
-            LowSensitivityHorizontalScroll(Modifier.padding(14.dp)) {
-                HighlightedCodeText(
-                    language = language,
-                    code = code,
-                    style = MaterialTheme.typography.bodyMedium,
-                    softWrap = false,
-                )
+            LowSensitivityHorizontalScroll(Modifier.fillMaxWidth()) {
+                Box(
+                    Modifier
+                        .width(codeContentWidthDp.dp)
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                ) {
+                    HighlightedCodeText(
+                        language = language,
+                        code = code,
+                        modifier = Modifier.fillMaxWidth(),
+                        style = MaterialTheme.typography.bodyMedium,
+                        softWrap = false,
+                    )
+                }
             }
             AnimatedVisibility(running, enter = streamingFadeIn(), exit = streamingFadeOut()) {
                 Column(Modifier.padding(10.dp)) {

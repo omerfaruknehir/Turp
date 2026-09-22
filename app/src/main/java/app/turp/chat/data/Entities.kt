@@ -12,6 +12,25 @@ enum class MessageRole { SYSTEM, USER, ASSISTANT, TOOL }
 enum class MessageStatus { QUEUED, STREAMING, INTERRUPTED, COMPLETE, ERROR }
 enum class SendMode { SEND_NOW, QUEUE, STEER }
 @Serializable enum class ProviderKind { OPENAI_COMPATIBLE, OPENAI_OAUTH, ANTHROPIC, GEMINI }
+@Serializable enum class ProviderProtocol { AUTO, OPENAI_COMPATIBLE, OPENAI_OAUTH, ANTHROPIC, GEMINI, OPENCODE_V2 }
+@Serializable enum class ProviderProfile {
+    AUTO,
+    GENERIC,
+    OPENAI,
+    OPENROUTER,
+    OPENCODE_V2,
+    OPENCODE_GO,
+    OPENCODE_ZEN,
+    DEEPSEEK,
+    GROQ,
+    MISTRAL,
+    XAI,
+    QWEN_CLOUD,
+    OLLAMA,
+    ANTHROPIC,
+    GEMINI,
+    OPENAI_OAUTH,
+}
 enum class ReasoningVisibility { ALWAYS, SHOW_WHILE_WORKING, COLLAPSED }
 enum class ThinkingEffort { MINIMAL, LOW, MEDIUM, HIGH, XHIGH, MAX }
 enum class AuxiliaryMode { OFF, LOCAL, MODEL }
@@ -47,6 +66,7 @@ data class ConversationEntity(
     @ColumnInfo(defaultValue = "0") val agentUbuntuEnabled: Boolean = false,
     @ColumnInfo(defaultValue = "0") val deepResearchEnabled: Boolean = false,
     @ColumnInfo(defaultValue = "0") val hybridTokenCountingEnabled: Boolean = false,
+    @ColumnInfo(defaultValue = "0") val sudoModeEnabled: Boolean = false,
     val archived: Boolean = false,
     @ColumnInfo(defaultValue = "0") val pinned: Boolean = false,
     val projectId: String? = null,
@@ -277,6 +297,9 @@ data class ProviderEntity(
     val customHeadersJson: String = "{}",
     @ColumnInfo(defaultValue = "0") val registered: Boolean = false,
     @ColumnInfo(defaultValue = "1") val apiKeyRequired: Boolean = true,
+    @ColumnInfo(defaultValue = "'AUTO'") val protocol: ProviderProtocol = ProviderProtocol.AUTO,
+    @ColumnInfo(defaultValue = "'AUTO'") val profile: ProviderProfile = ProviderProfile.AUTO,
+    @ColumnInfo(defaultValue = "'{}'") val endpointOverridesJson: String = "{}",
 )
 
 @Entity(

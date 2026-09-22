@@ -12,6 +12,7 @@ import app.turp.chat.agent.WebSearchClient
 import app.turp.chat.data.TurpDatabase
 import app.turp.chat.data.DefaultCatalog
 import app.turp.chat.data.ProviderKind
+import app.turp.chat.demo.DemoModeController
 import app.turp.chat.files.AttachmentStore
 import app.turp.chat.files.OcrEngine
 import app.turp.chat.generation.GenerationScheduler
@@ -21,6 +22,8 @@ import app.turp.chat.provider.AlibabaCloudModelPolicy
 import app.turp.chat.provider.ModelRequestPolicy
 import app.turp.chat.provider.HybridTokenCounter
 import app.turp.chat.provider.OpenAiOAuthManager
+import app.turp.chat.provider.OpenCodeManager
+import app.turp.chat.provider.OpenRouterManager
 import app.turp.chat.sandbox.PythonSandbox
 import app.turp.chat.sandbox.UbuntuRuntime
 import app.turp.chat.sandbox.PackageApprovalService
@@ -105,6 +108,7 @@ class TurpApplication : Application() {
             container.database.automationSettingsDao().upsert(
                 container.database.automationSettingsDao().get() ?: app.turp.chat.data.AutomationSettingsEntity(),
             )
+            if (BuildConfig.DEBUG) container.demoMode.reconcileAtStartup()
             container.markCatalogReady()
             } catch (error: Throwable) {
                 container.markCatalogFailed()
@@ -142,7 +146,10 @@ class AppContainer(val application: Application, val crashReporter: CrashReporte
     val secureStore = SecureStore(application)
     val database = TurpDatabase.create(application, secureStore.databasePassphrase())
     val repository = ChatRepository(database)
+    val demoMode = DemoModeController(database, repository, appPreferences)
     val openAiOAuth = OpenAiOAuthManager(application, secureStore)
+    val openCode = OpenCodeManager(secureStore)
+    val openRouter = OpenRouterManager(secureStore)
     val providers = ProviderRegistry(openAiOAuth)
     val modelDiscovery = AlibabaCloudModelDiscoveryService(openAiOAuth)
     val tokenCounter = HybridTokenCounter()
