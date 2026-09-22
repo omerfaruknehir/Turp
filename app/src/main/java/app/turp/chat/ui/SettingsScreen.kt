@@ -2528,10 +2528,9 @@ private fun ProviderSettings(
                                             is OpenAiOAuthState.Error -> "ChatGPT OAuth • Needs attention"
                                             else -> "ChatGPT OAuth • Disconnected"
                                         }
-                                    } else when {
-                                        ModelRequestPolicy.isOpenCodeGo(provider) -> "OpenCode Go • API key"
-                                        ModelRequestPolicy.isOpenCodeZen(provider) -> "OpenCode Zen • API key"
-                                        else -> providerKindLabel(provider.kind)
+                                    } else {
+                                        providerProtocolLabel(provider.effectiveProtocol) + " • " +
+                                            providerProfileLabel(provider.effectiveProfile)
                                     },
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -2567,7 +2566,15 @@ private fun ProviderSettings(
                                 scope.launch {
                                     syncingModels = true
                                     modelSyncStatus = null
-                                    runCatching { viewModel.discoverModels(provider.kind, baseUrl, apiKey, headers) }
+                                    val configuredProvider = provider.copy(
+                                        kind = protocol.legacyKind(),
+                                        baseUrl = baseUrl,
+                                        customHeadersJson = headers,
+                                        protocol = protocol,
+                                        profile = profile,
+                                        endpointOverridesJson = endpointOverrides,
+                                    )
+                                    runCatching { viewModel.discoverModels(configuredProvider, apiKey) }
                                         .onSuccess { discovered ->
                                             viewModel.saveDiscoveredModels(provider.id, discovered)
                                             modelSyncStatus = "Updated ${discovered.size} models"
@@ -2657,10 +2664,28 @@ private fun ProviderSettings(
                             onKey = { apiKey = it },
                             headers = headers,
                             onHeaders = { headers = it },
+                            endpointOverrides = endpointOverrides,
+                            onEndpointOverrides = { endpointOverrides = it },
+                            protocol = protocol,
+                            onProtocol = { protocol = it },
+                            profile = profile,
+                            onProfile = { profile = it },
                             apiKeyRequired = apiKeyRequired,
                             onApiKeyRequired = { apiKeyRequired = it },
                         ) {
-                            viewModel.saveProvider(provider.copy(displayName = providerName.trim(), baseUrl = baseUrl.trimEnd('/'), customHeadersJson = headers, apiKeyRequired = apiKeyRequired), apiKey)
+                            viewModel.saveProvider(
+                                provider.copy(
+                                    displayName = providerName.trim(),
+                                    kind = protocol.legacyKind(),
+                                    baseUrl = baseUrl.trimEnd('/'),
+                                    customHeadersJson = headers,
+                                    apiKeyRequired = apiKeyRequired,
+                                    protocol = protocol,
+                                    profile = profile,
+                                    endpointOverridesJson = endpointOverrides.ifBlank { "{}" },
+                                ),
+                                apiKey,
+                            )
                             editingConnection = false
                         }
                     }
@@ -2714,7 +2739,7 @@ private fun ProviderSettings(
         templates = DefaultCatalog.providers.filter { provider -> provider.kind != ProviderKind.OPENAI_OAUTH },
         onDismiss = { addingProvider = false
             addingProviderTemplateId = null },
-        onDiscover = viewModel::discoverModels,
+        onDiscover = { provider, key -> viewModel.discoverModels(provider, key) },
         onAdd = { draft ->
             val templateId = draft.templateProviderId
             val id = "provider-${templateId ?: draft.kind.name.lowercase()}-${UUID.randomUUID()}"
@@ -2724,11 +2749,14 @@ private fun ProviderSettings(
             )).copy(
                 id = id,
                 displayName = draft.name,
-                kind = draft.kind,
+                kind = draft.protocol.legacyKind(),
                 baseUrl = draft.baseUrl.trimEnd('/'),
                 customHeadersJson = draft.headers,
                 registered = true,
                 apiKeyRequired = draft.apiKeyRequired,
+                protocol = draft.protocol,
+                profile = draft.profile,
+                endpointOverridesJson = draft.endpointOverrides,
             )
             val models = draft.selectedModels.map { candidate ->
                 val bundled = DefaultCatalog.models.firstOrNull { it.providerId == (templateId ?: id) && it.modelId == candidate.id }
