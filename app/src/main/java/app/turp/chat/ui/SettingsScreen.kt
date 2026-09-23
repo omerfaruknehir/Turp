@@ -1615,7 +1615,7 @@ private fun DeveloperPromptComponentEditorDialog(
                             onClick = onReset,
                             modifier = Modifier.weight(1f),
                         ) {
-                            Text("Reset all")
+                            Text("Reset component")
                         }
                     }
                 }
@@ -1651,6 +1651,7 @@ private fun DeveloperPromptManagerSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var query by rememberSaveable { mutableStateOf("") }
     var customizedOnly by rememberSaveable { mutableStateOf(false) }
+    var confirmResetAll by rememberSaveable { mutableStateOf(false) }
     val editedCount = promptOverrides.values.size
     val disabledCount = promptOverrides.disabledIds.size
     val customizedCount = DeveloperPromptKey.entries.count(promptOverrides::isCustomized)
@@ -1794,6 +1795,7 @@ private fun DeveloperPromptManagerSheet(
                                         Text(key.title, fontWeight = FontWeight.Medium)
                                         Text(
                                             when {
+                                                disabled && edited -> "Disabled · edit saved"
                                                 disabled -> "Disabled"
                                                 edited -> "Edited"
                                                 else -> "Built-in"
@@ -1830,7 +1832,7 @@ private fun DeveloperPromptManagerSheet(
 
             if (customizedCount > 0) {
                 OutlinedButton(
-                    onClick = onResetAll,
+                    onClick = { confirmResetAll = true },
                     modifier = Modifier
                         .fillMaxWidth()
                         .navigationBarsPadding(),
@@ -1841,6 +1843,33 @@ private fun DeveloperPromptManagerSheet(
                 Spacer(Modifier.navigationBarsPadding())
             }
         }
+    }
+
+    if (confirmResetAll) {
+        TurpAlertDialog(
+            onDismissRequest = { confirmResetAll = false },
+            title = { Text("Reset all prompt customizations?") },
+            text = {
+                Text(
+                    "This removes every saved prompt edit and disabled-component setting. Built-in Turp prompts are not changed.",
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onResetAll()
+                        confirmResetAll = false
+                    },
+                ) {
+                    Text("Reset all")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmResetAll = false }) {
+                    Text("Cancel")
+                }
+            },
+        )
     }
 }
 
