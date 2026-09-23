@@ -1427,9 +1427,14 @@ internal fun shouldShowOcrCompatibility(isImage: Boolean, modelSupportsVision: B
 internal fun unsupportedToolCallingNotice(
     modelSupportsTools: Boolean?,
     toolCallingRequested: Boolean,
-): String? = if (modelSupportsTools == false && toolCallingRequested) {
-    "This model doesn't support tool calling. Web, Python, and Linux tools won't run."
-} else null
+    sudoNativeAttempt: Boolean = false,
+): String? = when {
+    modelSupportsTools != false || !toolCallingRequested -> null
+    sudoNativeAttempt ->
+        "Catalog metadata says this model doesn't support tool calling. " +
+            "Sudo will still try real native tool definitions; the provider/API may reject them."
+    else -> "This model doesn't support tool calling. Web, Python, and Linux tools won't run."
+}
 
 @Composable
 private fun EmptyConversation(
@@ -3126,12 +3131,17 @@ private fun Composer(
                         }
                     }
                 }
+                val sudoNativeAttempt =
+                    developerSettings.enabled &&
+                        developerSettings.sudoModeControlEnabled &&
+                        current.sudoModeEnabled
                 if (!imageGenerationMode) unsupportedToolCallingNotice(
                     modelSupportsTools = model?.supportsTools,
                     toolCallingRequested = current.webSearchEnabled ||
                         current.deepResearchEnabled ||
                         current.agentPythonEnabled ||
                         current.agentUbuntuEnabled,
+                    sudoNativeAttempt = sudoNativeAttempt,
                 )?.let { notice ->
                     Surface(
                         color = MaterialTheme.colorScheme.errorContainer.copy(alpha = .72f),
@@ -3321,7 +3331,7 @@ private fun Composer(
                         ComposerToggleRow(
                             icon = Icons.Outlined.Security,
                             title = "Sudo mode",
-                            subtitle = "Promote the latest user turn to system priority while Sudo is enabled",
+                            subtitle = "Promote the latest user turn and force native tool attempts even when catalog metadata says unsupported",
                             checked = current.sudoModeEnabled,
                             onCheckedChange = { enabled ->
                                 viewModel.updateConversation { it.copy(sudoModeEnabled = enabled) }
