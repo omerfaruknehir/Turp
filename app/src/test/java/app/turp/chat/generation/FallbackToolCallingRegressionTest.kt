@@ -19,6 +19,7 @@ class FallbackToolCallingRegressionTest {
         assertTrue(worker.contains("The provider/API endpoint rejected Turp's native function definitions"))
         assertTrue(worker.contains("fallbackToolMode = true"))
         assertTrue(worker.contains("fallbackToolResultMessage(result)"))
+        assertFalse(worker.contains("FallbackToolCallProtocol"))
     }
 
     @Test
@@ -30,6 +31,16 @@ class FallbackToolCallingRegressionTest {
         assertTrue(chat.contains("viewModel.enableToolCallFallbackForModel("))
         assertTrue(chat.contains("viewModel.retryMessage(message)"))
         assertTrue(chat.contains("\"Enable fallback for this model\""))
+    }
+
+    @Test
+    fun fallbackProtocolRuntimeIsStateless() {
+        val protocol = File("src/main/java/app/turp/chat/provider/FallbackToolCallProtocol.kt").readText()
+
+        assertFalse(protocol.contains("object FallbackToolCallProtocol"))
+        assertFalse(protocol.contains("private val envelope = Regex"))
+        assertTrue(protocol.contains("fun parseFallbackToolCallExact("))
+        assertTrue(protocol.contains("ProviderJson.parseToJsonElement"))
     }
 
     @Test
