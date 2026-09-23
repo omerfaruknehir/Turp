@@ -4,6 +4,7 @@ import app.turp.chat.data.ConversationEntity
 import app.turp.chat.data.MessageEntity
 import app.turp.chat.data.MessageRole
 import app.turp.chat.data.MessageStatus
+import app.turp.chat.generation.shouldExposeNativeToolDefinitions
 import java.io.File
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -65,6 +66,38 @@ class SudoModeRegressionTest {
 
         assertTrue(instructions.contains("Do not emit `turp-tool` fences"))
         assertTrue(instructions.contains("State the limitation"))
+    }
+
+    @Test
+    fun `sudo overrides catalog tool capability but never image-generation transport`() {
+        assertTrue(
+            shouldExposeNativeToolDefinitions(
+                modelSupportsTools = false,
+                sudoModeActive = true,
+                directImageModel = false,
+            ),
+        )
+        assertTrue(
+            shouldExposeNativeToolDefinitions(
+                modelSupportsTools = true,
+                sudoModeActive = false,
+                directImageModel = false,
+            ),
+        )
+        assertFalse(
+            shouldExposeNativeToolDefinitions(
+                modelSupportsTools = false,
+                sudoModeActive = false,
+                directImageModel = false,
+            ),
+        )
+        assertFalse(
+            shouldExposeNativeToolDefinitions(
+                modelSupportsTools = true,
+                sudoModeActive = true,
+                directImageModel = true,
+            ),
+        )
     }
 
     @Test
