@@ -14,11 +14,11 @@ class FallbackToolCallingRegressionTest {
         assertTrue(worker.contains("fallbackToolCallingEnabled"))
         assertTrue(worker.contains("var fallbackToolMode"))
         assertTrue(worker.contains("tools = if (nativeToolsDisabled || fallbackToolMode) emptyList() else nativeToolDefinitions"))
-        assertTrue(worker.contains("FallbackToolCallProtocol.parseExact"))
+        assertTrue(worker.contains("parseFallbackToolCallExact"))
         assertTrue(worker.contains("appendFallbackProtocolInstruction("))
         assertTrue(worker.contains("The provider/API endpoint rejected Turp's native function definitions"))
         assertTrue(worker.contains("fallbackToolMode = true"))
-        assertTrue(worker.contains("FallbackToolCallProtocol.resultMessage(result)"))
+        assertTrue(worker.contains("fallbackToolResultMessage(result)"))
     }
 
     @Test
