@@ -97,7 +97,7 @@ class DeveloperPromptOverridesTest {
             assertEquals(
                 "Expected exactly one family assignment for ${key.name}",
                 1,
-                Regex(Regex.escape(needle)).findAll(familySection).count(),
+                Regex(Regex.escape(needle) + "(?![A-Z0-9_])").findAll(familySection).count(),
             )
         }
     }
