@@ -1637,6 +1637,7 @@ private fun DeveloperPromptComponentEditorDialog(
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DeveloperPromptManagerSheet(
     promptOverrides: DeveloperPromptOverrides,
@@ -1873,6 +1874,7 @@ private fun DeveloperPromptManagerSheet(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DeveloperPromptContextSheet(
     trace: app.turp.chat.settings.DeveloperPromptTrace?,
