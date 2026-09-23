@@ -233,7 +233,7 @@ class AuxiliaryModelService(
         val baseVariables = mapOf(
             "conversation_id" to conversationId,
             "provider_id" to provider.id,
-            "model_id" to model.id,
+            "model_id" to model.modelId,
         )
         val systemVariables = DeveloperPromptTemplateCatalog.runtimeVariables(
             systemKey,
