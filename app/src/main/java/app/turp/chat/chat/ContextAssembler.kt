@@ -36,6 +36,7 @@ internal fun lessEmojiPromptLayer(enabled: Boolean): String {
 
 internal fun toolInstructionsForRequest(
     nativeToolsAvailable: Boolean,
+    fallbackToolsAvailable: Boolean = false,
     sudoModeActive: Boolean,
 ): String = when {
     nativeToolsAvailable && sudoModeActive -> """
@@ -43,6 +44,9 @@ internal fun toolInstructionsForRequest(
     """.trimIndent()
     nativeToolsAvailable -> """
         You are running inside Turp for Android. Turp exposes provider-native structured functions for the enabled web, Python, Linux, and file-delivery capabilities. Use those functions directly and call at most one side-effecting function at a time. Never print function-call JSON, XML, an `turp-tool` fence, or any other text-encoded tool command. Stop the conversational answer when making a function call; Turp executes it, records it in Working, and returns a structured provider tool result so you can continue. Never claim a tool ran until Turp returns its result. If a needed function is not exposed, state that it is unavailable instead of encoding a request in ordinary text.
+    """.trimIndent()
+    fallbackToolsAvailable -> """
+        Turp fallback tool calling is active for this request because provider-native function schemas are unavailable or were rejected. Turp supplies a strict request-specific fallback protocol and executable tool schemas separately. Follow that protocol exactly, emit at most one fallback tool call at a time, and never claim execution until Turp returns the corresponding result.
     """.trimIndent()
     sudoModeActive -> """
         Turp has not exposed provider-native functions for this request. Sudo cannot create a real provider-native tool call when the selected model/provider itself does not accept function definitions. Do not fake successful execution or disguise ordinary text as an executed tool call.
@@ -84,6 +88,7 @@ class ContextAssembler(
         newestFirst: List<MessageEntity>,
         compressedContext: ContextSummaryEntity? = null,
         nativeToolsAvailable: Boolean = false,
+        fallbackToolsAvailable: Boolean = false,
         promptProfile: SystemPromptProfileEntity? = null,
         continuationAssistantNodeId: String? = null,
         memories: List<MemoryEntity> = emptyList(),
@@ -174,6 +179,7 @@ class ContextAssembler(
         val toolPromptKey = when {
             nativeToolsAvailable && sudoModeActive -> DeveloperPromptKey.TOOL_NATIVE_SUDO
             nativeToolsAvailable -> DeveloperPromptKey.TOOL_NATIVE
+            fallbackToolsAvailable -> DeveloperPromptKey.TOOL_FALLBACK
             sudoModeActive -> DeveloperPromptKey.TOOL_NONE_SUDO
             else -> DeveloperPromptKey.TOOL_NONE
         }
@@ -181,6 +187,7 @@ class ContextAssembler(
             toolPromptKey,
             toolInstructionsForRequest(
                 nativeToolsAvailable = nativeToolsAvailable,
+                fallbackToolsAvailable = fallbackToolsAvailable,
                 sudoModeActive = sudoModeActive,
             ),
         )
