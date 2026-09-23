@@ -1526,20 +1526,11 @@ private val developerPromptMainFamilies = listOf(
     ),
     DeveloperPromptFamilySpec(
         id = "memory",
-        title = "Memory",
-        description = "Memory context and the automatic/manual memory policies.",
+        title = "Memory policy",
+        description = "Rules for automatic and manual memory behavior. Actual memory data is shown in Sent to model.",
         keys = listOf(
-            DeveloperPromptKey.MEMORY_CONTEXT,
             DeveloperPromptKey.MEMORY_POLICY_AUTO,
             DeveloperPromptKey.MEMORY_POLICY_MANUAL,
-        ),
-    ),
-    DeveloperPromptFamilySpec(
-        id = "generated",
-        title = "Generated content",
-        description = "Charts, diagrams, widgets, files, and generated-content capabilities.",
-        keys = listOf(
-            DeveloperPromptKey.GENERATED_CONTENT,
         ),
     ),
     DeveloperPromptFamilySpec(
@@ -1553,6 +1544,15 @@ private val developerPromptMainFamilies = listOf(
 )
 
 private val developerPromptAdvancedFamilies = listOf(
+    DeveloperPromptFamilySpec(
+        id = "dynamic-data",
+        title = "Dynamic context payloads",
+        description = "Request-generated memory and capability blocks. Their exact current values are easier to inspect under Sent to model.",
+        keys = listOf(
+            DeveloperPromptKey.MEMORY_CONTEXT,
+            DeveloperPromptKey.GENERATED_CONTENT,
+        ),
+    ),
     DeveloperPromptFamilySpec(
         id = "profiles",
         title = "Prompt-profile plumbing",
