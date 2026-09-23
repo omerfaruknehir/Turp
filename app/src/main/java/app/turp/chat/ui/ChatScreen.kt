@@ -1433,7 +1433,9 @@ internal fun unsupportedToolCallingNotice(
     sudoNativeAttempt ->
         "Catalog metadata says this model doesn't support tool calling. " +
             "Sudo will still try real native tool definitions; the provider/API may reject them."
-    else -> "This model doesn't support tool calling. Web, Python, and Linux tools won't run."
+    else ->
+        "Provider/catalog metadata reports tool calling as unsupported for this model. " +
+            "Turp will not send native tool definitions unless Sudo overrides that metadata."
 }
 
 @Composable
