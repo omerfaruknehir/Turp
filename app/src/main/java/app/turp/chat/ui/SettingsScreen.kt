@@ -1675,26 +1675,21 @@ private fun promptCustomizationStatus(
 }
 
 @Composable
-private fun DeveloperPromptComponentEditorPage(
+private fun DeveloperPromptComponentEditorContent(
     key: DeveloperPromptKey,
     contentPadding: PaddingValues,
-    initialTemplate: String,
+    draft: TextFieldValue,
+    onDraftChange: (TextFieldValue) -> Unit,
     builtInTemplate: String,
-    renderedDefault: String?,
     currentVariables: Map<String, String>,
     variableDescriptions: Map<String, String>,
-    hasSavedEdit: Boolean,
-    initiallyDisabled: Boolean,
-    onCancel: () -> Unit,
-    onSave: (String, Boolean) -> Unit,
+    includeLayer: Boolean,
+    onIncludeLayerChange: (Boolean) -> Unit,
+    showVariables: Boolean,
+    onShowVariablesChange: (Boolean) -> Unit,
+    showPreview: Boolean,
+    onShowPreviewChange: (Boolean) -> Unit,
 ) {
-    var draft by remember(key.name, initialTemplate) {
-        mutableStateOf(TextFieldValue(initialTemplate, TextRange(initialTemplate.length)))
-    }
-    var includeLayer by remember(key.name, initiallyDisabled) { mutableStateOf(!initiallyDisabled) }
-    var showVariables by rememberSaveable(key.name) { mutableStateOf(false) }
-    var showPreview by rememberSaveable(key.name) { mutableStateOf(false) }
-
     val usedVariableNames = DeveloperPromptVariables.names(draft.text).toList()
     val availableVariableNames = (
         variableDescriptions.keys +
@@ -1703,16 +1698,17 @@ private fun DeveloperPromptComponentEditorPage(
     val variableNames = usedVariableNames + availableVariableNames
     val renderedPreview = DeveloperPromptVariables.render(draft.text, currentVariables)
     val unresolvedVariables = DeveloperPromptVariables.unresolved(draft.text, currentVariables)
-    val changed = draft.text != initialTemplate || includeLayer != !initiallyDisabled
 
     fun insertVariable(name: String) {
         val token = "{{" + name + "}}"
         val startIndex = draft.selection.min.coerceIn(0, draft.text.length)
         val endIndex = draft.selection.max.coerceIn(startIndex, draft.text.length)
         val updated = draft.text.replaceRange(startIndex, endIndex, token)
-        draft = TextFieldValue(
-            text = updated,
-            selection = TextRange(startIndex + token.length),
+        onDraftChange(
+            TextFieldValue(
+                text = updated,
+                selection = TextRange(startIndex + token.length),
+            ),
         )
     }
 
@@ -1721,116 +1717,101 @@ private fun DeveloperPromptComponentEditorPage(
             .fillMaxSize()
             .imePadding()
             .padding(
-                start = 16.dp,
-                end = 16.dp,
-                top = contentPadding.calculateTopPadding() + 8.dp,
-                bottom = contentPadding.calculateBottomPadding() + 8.dp,
+                top = contentPadding.calculateTopPadding(),
+                bottom = contentPadding.calculateBottomPadding(),
             ),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Row(
-            Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    key.title,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    key.description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                )
-            }
-            Text(
-                if (hasSavedEdit || initiallyDisabled) "Customized" else "Built-in",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-            )
-        }
-
         Row(
             Modifier
                 .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 8.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             AssistChip(
                 onClick = {
-                    draft = TextFieldValue(
-                        builtInTemplate,
-                        TextRange(builtInTemplate.length),
+                    onDraftChange(
+                        TextFieldValue(
+                            builtInTemplate,
+                            TextRange(builtInTemplate.length),
+                        ),
                     )
-                    includeLayer = true
-                    showPreview = false
+                    onIncludeLayerChange(true)
+                    onShowPreviewChange(false)
                 },
                 label = { Text("Restore built-in") },
             )
             if (variableNames.isNotEmpty()) {
                 FilterChip(
                     selected = showVariables,
-                    onClick = { showVariables = !showVariables },
-                    label = { Text("Variables (" + variableNames.size + ")") },
+                    onClick = { onShowVariablesChange(!showVariables) },
+                    label = { Text("Variables") },
                 )
             }
             FilterChip(
                 selected = showPreview,
-                onClick = { showPreview = !showPreview },
+                onClick = { onShowPreviewChange(!showPreview) },
                 label = { Text(if (showPreview) "Edit" else "Preview") },
             )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(start = 2.dp),
+            ) {
+                Text(
+                    if (includeLayer) "Included" else "Excluded",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (includeLayer) {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    } else {
+                        MaterialTheme.colorScheme.error
+                    },
+                )
+                Switch(
+                    checked = includeLayer,
+                    onCheckedChange = onIncludeLayerChange,
+                    modifier = Modifier.padding(start = 6.dp),
+                )
+            }
         }
 
         if (showVariables && variableNames.isNotEmpty()) {
             Surface(
                 color = MaterialTheme.colorScheme.surfaceContainer,
-                shape = MaterialTheme.shapes.large,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 220.dp),
+                    .heightIn(max = 168.dp),
             ) {
                 Column(
                     Modifier
                         .fillMaxWidth()
                         .verticalScroll(rememberScrollState())
-                        .padding(10.dp),
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Text(
-                        if (usedVariableNames.isEmpty()) {
-                            "No variables are used in this prompt yet."
-                        } else {
-                            "Variables used in this prompt"
-                        },
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    usedVariableNames.forEach { name ->
-                        val value = currentVariables[name]
+                    if (usedVariableNames.isNotEmpty()) {
                         Text(
-                            buildString {
-                                append("{{").append(name).append("}}")
-                                append(" = ")
-                                append(
-                                    value
-                                        ?.replace("\n", " ")
-                                        ?.take(150)
-                                        ?.ifBlank { "(empty)" }
-                                        ?: "(no captured value yet)",
-                                )
-                                if ((value?.length ?: 0) > 150) append(" …")
-                            },
-                            style = MaterialTheme.typography.labelSmall,
-                            fontFamily = FontFamily.Monospace,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2,
+                            "Used variables",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
                         )
-                        variableDescriptions[name]?.let { description ->
+                        usedVariableNames.forEach { name ->
+                            val value = currentVariables[name]
                             Text(
-                                description,
+                                buildString {
+                                    append("{{").append(name).append("}}")
+                                    append(" = ")
+                                    append(
+                                        value
+                                            ?.replace("\n", " ")
+                                            ?.take(160)
+                                            ?.ifBlank { "(empty)" }
+                                            ?: "(no captured value yet)",
+                                    )
+                                    if ((value?.length ?: 0) > 160) append(" …")
+                                },
                                 style = MaterialTheme.typography.labelSmall,
+                                fontFamily = FontFamily.Monospace,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 2,
                             )
@@ -1849,11 +1830,11 @@ private fun DeveloperPromptComponentEditorPage(
                                 .horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
-                            variableNames.forEach { name ->
+                            availableVariableNames.forEach { name ->
                                 AssistChip(
                                     onClick = {
                                         insertVariable(name)
-                                        showPreview = false
+                                        onShowPreviewChange(false)
                                     },
                                     label = {
                                         Text(
@@ -1870,37 +1851,29 @@ private fun DeveloperPromptComponentEditorPage(
         }
 
         if (showPreview) {
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceContainer,
-                shape = MaterialTheme.shapes.large,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-            ) {
-                SelectionContainer {
-                    Text(
-                        renderedPreview.ifBlank { "(empty)" },
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(14.dp)
-                            .verticalScroll(rememberScrollState()),
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace,
-                    )
-                }
+            SelectionContainer {
+                Text(
+                    renderedPreview.ifBlank { "(empty)" },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                        .verticalScroll(rememberScrollState()),
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                )
             }
         } else {
             OutlinedTextField(
                 value = draft,
                 onValueChange = { value ->
-                    if (value.text.length <= 128_000) draft = value
+                    if (value.text.length <= 128_000) onDraftChange(value)
                 },
-                label = { Text("Prompt text") },
+                placeholder = { Text("Prompt text") },
                 supportingText = {
                     Text(
                         when {
                             unresolvedVariables.isNotEmpty() ->
-                                "Missing from latest runtime: " +
+                                "No captured value yet: " +
                                     unresolvedVariables.joinToString { "{{" + it + "}}" }
                             currentVariables.isNotEmpty() ->
                                 "Variables preview with the latest captured request."
@@ -1910,60 +1883,12 @@ private fun DeveloperPromptComponentEditorPage(
                     )
                 },
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
+                    .fillMaxSize()
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
                 textStyle = MaterialTheme.typography.bodySmall.copy(
                     fontFamily = FontFamily.Monospace,
                 ),
             )
-        }
-
-        Surface(
-            color = MaterialTheme.colorScheme.surfaceContainer,
-            shape = MaterialTheme.shapes.large,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Row(
-                Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text("Include this layer", fontWeight = FontWeight.Medium)
-                    Text(
-                        if (includeLayer) {
-                            if (renderedDefault != null) "Used when its runtime condition is active."
-                            else "Available when its runtime condition becomes active."
-                        } else {
-                            "Exclude this Turp layer from future requests."
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Switch(
-                    checked = includeLayer,
-                    onCheckedChange = { includeLayer = it },
-                )
-            }
-        }
-
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            OutlinedButton(
-                onClick = onCancel,
-                modifier = Modifier.weight(1f),
-            ) {
-                Text("Cancel")
-            }
-            Button(
-                onClick = { onSave(draft.text, includeLayer) },
-                enabled = changed && (!includeLayer || draft.text.isNotBlank()),
-                modifier = Modifier.weight(1f),
-            ) {
-                Text("Save")
-            }
         }
     }
 }
@@ -2003,6 +1928,29 @@ private fun DeveloperPromptEditorRoutePage(
     } else {
         builtInTemplate
     }
+    var draft by remember(key.name, initialTemplate) {
+        mutableStateOf(TextFieldValue(initialTemplate, TextRange(initialTemplate.length)))
+    }
+    var includeLayer by remember(key.name, promptOverrides.isDisabled(key)) {
+        mutableStateOf(!promptOverrides.isDisabled(key))
+    }
+    var showVariables by rememberSaveable(key.name) { mutableStateOf(false) }
+    var showPreview by rememberSaveable(key.name) { mutableStateOf(false) }
+    val changed =
+        draft.text != initialTemplate ||
+            includeLayer != !promptOverrides.isDisabled(key)
+    val canSave = changed && (!includeLayer || draft.text.isNotBlank())
+
+    fun save() {
+        if (!canSave) return
+        if (draft.text == builtInTemplate) {
+            viewModel.setDeveloperPromptOverride(key, null)
+        } else {
+            viewModel.setDeveloperPromptOverride(key, draft.text)
+        }
+        viewModel.setDeveloperPromptDisabled(key, !includeLayer)
+        viewModel.closeDeveloperPromptEditor()
+    }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -2011,9 +1959,18 @@ private fun DeveloperPromptEditorRoutePage(
             androidx.compose.material3.TopAppBar(
                 title = {
                     Column {
-                        Text("Edit system prompt", fontWeight = FontWeight.SemiBold)
                         Text(
                             key.title,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            if (promptOverrides.hasOverride(key) || promptOverrides.isDisabled(key)) {
+                                "Customized system prompt"
+                            } else {
+                                "Built-in system prompt"
+                            },
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -2025,31 +1982,31 @@ private fun DeveloperPromptEditorRoutePage(
                         Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back")
                     }
                 },
+                actions = {
+                    TextButton(
+                        onClick = ::save,
+                        enabled = canSave,
+                    ) {
+                        Text("Save")
+                    }
+                },
             )
         },
     ) { padding ->
-        DeveloperPromptComponentEditorPage(
+        DeveloperPromptComponentEditorContent(
             key = key,
             contentPadding = padding,
-            initialTemplate = initialTemplate,
+            draft = draft,
+            onDraftChange = { draft = it },
             builtInTemplate = builtInTemplate,
-            renderedDefault = renderedComponent?.defaultText,
             currentVariables = renderedComponent?.variables.orEmpty(),
             variableDescriptions = DeveloperPromptTemplateCatalog.variableDescriptions(key),
-            hasSavedEdit = promptOverrides.hasOverride(key),
-            initiallyDisabled = promptOverrides.isDisabled(key),
-            onCancel = {
-                viewModel.closeDeveloperPromptEditor()
-            },
-            onSave = { value, includeLayer ->
-                if (value == builtInTemplate) {
-                    viewModel.setDeveloperPromptOverride(key, null)
-                } else {
-                    viewModel.setDeveloperPromptOverride(key, value)
-                }
-                viewModel.setDeveloperPromptDisabled(key, !includeLayer)
-                viewModel.closeDeveloperPromptEditor()
-            },
+            includeLayer = includeLayer,
+            onIncludeLayerChange = { includeLayer = it },
+            showVariables = showVariables,
+            onShowVariablesChange = { showVariables = it },
+            showPreview = showPreview,
+            onShowPreviewChange = { showPreview = it },
         )
     }
 }
