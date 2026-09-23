@@ -65,6 +65,30 @@ pick_text_center() {
   pick_node_center "$1" text "$2"
 }
 
+pick_text_prefix_center() {
+  local file="$1"
+  local prefix="$2"
+  python3 - "$file" "$prefix" <<'PY_PREFIX'
+import html
+import re
+import sys
+
+path, prefix = sys.argv[1], sys.argv[2]
+data = open(path, encoding="utf-8", errors="replace").read()
+for tag in re.findall(r"<node\b[^>]*>", data):
+    attrs = dict(re.findall(r'([\w-]+)="([^"]*)"', tag))
+    text = html.unescape(attrs.get("text", ""))
+    if not text.startswith(prefix):
+        continue
+    m = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", attrs.get("bounds", ""))
+    if m:
+        x1, y1, x2, y2 = map(int, m.groups())
+        print((x1 + x2) // 2, (y1 + y2) // 2)
+        raise SystemExit(0)
+raise SystemExit(1)
+PY_PREFIX
+}
+
 pick_desc_center() {
   pick_node_center "$1" content-desc "$2"
 }
@@ -451,6 +475,41 @@ PY2
                 if [[ "$editor_ok" == true ]]; then
                   echo "promptQaEditorUi=PASS" >> "$OUT/qa-summary.txt"
                 fi
+
+                editor_title_xy="$(pick_text_center "$OUT/promptqa-core-editor-ui.xml" "Edit system prompt" 2>/dev/null || true)"
+                editor_save_xy="$(pick_text_center "$OUT/promptqa-core-editor-ui.xml" "Save" 2>/dev/null || true)"
+                if [[ -n "$editor_title_xy" && -n "$editor_save_xy" ]]; then
+                  read -r editor_title_x editor_title_y <<<"$editor_title_xy"
+                  read -r editor_save_x editor_save_y <<<"$editor_save_xy"
+                  if (( editor_title_y < 450 && editor_save_y > 1700 )); then
+                    echo "promptQaEditorFullScreen=PASS titleY=${editor_title_y} saveY=${editor_save_y}" >> "$OUT/qa-summary.txt"
+                  else
+                    record_failure "promptQaEditorFullScreen=FAIL titleY=${editor_title_y} saveY=${editor_save_y}"
+                  fi
+                else
+                  record_failure "promptQaEditorFullScreen=FAIL missing-title-or-save-bounds"
+                fi
+
+                variables_xy="$(pick_text_prefix_center "$OUT/promptqa-core-editor-ui.xml" "Variables (" 2>/dev/null || true)"
+                if [[ -n "$variables_xy" ]]; then
+                  read -r variables_x variables_y <<<"$variables_xy"
+                  adb shell input tap "$variables_x" "$variables_y"
+                  echo "promptQaOpenVariables=PASS coord=${variables_x},${variables_y}" >> "$OUT/qa-summary.txt"
+                  sleep 1
+                  capture_screen promptqa-core-editor-variables
+                  if grep -Fq 'No variables are used in this prompt yet.' "$OUT/promptqa-core-editor-variables-ui.xml" 2>/dev/null &&
+                     grep -Fq 'Insert variable' "$OUT/promptqa-core-editor-variables-ui.xml" 2>/dev/null; then
+                    echo "promptQaVariablesUi=PASS" >> "$OUT/qa-summary.txt"
+                  else
+                    record_failure "promptQaVariablesUi=FAIL expected-variable-controls-missing"
+                  fi
+                  [[ -s "$OUT/promptqa-core-editor-variables.png" ]] &&
+                    echo "promptQaVariablesScreenshot=PASS" >> "$OUT/qa-summary.txt" ||
+                    record_failure "promptQaVariablesScreenshot=FAIL"
+                else
+                  record_failure "promptQaOpenVariables=FAIL variables-chip-not-found"
+                fi
+
                 [[ -s "$OUT/promptqa-core-editor.png" ]] &&
                   echo "promptQaEditorScreenshot=PASS" >> "$OUT/qa-summary.txt" ||
                   record_failure "promptQaEditorScreenshot=FAIL"
