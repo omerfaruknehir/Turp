@@ -250,13 +250,14 @@ fun SettingsScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
             null
         } else when (route) {
             SettingsRoute.HOME -> null
-            SettingsRoute.PROMPT_EDITOR -> SettingsRoute.DEVELOPER
+            SettingsRoute.PROMPT_EDITOR -> SettingsRoute.DEVELOPER_PROMPTS
+            SettingsRoute.DEVELOPER_PROMPTS -> SettingsRoute.DEVELOPER
             SettingsRoute.DEVELOPER, SettingsRoute.LICENSES -> SettingsRoute.ABOUT
             else -> SettingsRoute.HOME
         },
         onBack = { target ->
             if (route == SettingsRoute.PROMPT_EDITOR) {
-                viewModel.closeDeveloperPromptEditor(reopenInspector = true)
+                viewModel.closeDeveloperPromptEditor()
             } else {
                 viewModel.settingsRoute.value = target
             }
@@ -265,7 +266,8 @@ fun SettingsScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
             when (it) {
                 SettingsRoute.HOME -> 0
                 SettingsRoute.DEVELOPER, SettingsRoute.LICENSES -> 2
-                SettingsRoute.PROMPT_EDITOR -> 3
+                SettingsRoute.DEVELOPER_PROMPTS -> 3
+                SettingsRoute.PROMPT_EDITOR -> 4
                 else -> 1
             }
         },
@@ -293,7 +295,9 @@ fun SettingsScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
                             if (setupTemporarilyAway && currentRoute == SettingsRoute.PROVIDERS) {
                                 viewModel.screen.value = Screen.CHAT
                             } else if (currentRoute == SettingsRoute.PROMPT_EDITOR) {
-                                viewModel.closeDeveloperPromptEditor(reopenInspector = true)
+                                viewModel.closeDeveloperPromptEditor()
+                            } else if (currentRoute == SettingsRoute.DEVELOPER_PROMPTS) {
+                                viewModel.settingsRoute.value = SettingsRoute.DEVELOPER
                             } else if (currentRoute == SettingsRoute.DEVELOPER || currentRoute == SettingsRoute.LICENSES) {
                                 viewModel.settingsRoute.value = SettingsRoute.ABOUT
                             } else if (currentRoute != SettingsRoute.HOME) {
@@ -351,6 +355,10 @@ fun SettingsScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
                         SettingsRoute.BACKUP -> BackupSettingsPage(viewModel)
                         SettingsRoute.LOCAL_EXECUTION -> LocalCodeExecutionSettingsPage(defaults, automation, configuredProviders, viewModel)
                         SettingsRoute.DEVELOPER -> DeveloperSettingsPage(developerSettings, developerPromptOverrides, viewModel)
+                        SettingsRoute.DEVELOPER_PROMPTS -> DeveloperPromptInspectorPage(
+                            promptOverrides = developerPromptOverrides,
+                            viewModel = viewModel,
+                        )
                         SettingsRoute.PROMPT_EDITOR -> DeveloperPromptEditorRoutePage(
                             keyName = developerPromptEditorKey,
                             promptOverrides = developerPromptOverrides,
@@ -1929,7 +1937,7 @@ private fun DeveloperPromptEditorRoutePage(
 
     if (key == null) {
         LaunchedEffect(keyName) {
-            viewModel.closeDeveloperPromptEditor(reopenInspector = false)
+            viewModel.closeDeveloperPromptEditor()
         }
         Box(
             Modifier.fillMaxSize(),
@@ -1961,7 +1969,7 @@ private fun DeveloperPromptEditorRoutePage(
         hasSavedEdit = promptOverrides.hasOverride(key),
         initiallyDisabled = promptOverrides.isDisabled(key),
         onCancel = {
-            viewModel.closeDeveloperPromptEditor(reopenInspector = true)
+            viewModel.closeDeveloperPromptEditor()
         },
         onSave = { value, includeLayer ->
             if (value == builtInTemplate) {
@@ -1970,32 +1978,20 @@ private fun DeveloperPromptEditorRoutePage(
                 viewModel.setDeveloperPromptOverride(key, value)
             }
             viewModel.setDeveloperPromptDisabled(key, !includeLayer)
-            viewModel.closeDeveloperPromptEditor(reopenInspector = true)
+            viewModel.closeDeveloperPromptEditor()
         },
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DeveloperPromptInspectorSheet(
+private fun DeveloperPromptInspectorPage(
     promptOverrides: DeveloperPromptOverrides,
-    trace: app.turp.chat.settings.DeveloperPromptTrace?,
-    onDismiss: () -> Unit,
-    onEdit: (DeveloperPromptKey) -> Unit,
-    onCustomizationsEnabledChange: (Boolean) -> Unit,
-    onResetAll: () -> Unit,
+    viewModel: ChatViewModel,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    var modeName by rememberSaveable {
-        mutableStateOf(
-            if (trace?.systemMessages?.isNotEmpty() == true) {
-                PromptInspectorMode.SENT.name
-            } else {
-                PromptInspectorMode.CUSTOMIZE.name
-            },
-        )
-    }
-    var selectedFamilyId by rememberSaveable { mutableStateOf<String?>(null) }
+    val scaffoldPadding = LocalSettingsScaffoldPadding.current
+    val trace by DeveloperPromptTraceStore.latest.collectAsState()
+    var modeName by rememberSaveable { mutableStateOf(PromptInspectorMode.CUSTOMIZE.name) }
+    var expandedFamilyId by rememberSaveable { mutableStateOf<String?>(null) }
     var showAdvanced by rememberSaveable { mutableStateOf(false) }
     var confirmResetAll by rememberSaveable { mutableStateOf(false) }
     var expandedSystemIndex by rememberSaveable { mutableStateOf<Int?>(null) }
@@ -2003,430 +1999,381 @@ private fun DeveloperPromptInspectorSheet(
     val mode = runCatching { PromptInspectorMode.valueOf(modeName) }
         .getOrDefault(PromptInspectorMode.CUSTOMIZE)
     val customizedCount = DeveloperPromptKey.entries.count(promptOverrides::isCustomized)
-    val selectedFamily = developerPromptAllFamilies.firstOrNull { it.id == selectedFamilyId }
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-    ) {
-        Column(
-            Modifier
+    fun toggleFamily(id: String) {
+        expandedFamilyId = if (expandedFamilyId == id) null else id
+    }
+
+    @Composable
+    fun PromptComponentRow(key: DeveloperPromptKey) {
+        val traceComponent = trace?.components?.get(key.id)
+        val preview = (
+            promptOverrides.values[key.id]
+                ?: traceComponent?.defaultText
+                ?: DeveloperPromptTemplateCatalog.spec(key).template
+            )
+            .lineSequence()
+            .firstOrNull { it.isNotBlank() }
+            .orEmpty()
+            .take(180)
+
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
+            shape = MaterialTheme.shapes.large,
+            modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.94f)
-                .padding(horizontal = 18.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                .clickable { viewModel.openDeveloperPromptEditor(key) },
         ) {
-            if (selectedFamily == null) {
-                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text(
-                        "System context",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        "Inspect exactly what Turp sent, or customize the prompt sources Turp controls.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    FilterChip(
-                        selected = mode == PromptInspectorMode.SENT,
-                        onClick = { modeName = PromptInspectorMode.SENT.name },
-                        label = { Text("Sent to model") },
-                        modifier = Modifier.weight(1f),
-                    )
-                    FilterChip(
-                        selected = mode == PromptInspectorMode.CUSTOMIZE,
-                        onClick = { modeName = PromptInspectorMode.CUSTOMIZE.name },
-                        label = { Text("Customize") },
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-            } else {
+            Column(
+                Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
                 Row(
                     Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    IconButton(onClick = { selectedFamilyId = null }) {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back")
-                    }
+                    Text(
+                        key.title,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        promptCustomizationStatus(key, promptOverrides),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (promptOverrides.isCustomized(key)) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                    Icon(Icons.Outlined.ChevronRight, null)
+                }
+                Text(
+                    key.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                )
+                if (preview.isNotBlank()) {
+                    Text(
+                        preview,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                    )
+                }
+                if (traceComponent != null) {
+                    Text(
+                        "Used in latest captured request",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+        }
+    }
+
+    @Composable
+    fun PromptFamily(family: DeveloperPromptFamilySpec) {
+        val expanded = expandedFamilyId == family.id
+        val changed = family.keys.count(promptOverrides::isCustomized)
+
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceContainer,
+            shape = MaterialTheme.shapes.extraLarge,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable { toggleFamily(family.id) }
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     Column(Modifier.weight(1f)) {
+                        Text(family.title, fontWeight = FontWeight.SemiBold)
                         Text(
-                            selectedFamily.title,
-                            style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Text(
-                            selectedFamily.description,
+                            family.description,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        Text(
+                            family.keys.size.toString() + " component" +
+                                if (family.keys.size == 1) "" else "s" +
+                                if (changed > 0) " · " + changed + " customized" else "",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (changed > 0) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+                    }
+                    Icon(
+                        if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                        null,
+                    )
+                }
+
+                if (expanded) {
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = .55f),
+                    )
+                    Column(
+                        Modifier.padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        family.keys.forEach { key -> PromptComponentRow(key) }
                     }
                 }
             }
+        }
+    }
 
-            if (selectedFamily != null) {
-                Column(
-                    Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    selectedFamily.keys.forEach { key ->
-                        val traceComponent = trace?.components?.get(key.id)
-                        val preview = (
-                            promptOverrides.values[key.id]
-                                ?: traceComponent?.defaultText
-                                ?: DeveloperPromptTemplateCatalog.spec(key).template
+    Column(
+        Modifier
+            .fillMaxSize()
+            .padding(
+                start = 16.dp,
+                end = 16.dp,
+                top = scaffoldPadding.calculateTopPadding() + 12.dp,
+                bottom = scaffoldPadding.calculateBottomPadding() + 12.dp,
+            ),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            FilterChip(
+                selected = mode == PromptInspectorMode.CUSTOMIZE,
+                onClick = { modeName = PromptInspectorMode.CUSTOMIZE.name },
+                label = { Text("Components") },
+                modifier = Modifier.weight(1f),
+            )
+            FilterChip(
+                selected = mode == PromptInspectorMode.SENT,
+                onClick = { modeName = PromptInspectorMode.SENT.name },
+                label = { Text("Sent to model") },
+                modifier = Modifier.weight(1f),
+            )
+        }
+
+        Text(
+            if (mode == PromptInspectorMode.CUSTOMIZE) {
+                "Edit the Turp-controlled prompt sources. Saved changes apply immediately."
+            } else {
+                "Exact ordered Turp-generated system messages captured at the provider boundary."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        if (mode == PromptInspectorMode.SENT) {
+            Column(
+                Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                val captured = trace
+                if (captured == null || captured.systemMessages.isEmpty()) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceContainer,
+                        shape = MaterialTheme.shapes.extraLarge,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(
+                            Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(5.dp),
+                        ) {
+                            Text("No captured request yet", fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "Send a message first. Turp captures the system messages immediately before the provider request.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                            .lineSequence()
-                            .firstOrNull { it.isNotBlank() }
-                            .orEmpty()
-                            .take(180)
+                        }
+                    }
+                } else {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceContainer,
+                        shape = MaterialTheme.shapes.extraLarge,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(
+                            Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Text(
+                                buildString {
+                                    append(captured.providerId.ifBlank { "provider" })
+                                    if (captured.modelId.isNotBlank()) append(" / ").append(captured.modelId)
+                                    if (captured.protocol.isNotBlank()) append(" · ").append(captured.protocol)
+                                    if (captured.profile.isNotBlank()) append(" · ").append(captured.profile)
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = FontFamily.Monospace,
+                            )
+                            Text(
+                                "Captured " + DateFormat.getDateTimeInstance().format(Date(captured.capturedAt)),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+
+                    captured.systemMessages.forEachIndexed { index, value ->
+                        val expanded = expandedSystemIndex == index
                         Surface(
                             color = MaterialTheme.colorScheme.surfaceContainer,
-                            shape = MaterialTheme.shapes.large,
+                            shape = MaterialTheme.shapes.extraLarge,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { onEdit(key) },
+                                .clickable {
+                                    expandedSystemIndex = if (expanded) null else index
+                                },
                         ) {
                             Column(
                                 Modifier.padding(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
                             ) {
                                 Row(
                                     Modifier.fillMaxWidth(),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     Text(
-                                        key.title,
-                                        fontWeight = FontWeight.Medium,
+                                        "SYSTEM " + (index + 1),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.SemiBold,
                                         modifier = Modifier.weight(1f),
                                     )
                                     Text(
-                                        promptCustomizationStatus(key, promptOverrides),
+                                        value.length.toString() + " chars",
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = if (promptOverrides.isCustomized(key)) {
-                                            MaterialTheme.colorScheme.primary
-                                        } else {
-                                            MaterialTheme.colorScheme.onSurfaceVariant
-                                        },
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
-                                    Icon(Icons.Outlined.ChevronRight, null)
                                 }
-                                Text(
-                                    key.description,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                                if (preview.isNotBlank()) {
+                                SelectionContainer {
                                     Text(
-                                        preview,
-                                        style = MaterialTheme.typography.labelSmall,
+                                        value.ifBlank { "(empty)" },
+                                        style = MaterialTheme.typography.bodySmall,
                                         fontFamily = FontFamily.Monospace,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 3,
+                                        maxLines = if (expanded) Int.MAX_VALUE else 10,
                                     )
                                 }
-                                if (traceComponent != null) {
-                                    Text(
-                                        "Used in latest captured request",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.primary,
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-                Spacer(Modifier.navigationBarsPadding())
-            } else if (mode == PromptInspectorMode.SENT) {
-                Column(
-                    Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    if (trace == null || trace.systemMessages.isEmpty()) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.surfaceContainer,
-                            shape = MaterialTheme.shapes.large,
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Column(
-                                Modifier.padding(14.dp),
-                                verticalArrangement = Arrangement.spacedBy(5.dp),
-                            ) {
-                                Text("No captured request yet", fontWeight = FontWeight.SemiBold)
                                 Text(
-                                    "Send a message first. Turp will show the exact ordered system messages captured at the provider boundary.",
-                                    style = MaterialTheme.typography.bodySmall,
+                                    if (expanded) "Tap to collapse" else "Tap to expand",
+                                    style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                    } else {
-                        Text(
-                            buildString {
-                                append(trace.providerId.ifBlank { "provider" })
-                                if (trace.modelId.isNotBlank()) append(" / ").append(trace.modelId)
-                                if (trace.protocol.isNotBlank()) append(" · ").append(trace.protocol)
-                                if (trace.profile.isNotBlank()) append(" · ").append(trace.profile)
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            fontFamily = FontFamily.Monospace,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Text(
-                            "Captured " + DateFormat.getDateTimeInstance().format(Date(trace.capturedAt)),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        trace.systemMessages.forEachIndexed { index, value ->
-                            val expanded = expandedSystemIndex == index
-                            Surface(
-                                color = MaterialTheme.colorScheme.surfaceContainer,
-                                shape = MaterialTheme.shapes.large,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        expandedSystemIndex = if (expanded) null else index
-                                    },
-                            ) {
-                                Column(
-                                    Modifier.padding(12.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                                ) {
-                                    Row(
-                                        Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                    ) {
-                                        Text(
-                                            "SYSTEM " + (index + 1),
-                                            style = MaterialTheme.typography.labelMedium,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            fontWeight = FontWeight.SemiBold,
-                                            modifier = Modifier.weight(1f),
-                                        )
-                                        Text(
-                                            value.length.toString() + " chars",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
-                                    SelectionContainer {
-                                        Text(
-                                            value.ifBlank { "(empty)" },
-                                            style = MaterialTheme.typography.bodySmall,
-                                            fontFamily = FontFamily.Monospace,
-                                            maxLines = if (expanded) Int.MAX_VALUE else 8,
-                                        )
-                                    }
-                                    Text(
-                                        if (expanded) "Tap card to collapse" else "Tap card to expand",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-                Spacer(Modifier.navigationBarsPadding())
-            } else {
-                Column(
-                    Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    if (customizedCount > 0) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.surfaceContainer,
-                            shape = MaterialTheme.shapes.large,
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Row(
-                                Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Column(Modifier.weight(1f)) {
-                                    Text("Use saved customizations", fontWeight = FontWeight.Medium)
-                                    Text(
-                                        if (promptOverrides.enabled) {
-                                            customizedCount.toString() + " customized layer" +
-                                                if (customizedCount == 1) " is active." else "s are active."
-                                        } else {
-                                            "Temporarily paused; built-in prompts are being used."
-                                        },
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                                Switch(
-                                    checked = promptOverrides.enabled,
-                                    onCheckedChange = onCustomizationsEnabledChange,
                                 )
                             }
                         }
                     }
 
                     Text(
-                        "Main prompts",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
+                        "Provider-owned upstream instructions that Turp never receives are not shown here and cannot be edited by Turp.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    developerPromptMainFamilies.forEach { family ->
-                        val changed = family.keys.count(promptOverrides::isCustomized)
-                        Surface(
-                            color = MaterialTheme.colorScheme.surfaceContainer,
-                            shape = MaterialTheme.shapes.large,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { selectedFamilyId = family.id },
-                        ) {
-                            Row(
-                                Modifier.padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Column(Modifier.weight(1f)) {
-                                    Text(family.title, fontWeight = FontWeight.Medium)
-                                    Text(
-                                        family.description,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                    Text(
-                                        family.keys.size.toString() + " layer" +
-                                            if (family.keys.size == 1) "" else "s" +
-                                            if (changed > 0) " · " + changed + " customized" else "",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = if (changed > 0) {
-                                            MaterialTheme.colorScheme.primary
-                                        } else {
-                                            MaterialTheme.colorScheme.onSurfaceVariant
-                                        },
-                                    )
-                                }
-                                Icon(Icons.Outlined.ChevronRight, null)
-                            }
-                        }
-                    }
+                }
+            }
+        } else {
+            Column(
+                Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                if (customizedCount > 0) {
+                    Text(
+                        customizedCount.toString() + " active customization" +
+                            if (customizedCount == 1) "" else "s",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
 
-                    OutlinedButton(
-                        onClick = { showAdvanced = !showAdvanced },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(
-                            if (showAdvanced) {
-                                "Hide advanced internals"
-                            } else {
-                                "Advanced internals (" +
-                                    developerPromptAdvancedFamilies.sumOf { it.keys.size } + ")"
-                            },
-                        )
-                    }
+                developerPromptMainFamilies.forEach { family -> PromptFamily(family) }
 
-                    if (showAdvanced) {
-                        Text(
-                            "These are low-level wrappers, provider repairs, continuation state, and auxiliary-model prompts. They remain editable, but most users should not need them.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        developerPromptAdvancedFamilies.forEach { family ->
-                            val changed = family.keys.count(promptOverrides::isCustomized)
-                            Surface(
-                                color = MaterialTheme.colorScheme.surfaceContainer,
-                                shape = MaterialTheme.shapes.large,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { selectedFamilyId = family.id },
-                            ) {
-                                Row(
-                                    Modifier.padding(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Column(Modifier.weight(1f)) {
-                                        Text(family.title, fontWeight = FontWeight.Medium)
-                                        Text(
-                                            family.description,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                        if (changed > 0) {
-                                            Text(
-                                                changed.toString() + " customized",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.primary,
-                                            )
-                                        }
-                                    }
-                                    Icon(Icons.Outlined.ChevronRight, null)
-                                }
-                            }
-                        }
-                    }
-
-                    if (customizedCount > 0) {
-                        if (!confirmResetAll) {
-                            TextButton(
-                                onClick = { confirmResetAll = true },
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Text("Reset all customizations")
-                            }
+                OutlinedButton(
+                    onClick = { showAdvanced = !showAdvanced },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        if (showAdvanced) {
+                            "Hide advanced internals"
                         } else {
-                            Surface(
-                                color = MaterialTheme.colorScheme.errorContainer,
-                                shape = MaterialTheme.shapes.large,
-                                modifier = Modifier.fillMaxWidth(),
+                            "Show advanced internals (" +
+                                developerPromptAdvancedFamilies.sumOf { it.keys.size } + ")"
+                        },
+                    )
+                }
+
+                if (showAdvanced) {
+                    Text(
+                        "Low-level wrappers, provider repairs, continuation state, dynamic payloads, and auxiliary-model prompts.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    developerPromptAdvancedFamilies.forEach { family -> PromptFamily(family) }
+                }
+
+                if (customizedCount > 0) {
+                    if (!confirmResetAll) {
+                        TextButton(
+                            onClick = { confirmResetAll = true },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("Reset all customizations")
+                        }
+                    } else {
+                        Surface(
+                            color = MaterialTheme.colorScheme.errorContainer,
+                            shape = MaterialTheme.shapes.extraLarge,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(
+                                Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-                                Column(
-                                    Modifier.padding(12.dp),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                Text(
+                                    "Reset all prompt customizations?",
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                Text(
+                                    "Every saved edit and excluded component will return to the built-in Turp prompt.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                                Row(
+                                    Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 ) {
-                                    Text(
-                                        "Reset all prompt customizations?",
-                                        fontWeight = FontWeight.SemiBold,
-                                    )
-                                    Text(
-                                        "All saved prompt edits and excluded layers will return to Turp defaults.",
-                                        style = MaterialTheme.typography.bodySmall,
-                                    )
-                                    Row(
-                                        Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    OutlinedButton(
+                                        onClick = { confirmResetAll = false },
+                                        modifier = Modifier.weight(1f),
                                     ) {
-                                        OutlinedButton(
-                                            onClick = { confirmResetAll = false },
-                                            modifier = Modifier.weight(1f),
-                                        ) {
-                                            Text("Cancel")
-                                        }
-                                        Button(
-                                            onClick = {
-                                                onResetAll()
-                                                confirmResetAll = false
-                                            },
-                                            modifier = Modifier.weight(1f),
-                                        ) {
-                                            Text("Reset")
-                                        }
+                                        Text("Cancel")
+                                    }
+                                    Button(
+                                        onClick = {
+                                            viewModel.resetDeveloperPromptOverrides()
+                                            confirmResetAll = false
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                    ) {
+                                        Text("Reset")
                                     }
                                 }
                             }
                         }
                     }
                 }
-                Spacer(Modifier.navigationBarsPadding())
             }
         }
     }
@@ -2543,90 +2490,36 @@ private fun DeveloperSettingsPage(
 
     HorizontalDivider()
     SectionTitle(
-        "System context",
-        "Inspect what Turp actually sends and customize Turp-controlled prompt sources.",
+        "System prompts",
+        "Inspect exactly what Turp sends and edit Turp-controlled prompt components.",
     )
     val latestPromptTrace by DeveloperPromptTraceStore.latest.collectAsState()
-    val promptInspectorRequested by viewModel.developerPromptInspectorRequested.collectAsState()
-    var promptInspectorOpen by rememberSaveable { mutableStateOf(false) }
     val customizedPromptCount = DeveloperPromptKey.entries.count(promptOverrides::isCustomized)
-
-    LaunchedEffect(promptInspectorRequested) {
-        if (promptInspectorRequested) {
-            promptInspectorOpen = true
-            viewModel.consumeDeveloperPromptInspectorRequest()
-        }
-    }
-
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        shape = MaterialTheme.shapes.extraLarge,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column {
-            Row(
-                Modifier.padding(14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text("Prompt inspector", fontWeight = FontWeight.SemiBold)
-                    Text(
-                        when {
-                            latestPromptTrace?.systemMessages?.isNotEmpty() == true ->
-                                "Last request: " +
-                                    latestPromptTrace?.systemMessages?.size +
-                                    " system message" +
-                                    if (latestPromptTrace?.systemMessages?.size == 1) "" else "s"
-                            else -> "No provider-boundary request captured yet"
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    if (customizedPromptCount > 0) {
-                        Text(
-                            customizedPromptCount.toString() + " saved customization" +
-                                if (customizedPromptCount == 1) "" else "s" +
-                                if (promptOverrides.enabled) " · active" else " · paused",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                }
-                Icon(Icons.Outlined.ChevronRight, null)
+    SettingsDestination(
+        icon = Icons.Outlined.Edit,
+        title = "Open system prompts",
+        subtitle = buildString {
+            if (customizedPromptCount > 0) {
+                append(customizedPromptCount)
+                append(" customization")
+                if (customizedPromptCount != 1) append("s")
+            } else {
+                append("Built-in prompts")
             }
-            HorizontalDivider(
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = .55f),
-            )
-            FilledTonalButton(
-                onClick = { promptInspectorOpen = true },
-                enabled = settings.enabled,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(10.dp),
-            ) {
-                Text("Open system context")
+            latestPromptTrace?.systemMessages?.size?.let { count ->
+                append(" · last request ")
+                append(count)
+                append(" system message")
+                if (count != 1) append("s")
             }
-        }
-    }
+        },
+        onClick = viewModel::openDeveloperPrompts,
+    )
     Text(
-        "The Sent to model view is the exact Turp-generated provider-boundary context. Provider-owned upstream instructions that Turp never receives are outside Turp's control.",
+        "This page contains Turp-controlled prompt sources and the exact provider-boundary system messages. Provider-owned upstream prompts that Turp never receives are not editable.",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
-
-    if (promptInspectorOpen) {
-        DeveloperPromptInspectorSheet(
-            promptOverrides = promptOverrides,
-            trace = latestPromptTrace,
-            onDismiss = { promptInspectorOpen = false },
-            onEdit = { key ->
-                promptInspectorOpen = false
-                viewModel.openDeveloperPromptEditor(key)
-            },
-            onCustomizationsEnabledChange = viewModel::setDeveloperPromptOverridesEnabled,
-            onResetAll = viewModel::resetDeveloperPromptOverrides,
-        )
-    }
 
     HorizontalDivider()
     SectionTitle(
