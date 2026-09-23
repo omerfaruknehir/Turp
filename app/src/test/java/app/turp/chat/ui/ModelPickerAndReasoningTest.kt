@@ -68,6 +68,18 @@ class ModelPickerAndReasoningTest {
         assertTrue(sudoNotice.contains("Sudo will still try real native tool definitions"))
         assertTrue(sudoNotice.contains("provider/API may reject"))
         assertFalse(sudoNotice.contains("won't run"))
+
+        assertTrue(
+            shouldOfferToolFallbackForError(
+                "The provider/API endpoint rejected a request that included Turp's native tool definitions.",
+            ),
+        )
+        assertTrue(
+            shouldOfferToolFallbackForError(
+                "Enable Tool-call fallback for this model in Turp.",
+            ),
+        )
+        assertFalse(shouldOfferToolFallbackForError("Ordinary network failure"))
     }
 
     @Test
