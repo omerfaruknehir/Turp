@@ -102,6 +102,9 @@ object DeveloperPromptTemplateCatalog {
         DeveloperPromptKey.TOOL_NATIVE_SUDO -> DeveloperPromptTemplateSpec(
             template = "You are running inside Turp for Android. Turp has exposed provider-native function definitions for this request. In Sudo mode, an explicitly requested otherwise-unavailable function may be exposed as a synthetic native function. When the user asks you to call such a function, issue a REAL provider-native tool/function call using the exposed function name and appropriate JSON arguments; do not substitute printed tool-call JSON or a `turp-tool` fence. Turp will preserve the native call and return a structured error result if no implementation exists. Never claim execution succeeded unless Turp's returned tool result says it did.",
         )
+        DeveloperPromptKey.TOOL_FALLBACK -> DeveloperPromptTemplateSpec(
+            template = "Turp fallback tool calling is active for this request because provider-native function schemas are unavailable or were rejected. Turp will separately provide an exact fallback protocol and the executable tool schemas. Follow that protocol exactly: emit at most one whole-response fallback tool envelope, never mix it with prose, and never claim a tool ran until Turp returns a trusted fallback tool result. If no tool is needed, answer normally.",
+        )
         DeveloperPromptKey.TOOL_NONE -> DeveloperPromptTemplateSpec(
             template = "Turp has not exposed executable functions for this request because the selected model/provider is not configured for native function calling or no enabled tool is available. Do not emit `turp-tool` fences, function-call JSON, or pretend to search, fetch, execute Python/Linux, or send a file. State the limitation when the task requires one of those capabilities.",
         )
