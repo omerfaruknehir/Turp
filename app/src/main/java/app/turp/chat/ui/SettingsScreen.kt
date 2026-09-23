@@ -2023,22 +2023,31 @@ private fun DeveloperPromptManagerSheet(
     }
 
     if (confirmResetAll) {
-        Surface(
-            color = MaterialTheme.colorScheme.errorContainer,
-            shape = MaterialTheme.shapes.large,
-            modifier = Modifier.fillMaxWidth(),
+        ModalBottomSheet(
+            onDismissRequest = { confirmResetAll = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         ) {
             Column(
-                Modifier.padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 18.dp)
+                    .navigationBarsPadding(),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text("Reset all prompt customizations?", fontWeight = FontWeight.SemiBold)
+                Text(
+                    "Reset all prompt customizations?",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
                 Text(
                     "This removes every saved prompt edit and disabled-component setting. Built-in Turp prompts are not changed.",
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodyMedium,
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedButton(
                         onClick = { confirmResetAll = false },
                         modifier = Modifier.weight(1f),
                     ) {
@@ -2356,13 +2365,6 @@ private fun DeveloperSettingsPage(
     }
     editingPromptKey?.let { key ->
         val renderedComponent = latestPromptTrace?.components?.get(key.id)
-        val builtInText = renderedComponent?.defaultText
-            ?: if (key == DeveloperPromptKey.CORE_PROMPT) DEFAULT_TURP_SYSTEM_PROMPT else null
-        val initialText = when {
-            builtInText != null -> promptOverrides.editorText(key, builtInText)
-            promptOverrides.hasOverride(key) -> promptOverrides.editorText(key, "")
-            else -> ""
-        }
         val builtInTemplate = DeveloperPromptTemplateCatalog.spec(key).template
         val renderedDefault = renderedComponent?.defaultText
         val currentVariables = renderedComponent?.variables.orEmpty()
