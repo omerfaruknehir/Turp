@@ -13,6 +13,8 @@ import app.turp.chat.provider.ProviderCredentialPolicy
 import app.turp.chat.provider.parseHeaders
 import app.turp.chat.security.SecureStore
 import app.turp.chat.settings.DeveloperPromptKey
+import app.turp.chat.settings.DeveloperPromptTemplateCatalog
+import app.turp.chat.settings.DeveloperPromptTraceStore
 import app.turp.chat.settings.AppPreferences
 import app.turp.chat.sandbox.PackageAction
 import app.turp.chat.sandbox.PackagePlan
@@ -228,9 +230,42 @@ class AuxiliaryModelService(
         var outputTokens = 0L
         var cachedTokens = 0L
         val promptOverrides = appPreferences.developerPromptOverrides.value
+        val baseVariables = mapOf(
+            "conversation_id" to conversationId,
+            "provider_id" to provider.id,
+            "model_id" to model.id,
+        )
+        val systemVariables = DeveloperPromptTemplateCatalog.runtimeVariables(
+            systemKey,
+            system,
+            baseVariables,
+        )
+        val resolvedLayer = promptOverrides.resolve(systemKey, system, systemVariables)
+        DeveloperPromptTraceStore.recordComponent(
+            conversationId = conversationId,
+            key = systemKey,
+            sourceTemplate = DeveloperPromptTemplateCatalog.spec(systemKey).template,
+            defaultText = system,
+            effectiveText = resolvedLayer,
+            variables = systemVariables,
+        )
+        val finalVariables = DeveloperPromptTemplateCatalog.runtimeVariables(
+            DeveloperPromptKey.FINAL_SYSTEM_MESSAGE,
+            resolvedLayer,
+            baseVariables,
+        )
         val resolvedSystem = promptOverrides.resolve(
             DeveloperPromptKey.FINAL_SYSTEM_MESSAGE,
-            promptOverrides.resolve(systemKey, system),
+            resolvedLayer,
+            finalVariables,
+        )
+        DeveloperPromptTraceStore.recordComponent(
+            conversationId = conversationId,
+            key = DeveloperPromptKey.FINAL_SYSTEM_MESSAGE,
+            sourceTemplate = DeveloperPromptTemplateCatalog.spec(DeveloperPromptKey.FINAL_SYSTEM_MESSAGE).template,
+            defaultText = resolvedLayer,
+            effectiveText = resolvedSystem,
+            variables = finalVariables,
         )
         val request = ChatRequest(
             provider = provider,
