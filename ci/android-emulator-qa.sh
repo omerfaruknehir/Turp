@@ -112,6 +112,68 @@ tap_provider_cta() {
   done
   record_failure "tapProviderCta=FAIL no-provider-cta-node"
   return 1
+
+}
+
+scroll_until_text() {
+  local prefix="$1"
+  local ui="$2"
+  local target="$3"
+  local max_attempts="${4:-10}"
+  local safe_y="${5:-2200}"
+  local attempt xy x y scroll_xy sx sy ex ey capture_name
+
+  SCROLL_FOUND_UI="$ui"
+  SCROLL_FOUND_X=""
+  SCROLL_FOUND_Y=""
+
+  for ((attempt=0; attempt<=max_attempts; attempt++)); do
+    xy="$(pick_text_center "$ui" "$target" 2>/dev/null || true)"
+    if [[ -n "$xy" ]]; then
+      read -r x y <<<"$xy"
+      if (( y <= safe_y )); then
+        SCROLL_FOUND_UI="$ui"
+        SCROLL_FOUND_X="$x"
+        SCROLL_FOUND_Y="$y"
+        echo "scrollUntilText=PASS target=${target} attempt=${attempt} coord=${x},${y}" >> "$OUT/qa-summary.txt"
+        return 0
+      fi
+    fi
+
+    (( attempt == max_attempts )) && break
+
+    scroll_xy="$(python3 - "$ui" <<'PY_SCROLL'
+import re, sys
+data = open(sys.argv[1], encoding='utf-8', errors='replace').read()
+for tag in re.findall(r'<node\b[^>]*>', data):
+    if 'scrollable="true"' not in tag:
+        continue
+    m = re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', tag)
+    if not m:
+        continue
+    x1, y1, x2, y2 = map(int, m.groups())
+    x = (x1 + x2) // 2
+    print(x, y1 + (y2-y1)*3//4, x, y1 + (y2-y1)//4)
+    raise SystemExit(0)
+raise SystemExit(1)
+PY_SCROLL
+    )" || true
+    if [[ -z "$scroll_xy" ]]; then
+      echo "scrollUntilText=FAIL target=${target} reason=no-scrollable-node attempt=${attempt}" >> "$OUT/qa-summary.txt"
+      return 1
+    fi
+
+    read -r sx sy ex ey <<<"$scroll_xy"
+    adb shell input swipe "$sx" "$sy" "$ex" "$ey" 350
+    capture_name="${prefix}-${attempt}"
+    sleep 1
+    capture_screen "$capture_name"
+    dismiss_quickstep_anr "$capture_name" || true
+    ui="$OUT/${capture_name}-ui.xml"
+  done
+
+  echo "scrollUntilText=FAIL target=${target} reason=not-visible" >> "$OUT/qa-summary.txt"
+  return 1
 }
 
 dismiss_quickstep_anr() {
@@ -316,6 +378,93 @@ PY2
         || record_failure "searchScreenshot=FAIL"
     else
       record_failure "openSearchSettings=FAIL safe-visible-search-row-not-found"
+    fi
+
+    # Targeted Developer System Prompt QA. The generic Settings smoke path used
+    # to stop before this feature, so prompt-manager/editor regressions could
+    # pass CI without ever rendering these screens.
+    if [[ "$search_ready" == true ]]; then
+      adb shell input keyevent 4
+      sleep 2
+      capture_screen promptqa-settings-home
+
+      if scroll_until_text \
+          "promptqa-settings-home-scroll" \
+          "$OUT/promptqa-settings-home-ui.xml" \
+          "About Turp" \
+          12; then
+        adb shell input tap "$SCROLL_FOUND_X" "$SCROLL_FOUND_Y"
+        echo "promptQaOpenAbout=PASS coord=${SCROLL_FOUND_X},${SCROLL_FOUND_Y}" >> "$OUT/qa-summary.txt"
+        sleep 2
+        capture_screen promptqa-about
+
+        if scroll_until_text \
+            "promptqa-about-scroll" \
+            "$OUT/promptqa-about-ui.xml" \
+            "Developer options" \
+            12; then
+          adb shell input tap "$SCROLL_FOUND_X" "$SCROLL_FOUND_Y"
+          echo "promptQaOpenDeveloper=PASS coord=${SCROLL_FOUND_X},${SCROLL_FOUND_Y}" >> "$OUT/qa-summary.txt"
+          sleep 2
+          capture_screen promptqa-developer
+
+          if scroll_until_text \
+              "promptqa-developer-scroll" \
+              "$OUT/promptqa-developer-ui.xml" \
+              "Open system prompts" \
+              12; then
+            adb shell input tap "$SCROLL_FOUND_X" "$SCROLL_FOUND_Y"
+            echo "promptQaOpenSystemPrompts=PASS coord=${SCROLL_FOUND_X},${SCROLL_FOUND_Y}" >> "$OUT/qa-summary.txt"
+            sleep 2
+            capture_screen promptqa-system-prompts
+
+            if grep -Fq 'Components' "$OUT/promptqa-system-prompts-ui.xml" 2>/dev/null &&
+               grep -Fq 'Sent to model' "$OUT/promptqa-system-prompts-ui.xml" 2>/dev/null &&
+               grep -Fq 'Core behavior' "$OUT/promptqa-system-prompts-ui.xml" 2>/dev/null; then
+              echo "promptQaManagerUi=PASS" >> "$OUT/qa-summary.txt"
+            else
+              record_failure "promptQaManagerUi=FAIL expected-system-prompt-controls-missing"
+            fi
+
+            if tap_text "$OUT/promptqa-system-prompts-ui.xml" "Core behavior" "promptQaExpandCore"; then
+              sleep 1
+              capture_screen promptqa-core-expanded
+
+              if tap_text "$OUT/promptqa-core-expanded-ui.xml" "Core Turp prompt" "promptQaOpenCoreEditor"; then
+                sleep 2
+                capture_screen promptqa-core-editor
+
+                editor_ok=true
+                for expected in \
+                    "Core Turp prompt" \
+                    "Prompt text" \
+                    "Restore built-in" \
+                    "Preview" \
+                    "Include this layer" \
+                    "Cancel" \
+                    "Save"; do
+                  if ! grep -Fq "$expected" "$OUT/promptqa-core-editor-ui.xml" 2>/dev/null; then
+                    record_failure "promptQaEditorUi=FAIL missing=${expected}"
+                    editor_ok=false
+                  fi
+                done
+                if [[ "$editor_ok" == true ]]; then
+                  echo "promptQaEditorUi=PASS" >> "$OUT/qa-summary.txt"
+                fi
+                [[ -s "$OUT/promptqa-core-editor.png" ]] &&
+                  echo "promptQaEditorScreenshot=PASS" >> "$OUT/qa-summary.txt" ||
+                  record_failure "promptQaEditorScreenshot=FAIL"
+              fi
+            fi
+          else
+            record_failure "promptQaOpenSystemPrompts=FAIL row-not-found"
+          fi
+        else
+          record_failure "promptQaOpenDeveloper=FAIL row-not-found"
+        fi
+      else
+        record_failure "promptQaOpenAbout=FAIL row-not-found"
+      fi
     fi
   fi
 fi
