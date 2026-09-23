@@ -273,6 +273,12 @@ object DeveloperPromptTemplateCatalog {
         runtimeValue: String,
         variables: Map<String, String>,
     ): String {
+        // The owning runtime path decides whether an optional component is
+        // active. Empty means inactive and must stay empty; the catalog must
+        // never turn a disabled feature back on merely because it has a
+        // non-empty source template.
+        if (runtimeValue.isBlank()) return runtimeValue
+
         val promptSpec = spec(key)
         val sourceVariables = buildMap {
             putAll(variables)
