@@ -67,10 +67,13 @@ data class ToolCallFallbackSettings(
     val disabledModelKeys: Set<String> = emptySet(),
 ) {
     fun overrideFor(providerId: String, modelId: String): ModelToolFallbackOverride {
-        val key = modelPreferenceKey(providerId, modelId)
+        val key = toolFallbackModelKey(providerId, modelId)
+        val interimKey = modelPreferenceKey(providerId, modelId)
         return when {
-            key in enabledModelKeys -> ModelToolFallbackOverride.ENABLED
-            key in disabledModelKeys -> ModelToolFallbackOverride.DISABLED
+            key in enabledModelKeys || interimKey in enabledModelKeys ->
+                ModelToolFallbackOverride.ENABLED
+            key in disabledModelKeys || interimKey in disabledModelKeys ->
+                ModelToolFallbackOverride.DISABLED
             else -> ModelToolFallbackOverride.INHERIT
         }
     }
@@ -377,12 +380,15 @@ class AppPreferences(context: Context) {
         modelId: String,
         override: ModelToolFallbackOverride,
     ) {
-        val key = modelPreferenceKey(providerId, modelId)
+        val key = toolFallbackModelKey(providerId, modelId)
+        val interimKey = modelPreferenceKey(providerId, modelId)
         val current = _toolCallFallbackSettings.value
         val enabledModels = current.enabledModelKeys.toMutableSet().apply {
+            remove(interimKey)
             if (override == ModelToolFallbackOverride.ENABLED) add(key) else remove(key)
         }.toSet()
         val disabledModels = current.disabledModelKeys.toMutableSet().apply {
+            remove(interimKey)
             if (override == ModelToolFallbackOverride.DISABLED) add(key) else remove(key)
         }.toSet()
         _toolCallFallbackSettings.value = current.copy(
@@ -681,3 +687,5 @@ class AppPreferences(context: Context) {
 }
 
 fun modelPreferenceKey(providerId: String, modelId: String): String = "$providerId::$modelId"
+
+fun toolFallbackModelKey(providerId: String, modelId: String): String = providerId + "\u0000" + modelId
