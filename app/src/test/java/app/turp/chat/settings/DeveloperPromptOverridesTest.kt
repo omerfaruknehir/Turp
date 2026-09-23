@@ -59,47 +59,66 @@ class DeveloperPromptOverridesTest {
     }
 
     @Test
-    fun everyRegisteredLayerIsReachableFromDeveloperEditor() {
+    fun promptInspectorUsesSentAndFamilyBasedCustomizeViews() {
         val settings = File("src/main/java/app/turp/chat/ui/SettingsScreen.kt").readText()
-        assertTrue(settings.contains("val filtered = DeveloperPromptKey.entries.filter"))
-        assertTrue(settings.contains("setDeveloperPromptOverride"))
-        assertTrue(settings.contains("resetDeveloperPromptOverrides"))
-        assertTrue(settings.contains("\"Manage prompts\""))
-        assertTrue(settings.contains("\"Search prompts\""))
-        assertTrue(settings.contains("\"Customized only\""))
-        assertTrue(settings.contains("\"Use built-in template\""))
-        assertTrue(settings.contains("\"Component enabled\""))
-        assertTrue(settings.contains("\"Variables · tap to insert\""))
-        assertTrue(settings.contains("\"Rendered preview\""))
-        assertTrue(settings.contains("\"Current variable values\""))
-        assertTrue(settings.contains("\"Reset component\""))
-        assertTrue(settings.contains("\"Reset all prompt customizations?\""))
-        assertTrue(settings.contains("\"Disabled · edit saved\""))
-        assertTrue(settings.contains("\"Effective system context\""))
+
+        assertTrue(settings.contains("\"Sent to model\""))
+        assertTrue(settings.contains("\"Customize\""))
+        assertTrue(settings.contains("\"Main prompts\""))
+        assertTrue(settings.contains("\"Advanced internals (\""))
+        assertTrue(settings.contains("\"Prompt inspector\""))
+        assertTrue(settings.contains("\"Open system context\""))
+        assertTrue(settings.contains("DeveloperPromptInspectorSheet"))
         assertTrue(settings.contains("DeveloperPromptComponentEditorSheet"))
-        assertFalse(settings.contains("DeveloperPromptComponentEditorDialog"))
-        assertTrue(settings.contains("DeveloperPromptGroup.entries.forEach"))
+        assertTrue(settings.contains("\"Restore built-in\""))
+        assertTrue(settings.contains("\"Include this layer\""))
+        assertTrue(settings.contains("\"Variables (\""))
+        assertTrue(settings.contains("\"Preview\""))
+
+        assertFalse(settings.contains("DeveloperPromptManagerSheet"))
+        assertFalse(settings.contains("DeveloperPromptContextSheet"))
+        assertFalse(settings.contains("\"Effective context\""))
+        assertFalse(settings.contains("\"Search prompts\""))
+        assertFalse(settings.contains("\"Customized only\""))
         assertFalse(settings.contains("promptMenuExpanded"))
         assertFalse(settings.contains("DEVELOPER_PROMPT_DEFAULT_TOKEN"))
+    }
 
-        val required = setOf(
-            DeveloperPromptKey.CORE_PROMPT,
-            DeveloperPromptKey.RUNTIME_CONTEXT,
-            DeveloperPromptKey.TOOL_NATIVE_SUDO,
-            DeveloperPromptKey.DEEP_RESEARCH,
-            DeveloperPromptKey.MEMORY_CONTEXT,
-            DeveloperPromptKey.GENERATED_CONTENT,
-            DeveloperPromptKey.SUDO_LAYER,
-            DeveloperPromptKey.WORKING_CONTEXT,
-            DeveloperPromptKey.RESEARCH_INITIAL,
-            DeveloperPromptKey.RESEARCH_FINAL,
-            DeveloperPromptKey.DEEPSEEK_TOOL_GUARD,
-            DeveloperPromptKey.AUX_TITLE,
-            DeveloperPromptKey.AUX_COMPRESSION,
-            DeveloperPromptKey.FINAL_SYSTEM_MESSAGE,
-        )
-        assertTrue(DeveloperPromptKey.entries.containsAll(required))
-        assertFalse(DeveloperPromptKey.entries.any { it.id.isBlank() || it.title.isBlank() })
+    @Test
+    fun everyRegisteredPromptKeyIsAssignedToExactlyOneInspectorFamily() {
+        val settings = File("src/main/java/app/turp/chat/ui/SettingsScreen.kt").readText()
+
+        DeveloperPromptKey.entries.forEach { key ->
+            val needle = "DeveloperPromptKey.${key.name}"
+            val familySection = settings.substring(
+                settings.indexOf("private val developerPromptMainFamilies"),
+                settings.indexOf("private fun promptCustomizationStatus"),
+            )
+            assertEquals(
+                "Expected exactly one family assignment for ${key.name}",
+                1,
+                Regex(Regex.escape(needle)).findAll(familySection).count(),
+            )
+        }
+    }
+
+    @Test
+    fun primaryCustomizeViewKeepsInternalPayloadsOutOfMainFamilies() {
+        val settings = File("src/main/java/app/turp/chat/ui/SettingsScreen.kt").readText()
+        val mainStart = settings.indexOf("private val developerPromptMainFamilies")
+        val advancedStart = settings.indexOf("private val developerPromptAdvancedFamilies")
+        val main = settings.substring(mainStart, advancedStart)
+        val advanced = settings.substring(advancedStart, settings.indexOf("private val developerPromptAllFamilies"))
+
+        assertFalse(main.contains("DeveloperPromptKey.MEMORY_CONTEXT"))
+        assertFalse(main.contains("DeveloperPromptKey.GENERATED_CONTENT"))
+        assertTrue(advanced.contains("DeveloperPromptKey.MEMORY_CONTEXT"))
+        assertTrue(advanced.contains("DeveloperPromptKey.GENERATED_CONTENT"))
+        assertTrue(main.contains("DeveloperPromptKey.CORE_PROMPT"))
+        assertTrue(main.contains("DeveloperPromptKey.RUNTIME_CONTEXT"))
+        assertTrue(main.contains("DeveloperPromptKey.TOOL_NATIVE"))
+        assertTrue(main.contains("DeveloperPromptKey.DEEP_RESEARCH"))
+        assertTrue(main.contains("DeveloperPromptKey.SUDO_LAYER"))
     }
 
     @Test
@@ -109,6 +128,8 @@ class DeveloperPromptOverridesTest {
 
         assertTrue(prefs.contains("KEY_DEVELOPER_PROMPT_DISABLED_IDS"))
         assertTrue(prefs.contains("fun setDeveloperPromptDisabled"))
+        assertTrue(prefs.contains("shouldEnable = value != null"))
+        assertTrue(prefs.contains("if (disabled) putBoolean(KEY_DEVELOPER_PROMPT_OVERRIDES_ENABLED, true)"))
         assertTrue(prefs.contains("fun resetDeveloperPromptCustomization"))
         assertTrue(prefs.contains("legacyDisabled"))
         assertTrue(viewModel.contains("fun setDeveloperPromptDisabled"))
@@ -121,6 +142,19 @@ class DeveloperPromptOverridesTest {
             val spec = DeveloperPromptTemplateCatalog.spec(key)
             assertTrue("Template missing for ${key.id}", spec.template.isNotBlank())
         }
+    }
+
+    @Test
+    fun primaryDynamicPromptsExposeMeaningfulSourceTemplates() {
+        val research = DeveloperPromptTemplateCatalog.spec(DeveloperPromptKey.DEEP_RESEARCH).template
+        val sudo = DeveloperPromptTemplateCatalog.spec(DeveloperPromptKey.SUDO_LAYER).template
+        val style = DeveloperPromptTemplateCatalog.spec(DeveloperPromptKey.RESPONSE_STYLE).template
+
+        assertTrue(research.contains("Deep Research mode is active"))
+        assertFalse(research.trim() == "{{deep_research_instructions}}")
+        assertTrue(sudo.contains("Turp Sudo mode is active"))
+        assertTrue(sudo.contains("{{sudo_user_instruction}}"))
+        assertTrue(style.contains("Less emoji is enabled"))
     }
 
     @Test
