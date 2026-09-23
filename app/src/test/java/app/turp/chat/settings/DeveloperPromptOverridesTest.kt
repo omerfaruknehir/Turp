@@ -67,12 +67,17 @@ class DeveloperPromptOverridesTest {
         assertTrue(settings.contains("\"Manage prompts\""))
         assertTrue(settings.contains("\"Search prompts\""))
         assertTrue(settings.contains("\"Customized only\""))
-        assertTrue(settings.contains("\"Use built-in\""))
+        assertTrue(settings.contains("\"Use built-in template\""))
         assertTrue(settings.contains("\"Component enabled\""))
+        assertTrue(settings.contains("\"Variables · tap to insert\""))
+        assertTrue(settings.contains("\"Rendered preview\""))
+        assertTrue(settings.contains("\"Current variable values\""))
         assertTrue(settings.contains("\"Reset component\""))
         assertTrue(settings.contains("\"Reset all prompt customizations?\""))
         assertTrue(settings.contains("\"Disabled · edit saved\""))
         assertTrue(settings.contains("\"Effective system context\""))
+        assertTrue(settings.contains("DeveloperPromptComponentEditorSheet"))
+        assertFalse(settings.contains("DeveloperPromptComponentEditorDialog"))
         assertTrue(settings.contains("DeveloperPromptGroup.entries.forEach"))
         assertFalse(settings.contains("promptMenuExpanded"))
         assertFalse(settings.contains("DEVELOPER_PROMPT_DEFAULT_TOKEN"))
@@ -111,6 +116,53 @@ class DeveloperPromptOverridesTest {
     }
 
     @Test
+    fun everyPromptHasNonEmptySourceTemplate() {
+        DeveloperPromptKey.entries.forEach { key ->
+            val spec = DeveloperPromptTemplateCatalog.spec(key)
+            assertTrue("Template missing for ${key.id}", spec.template.isNotBlank())
+        }
+    }
+
+    @Test
+    fun namedVariablesRenderAndUnknownVariablesArePreserved() {
+        val template = "version={{app_version}} missing={{not_available}}"
+        assertEquals(
+            "version=0.25.1 missing={{not_available}}",
+            DeveloperPromptVariables.render(template, mapOf("app_version" to "0.25.1")),
+        )
+        assertEquals(
+            setOf("app_version", "not_available"),
+            DeveloperPromptVariables.names(template),
+        )
+        assertEquals(
+            setOf("not_available"),
+            DeveloperPromptVariables.unresolved(template, mapOf("app_version" to "0.25.1")),
+        )
+    }
+
+    @Test
+    fun savedPromptTemplatesResolveRuntimeVariables() {
+        val edits = DeveloperPromptOverrides(
+            enabled = true,
+            values = mapOf(
+                DeveloperPromptKey.RUNTIME_CONTEXT.id to
+                    "Turp {{app_version}} · {{timezone}} · {{unknown_variable}}",
+            ),
+        )
+        assertEquals(
+            "Turp 0.25.1 · Europe/Istanbul · {{unknown_variable}}",
+            edits.resolve(
+                DeveloperPromptKey.RUNTIME_CONTEXT,
+                "built-in",
+                mapOf(
+                    "app_version" to "0.25.1",
+                    "timezone" to "Europe/Istanbul",
+                ),
+            ),
+        )
+    }
+
+    @Test
     fun directEditorExpandsLegacyTemplatesIntoConcreteText() {
         val edits = DeveloperPromptOverrides(
             enabled = true,
@@ -137,6 +189,8 @@ class DeveloperPromptOverridesTest {
         assertTrue(traceStore.contains("fun recordProviderContext(request: ChatRequest, protocol: String)"))
         assertTrue(traceStore.contains("stage = \"PROVIDER_BOUNDARY\""))
         assertTrue(traceStore.contains("data class DeveloperPromptComponentTrace"))
+        assertTrue(traceStore.contains("val sourceTemplate: String"))
+        assertTrue(traceStore.contains("val variables: Map<String, String>"))
         assertTrue(traceStore.contains("fun recordComponent("))
         assertTrue(httpStore.contains("DeveloperPromptTraceStore.recordProviderContext(request, protocol)"))
         assertTrue(worker.contains("developerPromptTraceEnabled = developerSettings.enabled"))
