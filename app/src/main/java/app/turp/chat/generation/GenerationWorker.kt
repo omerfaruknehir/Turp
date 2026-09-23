@@ -267,16 +267,23 @@ class GenerationWorker(
         val latestUserText = newest.firstOrNull {
             it.role == MessageRole.USER && it.content.isNotBlank()
         }?.content.orEmpty()
-        val regularNativeToolDefinitions = if (model.supportsTools && !directImageModel) {
+        val forceNativeToolAttempt = sudoModeActive && !directImageModel
+        val regularNativeToolDefinitions = if (
+            !directImageModel && (model.supportsTools || forceNativeToolAttempt)
+        ) {
             TurpNativeTools.definitions(conversation, memoryEnabled = automationSettings.memoryEnabled)
                 .filterNot { tool ->
                     !webSearchSettings.pageFetchEnabled && tool.name.equals("web_fetch", ignoreCase = true)
                 }
         } else emptyList()
-        // Sudo is a developer override: if the user explicitly asks for an unknown
-        // native function, offer that synthetic schema even when catalog metadata
-        // says the model does not support tools. The provider may still reject
-        // the request, but Turp must not suppress the native call attempt itself.
+        // Catalog/provider metadata is only a capability hint. In Sudo mode Turp
+        // deliberately attempts real native definitions even when that metadata
+        // says tools are unsupported. The endpoint may still reject the schema;
+        // that is transport compatibility evidence, not proof that the model
+        // itself is incapable of native tool calling.
+        // If the user explicitly asks for an unknown native function, also offer
+        // a synthetic schema so an unimplemented call can be preserved as a real
+        // provider-native call and returned to the model as a structured error.
         val sudoSyntheticToolDefinitions = if (sudoModeActive && !directImageModel) {
             TurpNativeTools.sudoSyntheticDefinitions(
                 latestUserText = latestUserText,
@@ -1040,9 +1047,15 @@ class GenerationWorker(
                     )
                     if (!passReceived && !nativeToolsDisabled && nativeToolDefinitions.isNotEmpty() && error.status in setOf(400, 404, 422, 501)) {
                         throw ProviderProtocolException(
-                            "The selected provider/model rejected Turp's native tool definitions. " +
-                                "Disable Tools for this model or correct its native function-calling compatibility; " +
-                                "Turp will not fall back to text-encoded tool commands.",
+                            "The provider/API endpoint rejected Turp's native tool definitions. " +
+                                "This does not prove the underlying model is incapable of tool calling. " +
+                                if (sudoModeActive && !model.supportsTools) {
+                                    "Sudo ignored the catalog's supportsTools=false hint and made the native attempt anyway. "
+                                } else {
+                                    ""
+                                } +
+                                "Use an endpoint that accepts native function schemas or disable Turp tools for this request. " +
+                                "Turp will not fall back to text-encoded fake tool commands.",
                             error,
                         )
                     }
