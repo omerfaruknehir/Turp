@@ -77,6 +77,8 @@ class DeveloperPromptOverridesTest {
         assertTrue(settings.contains("\"Include this layer\""))
         assertTrue(settings.contains("\"Variables (\""))
         assertTrue(settings.contains("\"Preview\""))
+        assertTrue(settings.contains("val usedVariableNames = DeveloperPromptVariables.names(draft.text).toList()"))
+        assertTrue(settings.contains(".heightIn(max = 220.dp)"))
         assertTrue(viewModel.contains("fun openDeveloperPrompts()"))
         assertTrue(viewModel.contains("openSettingsRoute(SettingsRoute.DEVELOPER_PROMPTS)"))
         assertTrue(viewModel.contains("fun closeDeveloperPromptEditor()"))
@@ -88,6 +90,19 @@ class DeveloperPromptOverridesTest {
         assertFalse(settings.contains("\"Use saved customizations\""))
         assertFalse(settings.contains("\"Open system context\""))
         assertFalse(settings.contains("DEVELOPER_PROMPT_DEFAULT_TOKEN"))
+    }
+
+    @Test
+    fun emulatorQaActuallyOpensFullScreenPromptEditor() {
+        val qa = File("ci/android-emulator-qa.sh").readText()
+
+        assertTrue(qa.contains("promptQaOpenSystemPrompts=PASS"))
+        assertTrue(qa.contains("promptQaExpandCore"))
+        assertTrue(qa.contains("promptQaOpenCoreEditor"))
+        assertTrue(qa.contains("promptQaEditorUi=PASS"))
+        assertTrue(qa.contains("promptqa-core-editor.png"))
+        assertTrue(qa.contains("\"Prompt text\""))
+        assertTrue(qa.contains("\"Include this layer\""))
     }
 
     @Test
@@ -134,13 +149,16 @@ class DeveloperPromptOverridesTest {
 
         assertTrue(prefs.contains("KEY_DEVELOPER_PROMPT_DISABLED_IDS"))
         assertTrue(prefs.contains("fun setDeveloperPromptDisabled"))
-        assertTrue(prefs.contains("shouldEnable = value != null"))
+        assertTrue(prefs.contains("val active = updatedValues.isNotEmpty() || current.disabledIds.isNotEmpty()"))
+        assertTrue(prefs.contains("val active = current.values.isNotEmpty() || updatedDisabled.isNotEmpty()"))
         assertTrue(prefs.contains("val active = values.isNotEmpty() || disabled.isNotEmpty()"))
         assertTrue(prefs.contains("putBoolean(KEY_DEVELOPER_PROMPT_OVERRIDES_ENABLED, false)"))
         assertTrue(prefs.contains("fun resetDeveloperPromptCustomization"))
         assertTrue(prefs.contains("legacyDisabled"))
+        assertFalse(prefs.contains("fun setDeveloperPromptOverridesEnabled"))
         assertTrue(viewModel.contains("fun setDeveloperPromptDisabled"))
         assertTrue(viewModel.contains("fun resetDeveloperPromptCustomization"))
+        assertFalse(viewModel.contains("fun setDeveloperPromptOverridesEnabled"))
     }
 
     @Test
