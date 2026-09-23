@@ -423,8 +423,10 @@ class AppPreferences(context: Context) {
         preferences.edit {
             keys.forEach(::remove)
             remove(KEY_DEVELOPER_PROMPT_DISABLED_IDS)
+            putBoolean(KEY_DEVELOPER_PROMPT_OVERRIDES_ENABLED, false)
         }
         _developerPromptOverrides.value = _developerPromptOverrides.value.copy(
+            enabled = false,
             values = emptyMap(),
             disabledIds = emptySet(),
         )
@@ -487,9 +489,14 @@ class AppPreferences(context: Context) {
             .getStringSet(KEY_DEVELOPER_PROMPT_DISABLED_IDS, emptySet())
             .orEmpty()
             .toSet() + legacyDisabled
+        val values = rawValues.filterValues(String::isNotEmpty)
+        val active = values.isNotEmpty() || disabled.isNotEmpty()
+        if (preferences.getBoolean(KEY_DEVELOPER_PROMPT_OVERRIDES_ENABLED, false) != active) {
+            preferences.edit { putBoolean(KEY_DEVELOPER_PROMPT_OVERRIDES_ENABLED, active) }
+        }
         return DeveloperPromptOverrides(
-            enabled = preferences.getBoolean(KEY_DEVELOPER_PROMPT_OVERRIDES_ENABLED, false),
-            values = rawValues.filterValues(String::isNotEmpty),
+            enabled = active,
+            values = values,
             disabledIds = disabled,
         )
     }
