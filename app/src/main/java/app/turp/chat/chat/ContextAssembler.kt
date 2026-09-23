@@ -126,12 +126,17 @@ class ContextAssembler(
                 defaultValue = defaultValue,
                 extras = basePromptVariables + extraVariables,
             )
-            val effective = developerPromptOverrides.resolve(key, defaultValue, variables)
+            val builtIn = DeveloperPromptTemplateCatalog.builtInText(
+                key = key,
+                runtimeValue = defaultValue,
+                variables = variables,
+            )
+            val effective = developerPromptOverrides.resolve(key, builtIn, variables)
             promptComponents[key.id] = DeveloperPromptComponentTrace(
                 key = key.id,
                 title = key.title,
                 sourceTemplate = DeveloperPromptTemplateCatalog.spec(key).template,
-                defaultText = defaultValue,
+                defaultText = builtIn,
                 effectiveText = effective,
                 variables = variables,
             )
