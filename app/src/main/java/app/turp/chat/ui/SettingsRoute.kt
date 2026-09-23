@@ -17,6 +17,7 @@ enum class SettingsRoute(
     BACKUP(R.string.settings_backup_transfer),
     LOCAL_EXECUTION(R.string.settings_local_execution),
     DEVELOPER(R.string.settings_developer),
+    PROMPT_EDITOR(R.string.settings_prompt_editor),
     SYSTEM_PROMPTS(R.string.settings_custom_instructions),
     PROVIDERS(R.string.settings_providers_models),
     ABOUT(R.string.settings_about_turp),
