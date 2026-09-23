@@ -377,10 +377,15 @@ class AppPreferences(context: Context) {
         val updatedValues = current.values.toMutableMap().apply {
             if (value == null) remove(key.id) else put(key.id, value)
         }.toMap()
-        _developerPromptOverrides.value = current.copy(values = updatedValues)
+        val shouldEnable = value != null || current.disabledIds.isNotEmpty()
+        _developerPromptOverrides.value = current.copy(
+            enabled = current.enabled || shouldEnable,
+            values = updatedValues,
+        )
         preferences.edit {
             val storageKey = KEY_DEVELOPER_PROMPT_OVERRIDE_PREFIX + key.id
             if (value == null) remove(storageKey) else putString(storageKey, value)
+            if (shouldEnable) putBoolean(KEY_DEVELOPER_PROMPT_OVERRIDES_ENABLED, true)
         }
     }
 
@@ -389,8 +394,14 @@ class AppPreferences(context: Context) {
         val updatedDisabled = current.disabledIds.toMutableSet().apply {
             if (disabled) add(key.id) else remove(key.id)
         }.toSet()
-        _developerPromptOverrides.value = current.copy(disabledIds = updatedDisabled)
-        preferences.edit { putStringSet(KEY_DEVELOPER_PROMPT_DISABLED_IDS, updatedDisabled) }
+        _developerPromptOverrides.value = current.copy(
+            enabled = current.enabled || disabled,
+            disabledIds = updatedDisabled,
+        )
+        preferences.edit {
+            putStringSet(KEY_DEVELOPER_PROMPT_DISABLED_IDS, updatedDisabled)
+            if (disabled) putBoolean(KEY_DEVELOPER_PROMPT_OVERRIDES_ENABLED, true)
+        }
     }
 
     fun resetDeveloperPromptCustomization(key: DeveloperPromptKey) {
