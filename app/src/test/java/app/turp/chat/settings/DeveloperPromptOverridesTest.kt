@@ -286,7 +286,7 @@ class DeveloperPromptOverridesTest {
         assertTrue(worker.contains("developerPromptTraceEnabled = developerSettings.enabled"))
         assertTrue(traceStore.contains("val modelId: String"))
         assertTrue(settings.contains("\"Sent to model\""))
-        assertTrue(settings.contains("provider-boundary context"))
+        assertTrue(settings.contains("captured at the provider boundary"))
         assertTrue(settings.contains("Provider-owned upstream instructions"))
     }
 
