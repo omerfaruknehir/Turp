@@ -94,7 +94,7 @@ object FallbackToolCallProtocol {
             appendLine("<turp-tool-result>")
             appendLine(payload.toString())
             appendLine("</turp-tool-result>")
-            append("Continue the task using this result. If another tool is needed, emit exactly one new <turp-tool-call> envelope.")
+            append("Continue the task using this result. If another tool is needed, use exactly one new fallback tool call as described by the system instruction.")
         }
     }
 
