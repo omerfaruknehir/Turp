@@ -240,12 +240,17 @@ class AuxiliaryModelService(
             system,
             baseVariables,
         )
-        val resolvedLayer = promptOverrides.resolve(systemKey, system, systemVariables)
+        val builtInLayer = DeveloperPromptTemplateCatalog.builtInText(
+            key = systemKey,
+            runtimeValue = system,
+            variables = systemVariables,
+        )
+        val resolvedLayer = promptOverrides.resolve(systemKey, builtInLayer, systemVariables)
         DeveloperPromptTraceStore.recordComponent(
             conversationId = conversationId,
             key = systemKey,
             sourceTemplate = DeveloperPromptTemplateCatalog.spec(systemKey).template,
-            defaultText = system,
+            defaultText = builtInLayer,
             effectiveText = resolvedLayer,
             variables = systemVariables,
         )
@@ -254,16 +259,21 @@ class AuxiliaryModelService(
             resolvedLayer,
             baseVariables,
         )
+        val builtInFinal = DeveloperPromptTemplateCatalog.builtInText(
+            key = DeveloperPromptKey.FINAL_SYSTEM_MESSAGE,
+            runtimeValue = resolvedLayer,
+            variables = finalVariables,
+        )
         val resolvedSystem = promptOverrides.resolve(
             DeveloperPromptKey.FINAL_SYSTEM_MESSAGE,
-            resolvedLayer,
+            builtInFinal,
             finalVariables,
         )
         DeveloperPromptTraceStore.recordComponent(
             conversationId = conversationId,
             key = DeveloperPromptKey.FINAL_SYSTEM_MESSAGE,
             sourceTemplate = DeveloperPromptTemplateCatalog.spec(DeveloperPromptKey.FINAL_SYSTEM_MESSAGE).template,
-            defaultText = resolvedLayer,
+            defaultText = builtInFinal,
             effectiveText = resolvedSystem,
             variables = finalVariables,
         )
