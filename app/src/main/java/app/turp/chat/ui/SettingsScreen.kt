@@ -276,10 +276,17 @@ fun SettingsScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
         modifier = Modifier.fillMaxSize(),
         label = "SettingsPageNavigation",
     ) { currentRoute ->
-        val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
-        val blurState = rememberTurpBackdropBlurState()
+        if (currentRoute == SettingsRoute.PROMPT_EDITOR) {
+            DeveloperPromptEditorRoutePage(
+                keyName = developerPromptEditorKey,
+                promptOverrides = developerPromptOverrides,
+                viewModel = viewModel,
+            )
+        } else {
+            val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
+            val blurState = rememberTurpBackdropBlurState()
 
-        Scaffold(
+            Scaffold(
             modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
             contentWindowInsets = WindowInsets(0),
             topBar = {
@@ -361,11 +368,7 @@ fun SettingsScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
                             promptOverrides = developerPromptOverrides,
                             viewModel = viewModel,
                         )
-                        SettingsRoute.PROMPT_EDITOR -> DeveloperPromptEditorRoutePage(
-                            keyName = developerPromptEditorKey,
-                            promptOverrides = developerPromptOverrides,
-                            viewModel = viewModel,
-                        )
+                        SettingsRoute.PROMPT_EDITOR -> Unit
                         SettingsRoute.SYSTEM_PROMPTS -> SystemPromptProfilesPage(promptProfiles, defaults.systemPromptProfileId, viewModel)
                         SettingsRoute.PROVIDERS -> ProviderSettings(
                             providers = providers,
@@ -389,6 +392,7 @@ fun SettingsScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
                     }
                 }
             }
+        }
         }
     }
 }
@@ -1534,10 +1538,11 @@ private val developerPromptMainFamilies = listOf(
     DeveloperPromptFamilySpec(
         id = "tools",
         title = "Native tools",
-        description = "The four tool-availability/Sudo variants Turp chooses between for a request.",
+        description = "Native, fallback, unavailable, and Sudo tool policies Turp chooses between for a request.",
         keys = listOf(
             DeveloperPromptKey.TOOL_NATIVE,
             DeveloperPromptKey.TOOL_NATIVE_SUDO,
+            DeveloperPromptKey.TOOL_FALLBACK,
             DeveloperPromptKey.TOOL_NONE,
             DeveloperPromptKey.TOOL_NONE_SUDO,
         ),
@@ -1672,6 +1677,7 @@ private fun promptCustomizationStatus(
 @Composable
 private fun DeveloperPromptComponentEditorPage(
     key: DeveloperPromptKey,
+    contentPadding: PaddingValues,
     initialTemplate: String,
     builtInTemplate: String,
     renderedDefault: String?,
@@ -1682,7 +1688,6 @@ private fun DeveloperPromptComponentEditorPage(
     onCancel: () -> Unit,
     onSave: (String, Boolean) -> Unit,
 ) {
-    val scaffoldPadding = LocalSettingsScaffoldPadding.current
     var draft by remember(key.name, initialTemplate) {
         mutableStateOf(TextFieldValue(initialTemplate, TextRange(initialTemplate.length)))
     }
@@ -1718,8 +1723,8 @@ private fun DeveloperPromptComponentEditorPage(
             .padding(
                 start = 16.dp,
                 end = 16.dp,
-                top = scaffoldPadding.calculateTopPadding() + 12.dp,
-                bottom = scaffoldPadding.calculateBottomPadding() + 12.dp,
+                top = contentPadding.calculateTopPadding() + 8.dp,
+                bottom = contentPadding.calculateBottomPadding() + 8.dp,
             ),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -1963,6 +1968,7 @@ private fun DeveloperPromptComponentEditorPage(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DeveloperPromptEditorRoutePage(
     keyName: String?,
@@ -1998,28 +2004,54 @@ private fun DeveloperPromptEditorRoutePage(
         builtInTemplate
     }
 
-    DeveloperPromptComponentEditorPage(
-        key = key,
-        initialTemplate = initialTemplate,
-        builtInTemplate = builtInTemplate,
-        renderedDefault = renderedComponent?.defaultText,
-        currentVariables = renderedComponent?.variables.orEmpty(),
-        variableDescriptions = DeveloperPromptTemplateCatalog.variableDescriptions(key),
-        hasSavedEdit = promptOverrides.hasOverride(key),
-        initiallyDisabled = promptOverrides.isDisabled(key),
-        onCancel = {
-            viewModel.closeDeveloperPromptEditor()
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        contentWindowInsets = WindowInsets(0),
+        topBar = {
+            androidx.compose.material3.TopAppBar(
+                title = {
+                    Column {
+                        Text("Edit system prompt", fontWeight = FontWeight.SemiBold)
+                        Text(
+                            key.title,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                        )
+                    }
+                },
+                navigationIcon = {
+                    IconButton(onClick = viewModel::closeDeveloperPromptEditor) {
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back")
+                    }
+                },
+            )
         },
-        onSave = { value, includeLayer ->
-            if (value == builtInTemplate) {
-                viewModel.setDeveloperPromptOverride(key, null)
-            } else {
-                viewModel.setDeveloperPromptOverride(key, value)
-            }
-            viewModel.setDeveloperPromptDisabled(key, !includeLayer)
-            viewModel.closeDeveloperPromptEditor()
-        },
-    )
+    ) { padding ->
+        DeveloperPromptComponentEditorPage(
+            key = key,
+            contentPadding = padding,
+            initialTemplate = initialTemplate,
+            builtInTemplate = builtInTemplate,
+            renderedDefault = renderedComponent?.defaultText,
+            currentVariables = renderedComponent?.variables.orEmpty(),
+            variableDescriptions = DeveloperPromptTemplateCatalog.variableDescriptions(key),
+            hasSavedEdit = promptOverrides.hasOverride(key),
+            initiallyDisabled = promptOverrides.isDisabled(key),
+            onCancel = {
+                viewModel.closeDeveloperPromptEditor()
+            },
+            onSave = { value, includeLayer ->
+                if (value == builtInTemplate) {
+                    viewModel.setDeveloperPromptOverride(key, null)
+                } else {
+                    viewModel.setDeveloperPromptOverride(key, value)
+                }
+                viewModel.setDeveloperPromptDisabled(key, !includeLayer)
+                viewModel.closeDeveloperPromptEditor()
+            },
+        )
+    }
 }
 
 @Composable
