@@ -22,6 +22,17 @@ class FallbackToolCallingRegressionTest {
     }
 
     @Test
+    fun runtimeNativeToolRejectionOffersEnableAndRetry() {
+        val chat = File("src/main/java/app/turp/chat/ui/ChatScreen.kt").readText()
+
+        assertTrue(chat.contains("fun shouldOfferToolFallbackForError"))
+        assertTrue(chat.contains("\"Enable fallback & retry\""))
+        assertTrue(chat.contains("viewModel.enableToolCallFallbackForModel("))
+        assertTrue(chat.contains("viewModel.retryMessage(message)"))
+        assertTrue(chat.contains("\"Enable fallback for this model\""))
+    }
+
+    @Test
     fun fallbackUsesExistingTurpExecutorInsteadOfASecondExecutor() {
         val worker = File("src/main/java/app/turp/chat/generation/GenerationWorker.kt").readText()
 
