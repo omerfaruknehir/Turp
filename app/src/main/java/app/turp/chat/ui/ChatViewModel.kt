@@ -62,6 +62,7 @@ import app.turp.chat.sandbox.ScriptRunResult
 import app.turp.chat.sandbox.WorkspaceReadResult
 import app.turp.chat.agent.AgentToolRequest
 import app.turp.chat.settings.NewChatDefaults
+import app.turp.chat.settings.ModelToolFallbackOverride
 import app.turp.chat.settings.LauncherIconManager
 import app.turp.chat.settings.PersistentUiStateStore
 import app.turp.chat.transfer.ArchiveOptions
@@ -216,6 +217,7 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
     val developerSettings: StateFlow<app.turp.chat.settings.DeveloperSettings> = container.appPreferences.developerSettings
     val developerPromptOverrides: StateFlow<app.turp.chat.settings.DeveloperPromptOverrides> =
         container.appPreferences.developerPromptOverrides
+    val toolCallFallbackSettings = container.appPreferences.toolCallFallbackSettings
     val developerHttpTraces = DeveloperHttpTraceStore.traces
     val palette = container.appPreferences.palette
     val themeMode = container.appPreferences.themeMode
@@ -1515,6 +1517,18 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
     fun setGeneratedRepairMaxAttempts(value: Int) = container.appPreferences.setGeneratedRepairMaxAttempts(value)
     fun updateDeveloperSettings(transform: (app.turp.chat.settings.DeveloperSettings) -> app.turp.chat.settings.DeveloperSettings) =
         container.appPreferences.updateDeveloperSettings(transform)
+
+    fun setToolCallFallbackEnabledByDefault(enabled: Boolean) =
+        container.appPreferences.setToolCallFallbackEnabledByDefault(enabled)
+
+    fun setModelToolFallbackOverride(
+        providerId: String,
+        modelId: String,
+        override: ModelToolFallbackOverride,
+    ) = container.appPreferences.setModelToolFallbackOverride(providerId, modelId, override)
+
+    fun enableToolCallFallbackForModel(providerId: String, modelId: String) =
+        setModelToolFallbackOverride(providerId, modelId, ModelToolFallbackOverride.ENABLED)
 
     fun setDeveloperPromptOverride(key: app.turp.chat.settings.DeveloperPromptKey, value: String?) =
         container.appPreferences.setDeveloperPromptOverride(key, value)
