@@ -41,6 +41,7 @@ import app.turp.chat.provider.ProviderProtocolException
 import app.turp.chat.provider.StreamChunk
 import app.turp.chat.sandbox.ExecutionProgress
 import app.turp.chat.settings.DeveloperPromptKey
+import app.turp.chat.settings.DeveloperPromptTemplateCatalog
 import app.turp.chat.settings.DeveloperPromptTraceStore
 import app.turp.chat.provider.parseHeaders
 import kotlinx.coroutines.CancellationException
@@ -214,22 +215,39 @@ class GenerationWorker(
         val webSearchSettings = container.appPreferences.webSearchSettings.value.normalized()
         val developerPromptOverrides = container.appPreferences.developerPromptOverrides.value
         fun developerSystemPrompt(key: DeveloperPromptKey, defaultValue: String): String {
-            val effectiveLayer = developerPromptOverrides.resolve(key, defaultValue)
+            val baseVariables = mapOf(
+                "conversation_id" to conversation.id,
+                "provider_id" to provider.id,
+                "model_id" to model.id,
+                "app_version" to installedVersion.versionName,
+            )
+            val variables = DeveloperPromptTemplateCatalog.runtimeVariables(key, defaultValue, baseVariables)
+            val effectiveLayer = developerPromptOverrides.resolve(key, defaultValue, variables)
             DeveloperPromptTraceStore.recordComponent(
                 conversationId = conversation.id,
                 key = key,
+                sourceTemplate = DeveloperPromptTemplateCatalog.spec(key).template,
                 defaultText = defaultValue,
                 effectiveText = effectiveLayer,
+                variables = variables,
+            )
+            val finalVariables = DeveloperPromptTemplateCatalog.runtimeVariables(
+                DeveloperPromptKey.FINAL_SYSTEM_MESSAGE,
+                effectiveLayer,
+                baseVariables,
             )
             val effectiveFinal = developerPromptOverrides.resolve(
                 DeveloperPromptKey.FINAL_SYSTEM_MESSAGE,
                 effectiveLayer,
+                finalVariables,
             )
             DeveloperPromptTraceStore.recordComponent(
                 conversationId = conversation.id,
                 key = DeveloperPromptKey.FINAL_SYSTEM_MESSAGE,
+                sourceTemplate = DeveloperPromptTemplateCatalog.spec(DeveloperPromptKey.FINAL_SYSTEM_MESSAGE).template,
                 defaultText = effectiveLayer,
                 effectiveText = effectiveFinal,
+                variables = finalVariables,
             )
             return effectiveFinal
         }
@@ -1171,6 +1189,16 @@ class GenerationWorker(
                 instruction = developerPromptOverrides.resolve(
                     DeveloperPromptKey.RESEARCH_FINAL,
                     FINAL_RESEARCH_STATE_INSTRUCTION,
+                    DeveloperPromptTemplateCatalog.runtimeVariables(
+                        DeveloperPromptKey.RESEARCH_FINAL,
+                        FINAL_RESEARCH_STATE_INSTRUCTION,
+                        mapOf(
+                            "conversation_id" to conversation.id,
+                            "provider_id" to provider.id,
+                            "model_id" to model.id,
+                            "app_version" to installedVersion.versionName,
+                        ),
+                    ),
                 ),
                 usageRound = maxToolRounds + 2,
                 baseMessages = closeoutContext,
