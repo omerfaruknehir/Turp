@@ -519,6 +519,80 @@ class NativeProviderProtocolTest {
     }
 
     @Test
+    fun openAiCompatibleFallsBackToNonStreamingAfterOpaqueEmptySseErrors() = runBlocking {
+        val attempts = AtomicInteger(0)
+        val requestBodies = mutableListOf<String>()
+        val client = OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                val buffer = Buffer()
+                chain.request().body?.writeTo(buffer)
+                val body = buffer.readUtf8()
+                requestBodies += body
+                val index = attempts.getAndIncrement()
+                val payload = if (index < 3) {
+                    "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"error\"}]}\n\ndata: [DONE]\n\n"
+                } else {
+                    """{"choices":[{"index":0,"message":{"role":"assistant","content":"Recovered without SSE"},"finish_reason":"stop"}],"usage":{"prompt_tokens":12,"completion_tokens":3}}"""
+                }
+                Response.Builder()
+                    .request(chain.request())
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(200)
+                    .message("OK")
+                    .body(
+                        payload.toResponseBody(
+                            if (index < 3) "text/event-stream".toMediaType()
+                            else "application/json".toMediaType(),
+                        ),
+                    )
+                    .build()
+            }
+            .build()
+        val base = request(
+            ProviderKind.OPENAI_COMPATIBLE,
+            listOf(InputMessage(MessageRole.USER, "anything")),
+            providerId = "proxy",
+        )
+        val compatibilityRequest = base.copy(
+            provider = base.provider.copy(profile = ProviderProfile.OPENAI),
+            tools = emptyList(),
+            toolProtocolNames = setOf("web_search"),
+        )
+        val chunks = mutableListOf<StreamChunk>()
+
+        OpenAiCompatibleProvider(client).stream(compatibilityRequest) { chunks += it }
+
+        assertEquals(4, attempts.get())
+        assertTrue(requestBodies.take(3).all { it.contains("\"stream\":true") })
+        assertTrue(requestBodies.last().contains("\"stream\":false"))
+        assertFalse(requestBodies.last().contains("\"stream_options\""))
+        assertEquals("Recovered without SSE", chunks.joinToString("") { it.text })
+        assertEquals("stop", chunks.last().finishReason)
+        assertEquals(12L, chunks.last().inputTokens)
+        assertEquals(3L, chunks.last().outputTokens)
+    }
+
+    @Test
+    fun openAiNonStreamingCompatibilityParserPreservesToolsAndErrors() {
+        val provider = OpenAiCompatibleProvider()
+        val toolChunk = provider.parseNonStreamingCompletion(
+            """{"choices":[{"message":{"content":"","tool_calls":[{"id":"call_1","type":"function","function":{"name":"web_search","arguments":"{\"query\":\"Turp\"}"}}]},"finish_reason":"tool_calls"}]}""",
+        )
+
+        assertEquals("tool_calls", toolChunk.finishReason)
+        assertEquals("web_search", toolChunk.toolCalls.single().name)
+        assertEquals("""{"query":"Turp"}""", toolChunk.toolCalls.single().argumentsJson)
+
+        val error = runCatching {
+            provider.parseNonStreamingCompletion(
+                """{"error":{"message":"Upstream rejected this request","type":"upstream_error"}}""",
+            )
+        }.exceptionOrNull()
+        assertTrue(error is ProviderProtocolException)
+        assertTrue(error?.message.orEmpty().contains("Upstream rejected this request"))
+    }
+
+    @Test
     fun providerSpecificThinkingControlsAreSerialized() {
         val openAi = OpenAiCompatibleProvider().buildRequestBody(
             request(ProviderKind.OPENAI_COMPATIBLE, listOf(InputMessage(MessageRole.USER, "Think")), modelId = "o3").copy(
