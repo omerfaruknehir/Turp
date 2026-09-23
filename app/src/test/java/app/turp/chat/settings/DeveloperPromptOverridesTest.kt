@@ -59,32 +59,34 @@ class DeveloperPromptOverridesTest {
     }
 
     @Test
-    fun promptInspectorUsesSentAndFamilyBasedCustomizeViews() {
+    fun promptManagerAndEditorAreFullScreenSettingsRoutes() {
         val settings = File("src/main/java/app/turp/chat/ui/SettingsScreen.kt").readText()
+        val routes = File("src/main/java/app/turp/chat/ui/SettingsRoute.kt").readText()
+        val viewModel = File("src/main/java/app/turp/chat/ui/ChatViewModel.kt").readText()
 
-        assertTrue(settings.contains("\"Sent to model\""))
-        assertTrue(settings.contains("\"Customize\""))
-        assertTrue(settings.contains("\"Main prompts\""))
-        assertTrue(settings.contains("\"Advanced internals (\""))
-        assertTrue(settings.contains("\"Prompt inspector\""))
-        assertTrue(settings.contains("\"Open system context\""))
-        assertTrue(settings.contains("DeveloperPromptInspectorSheet"))
+        assertTrue(routes.contains("DEVELOPER_PROMPTS"))
+        assertTrue(routes.contains("PROMPT_EDITOR"))
+        assertTrue(settings.contains("DeveloperPromptInspectorPage"))
         assertTrue(settings.contains("DeveloperPromptComponentEditorPage"))
+        assertTrue(settings.contains("SettingsRoute.DEVELOPER_PROMPTS -> DeveloperPromptInspectorPage"))
+        assertTrue(settings.contains("SettingsRoute.PROMPT_EDITOR -> DeveloperPromptEditorRoutePage"))
+        assertTrue(settings.contains("\"Components\""))
+        assertTrue(settings.contains("\"Sent to model\""))
+        assertTrue(settings.contains("\"Show advanced internals (\""))
         assertTrue(settings.contains("\"Restore built-in\""))
         assertTrue(settings.contains("\"Include this layer\""))
         assertTrue(settings.contains("\"Variables (\""))
         assertTrue(settings.contains("\"Preview\""))
-        assertTrue(settings.contains("SettingsRoute.PROMPT_EDITOR -> DeveloperPromptEditorRoutePage"))
-        assertTrue(settings.contains("viewModel.openDeveloperPromptEditor(key)"))
-        assertFalse(settings.contains("private fun DeveloperPromptComponentEditorSheet"))
-        assertFalse(settings.contains("ModalBottomSheet(\n        onDismissRequest = onCancel"))
+        assertTrue(viewModel.contains("fun openDeveloperPrompts()"))
+        assertTrue(viewModel.contains("openSettingsRoute(SettingsRoute.DEVELOPER_PROMPTS)"))
+        assertTrue(viewModel.contains("fun closeDeveloperPromptEditor()"))
 
-        assertFalse(settings.contains("DeveloperPromptManagerSheet"))
-        assertFalse(settings.contains("DeveloperPromptContextSheet"))
-        assertFalse(settings.contains("\"Effective context\""))
-        assertFalse(settings.contains("\"Search prompts\""))
-        assertFalse(settings.contains("\"Customized only\""))
-        assertFalse(settings.contains("promptMenuExpanded"))
+        assertFalse(settings.contains("DeveloperPromptInspectorSheet"))
+        assertFalse(settings.contains("DeveloperPromptComponentEditorSheet"))
+        assertFalse(settings.contains("promptInspectorOpen"))
+        assertFalse(settings.contains("developerPromptInspectorRequested"))
+        assertFalse(settings.contains("\"Use saved customizations\""))
+        assertFalse(settings.contains("\"Open system context\""))
         assertFalse(settings.contains("DEVELOPER_PROMPT_DEFAULT_TOKEN"))
     }
 
@@ -133,7 +135,8 @@ class DeveloperPromptOverridesTest {
         assertTrue(prefs.contains("KEY_DEVELOPER_PROMPT_DISABLED_IDS"))
         assertTrue(prefs.contains("fun setDeveloperPromptDisabled"))
         assertTrue(prefs.contains("shouldEnable = value != null"))
-        assertTrue(prefs.contains("if (disabled) putBoolean(KEY_DEVELOPER_PROMPT_OVERRIDES_ENABLED, true)"))
+        assertTrue(prefs.contains("val active = values.isNotEmpty() || disabled.isNotEmpty()"))
+        assertTrue(prefs.contains("putBoolean(KEY_DEVELOPER_PROMPT_OVERRIDES_ENABLED, false)"))
         assertTrue(prefs.contains("fun resetDeveloperPromptCustomization"))
         assertTrue(prefs.contains("legacyDisabled"))
         assertTrue(viewModel.contains("fun setDeveloperPromptDisabled"))
@@ -146,6 +149,35 @@ class DeveloperPromptOverridesTest {
             val spec = DeveloperPromptTemplateCatalog.spec(key)
             assertTrue("Template missing for ${key.id}", spec.template.isNotBlank())
         }
+    }
+
+    @Test
+    fun catalogIsCanonicalForStaticBuiltInTextAndPassesThroughDynamicText() {
+        val runtimeVariables = mapOf(
+            "app_version" to "0.25.1",
+            "timezone" to "Europe/Istanbul",
+        )
+        val runtimeBuiltIn = DeveloperPromptTemplateCatalog.builtInText(
+            DeveloperPromptKey.RUNTIME_CONTEXT,
+            runtimeValue = "stale duplicate runtime text",
+            variables = runtimeVariables,
+        )
+        assertTrue(runtimeBuiltIn.contains("Turp app version: 0.25.1"))
+        assertFalse(runtimeBuiltIn.contains("stale duplicate runtime text"))
+
+        val liveMemory = "Turp memory context:\n- favorite editor: vim"
+        val memoryVariables = DeveloperPromptTemplateCatalog.runtimeVariables(
+            DeveloperPromptKey.MEMORY_CONTEXT,
+            liveMemory,
+        )
+        assertEquals(
+            liveMemory,
+            DeveloperPromptTemplateCatalog.builtInText(
+                DeveloperPromptKey.MEMORY_CONTEXT,
+                runtimeValue = liveMemory,
+                variables = memoryVariables,
+            ),
+        )
     }
 
     @Test
@@ -236,6 +268,17 @@ class DeveloperPromptOverridesTest {
         assertTrue(settings.contains("\"Sent to model\""))
         assertTrue(settings.contains("provider-boundary context"))
         assertTrue(settings.contains("Provider-owned upstream instructions"))
+    }
+
+    @Test
+    fun allPromptAssemblyPathsUseCanonicalCatalogBuiltInText() {
+        val assembler = File("src/main/java/app/turp/chat/chat/ContextAssembler.kt").readText()
+        val worker = File("src/main/java/app/turp/chat/generation/GenerationWorker.kt").readText()
+        val auxiliary = File("src/main/java/app/turp/chat/chat/AuxiliaryModelService.kt").readText()
+
+        assertTrue(assembler.contains("DeveloperPromptTemplateCatalog.builtInText("))
+        assertTrue(worker.contains("DeveloperPromptTemplateCatalog.builtInText("))
+        assertTrue(auxiliary.contains("DeveloperPromptTemplateCatalog.builtInText("))
     }
 
     @Test
