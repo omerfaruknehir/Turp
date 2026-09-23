@@ -54,6 +54,12 @@ import kotlinx.serialization.json.Json
 import java.io.IOException
 import java.util.UUID
 
+internal fun shouldExposeNativeToolDefinitions(
+    modelSupportsTools: Boolean,
+    sudoModeActive: Boolean,
+    directImageModel: Boolean,
+): Boolean = !directImageModel && (modelSupportsTools || sudoModeActive)
+
 class GenerationWorker(
     appContext: Context,
     params: WorkerParameters,
@@ -269,7 +275,11 @@ class GenerationWorker(
         }?.content.orEmpty()
         val forceNativeToolAttempt = sudoModeActive && !directImageModel
         val regularNativeToolDefinitions = if (
-            !directImageModel && (model.supportsTools || forceNativeToolAttempt)
+            shouldExposeNativeToolDefinitions(
+                modelSupportsTools = model.supportsTools,
+                sudoModeActive = sudoModeActive,
+                directImageModel = directImageModel,
+            )
         ) {
             TurpNativeTools.definitions(conversation, memoryEnabled = automationSettings.memoryEnabled)
                 .filterNot { tool ->
