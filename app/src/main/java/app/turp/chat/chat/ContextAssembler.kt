@@ -137,10 +137,14 @@ class ContextAssembler(
             )
             return effective
         }
-        fun systemPrompt(key: DeveloperPromptKey, defaultValue: String): String =
+        fun systemPrompt(
+            key: DeveloperPromptKey,
+            defaultValue: String,
+            extraVariables: Map<String, String> = emptyMap(),
+        ): String =
             promptLayer(
                 DeveloperPromptKey.FINAL_SYSTEM_MESSAGE,
-                promptLayer(key, defaultValue),
+                promptLayer(key, defaultValue, extraVariables),
             )
         val runtimeContext = promptLayer(DeveloperPromptKey.RUNTIME_CONTEXT, buildString {
             appendLine("Turp runtime context (authoritative for this request):")
@@ -319,9 +323,18 @@ class ContextAssembler(
         sudoPromptLayer(conversation, newestFirst, sudoModeAllowed)
             .takeIf(String::isNotBlank)
             ?.let { sudoLayer ->
+                val latestSudoInstruction = newestFirst.firstOrNull {
+                    it.role == MessageRole.USER && it.content.isNotBlank()
+                }?.content.orEmpty()
                 result += InputMessage(
                     MessageRole.SYSTEM,
-                    systemPrompt(DeveloperPromptKey.SUDO_LAYER, sudoLayer),
+                    systemPrompt(
+                        DeveloperPromptKey.SUDO_LAYER,
+                        sudoLayer,
+                        extraVariables = mapOf(
+                            "sudo_user_instruction" to latestSudoInstruction,
+                        ),
+                    ),
                 )
             }
 
