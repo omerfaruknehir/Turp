@@ -1516,9 +1516,6 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
     fun updateDeveloperSettings(transform: (app.turp.chat.settings.DeveloperSettings) -> app.turp.chat.settings.DeveloperSettings) =
         container.appPreferences.updateDeveloperSettings(transform)
 
-    fun setDeveloperPromptOverridesEnabled(enabled: Boolean) =
-        container.appPreferences.setDeveloperPromptOverridesEnabled(enabled)
-
     fun setDeveloperPromptOverride(key: app.turp.chat.settings.DeveloperPromptKey, value: String?) =
         container.appPreferences.setDeveloperPromptOverride(key, value)
 
