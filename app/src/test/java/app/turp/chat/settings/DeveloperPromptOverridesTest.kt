@@ -181,6 +181,26 @@ class DeveloperPromptOverridesTest {
     }
 
     @Test
+    fun canonicalCatalogDoesNotActivateRuntimeDisabledOptionalPrompts() {
+        assertEquals(
+            "",
+            DeveloperPromptTemplateCatalog.builtInText(
+                DeveloperPromptKey.RESPONSE_STYLE,
+                runtimeValue = "",
+                variables = emptyMap(),
+            ),
+        )
+        assertEquals(
+            "",
+            DeveloperPromptTemplateCatalog.builtInText(
+                DeveloperPromptKey.DEEP_RESEARCH,
+                runtimeValue = "",
+                variables = emptyMap(),
+            ),
+        )
+    }
+
+    @Test
     fun primaryDynamicPromptsExposeMeaningfulSourceTemplates() {
         val research = DeveloperPromptTemplateCatalog.spec(DeveloperPromptKey.DEEP_RESEARCH).template
         val sudo = DeveloperPromptTemplateCatalog.spec(DeveloperPromptKey.SUDO_LAYER).template
