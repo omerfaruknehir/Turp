@@ -465,6 +465,24 @@ internal fun isRecoveryNoticeCandidate(
 internal fun shouldRenderAssistantRecoveryState(message: MessageEntity): Boolean =
     message.role == MessageRole.ASSISTANT && isActionableRecoveryMessage(message)
 
+internal fun shouldRenderInlineRecoveryCard(message: MessageEntity): Boolean {
+    val timeline = message.timelineJson.trim()
+    return shouldRenderAssistantRecoveryState(message) &&
+        message.content.isBlank() &&
+        message.reasoning.isBlank() &&
+        (timeline.isBlank() || timeline == "[]")
+}
+
+internal fun shouldShowFloatingRecoveryNotice(
+    message: MessageEntity,
+    activeLeafNodeId: String?,
+    dismissedNoticeKey: String?,
+): Boolean = isRecoveryNoticeCandidate(
+    message = message,
+    activeLeafNodeId = activeLeafNodeId,
+    dismissedNoticeKey = dismissedNoticeKey,
+) && !shouldRenderInlineRecoveryCard(message)
+
 internal fun withDismissedRecoveryNotice(
     current: Map<String, String>,
     conversationId: String?,
@@ -1282,7 +1300,7 @@ fun ChatScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
                 }
             }
             val interrupted = recoverable.firstOrNull { candidate ->
-                isRecoveryNoticeCandidate(
+                shouldShowFloatingRecoveryNotice(
                     message = candidate,
                     activeLeafNodeId = conversation?.activeLeafNodeId,
                     dismissedNoticeKey = dismissedRecoveryNoticeKey,
@@ -1671,6 +1689,7 @@ private fun MessageCard(
         !showRecoveryState
     ) return
     val developerSettings by viewModel.developerSettings.collectAsStateWithLifecycle()
+    val toolFallbackSettings by viewModel.toolCallFallbackSettings.collectAsStateWithLifecycle()
     val developerHttpTraces by viewModel.developerHttpTraces.collectAsStateWithLifecycle()
     val sourceControlsEnabled =
         developerSettings.enabled && developerSettings.showMessageSourceEnabled
@@ -1750,12 +1769,34 @@ private fun MessageCard(
                                 Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.End,
                             ) {
-                                TextButton(
-                                    onClick = {
-                                        if (failed) viewModel.retryMessage(message) else viewModel.resume(message)
-                                    },
-                                ) {
-                                    Text(if (failed) "Retry" else "Continue")
+                                val fallbackProviderId = message.providerId
+                                val fallbackModelId = message.modelId
+                                val canEnableFallbackAndRetry =
+                                    failed &&
+                                        shouldOfferToolFallbackForError(message.error) &&
+                                        !fallbackProviderId.isNullOrBlank() &&
+                                        !fallbackModelId.isNullOrBlank() &&
+                                        !toolFallbackSettings.isEnabled(fallbackProviderId, fallbackModelId)
+                                if (canEnableFallbackAndRetry) {
+                                    TextButton(
+                                        onClick = {
+                                            viewModel.enableToolCallFallbackForModel(
+                                                fallbackProviderId!!,
+                                                fallbackModelId!!,
+                                            )
+                                            viewModel.retryMessage(message)
+                                        },
+                                    ) {
+                                        Text("Enable fallback & retry")
+                                    }
+                                } else {
+                                    TextButton(
+                                        onClick = {
+                                            if (failed) viewModel.retryMessage(message) else viewModel.resume(message)
+                                        },
+                                    ) {
+                                        Text(if (failed) "Retry" else "Continue")
+                                    }
                                 }
                             }
                         }
