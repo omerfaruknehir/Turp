@@ -384,10 +384,39 @@ class AppPreferences(context: Context) {
         }
     }
 
+    fun setDeveloperPromptDisabled(key: DeveloperPromptKey, disabled: Boolean) {
+        val current = _developerPromptOverrides.value
+        val updatedDisabled = current.disabledIds.toMutableSet().apply {
+            if (disabled) add(key.id) else remove(key.id)
+        }.toSet()
+        _developerPromptOverrides.value = current.copy(disabledIds = updatedDisabled)
+        preferences.edit { putStringSet(KEY_DEVELOPER_PROMPT_DISABLED_IDS, updatedDisabled) }
+    }
+
+    fun resetDeveloperPromptCustomization(key: DeveloperPromptKey) {
+        val current = _developerPromptOverrides.value
+        val updatedValues = current.values - key.id
+        val updatedDisabled = current.disabledIds - key.id
+        _developerPromptOverrides.value = current.copy(
+            values = updatedValues,
+            disabledIds = updatedDisabled,
+        )
+        preferences.edit {
+            remove(KEY_DEVELOPER_PROMPT_OVERRIDE_PREFIX + key.id)
+            putStringSet(KEY_DEVELOPER_PROMPT_DISABLED_IDS, updatedDisabled)
+        }
+    }
+
     fun resetDeveloperPromptOverrides() {
         val keys = preferences.all.keys.filter { it.startsWith(KEY_DEVELOPER_PROMPT_OVERRIDE_PREFIX) }
-        preferences.edit { keys.forEach(::remove) }
-        _developerPromptOverrides.value = _developerPromptOverrides.value.copy(values = emptyMap())
+        preferences.edit {
+            keys.forEach(::remove)
+            remove(KEY_DEVELOPER_PROMPT_DISABLED_IDS)
+        }
+        _developerPromptOverrides.value = _developerPromptOverrides.value.copy(
+            values = emptyMap(),
+            disabledIds = emptySet(),
+        )
     }
 
     fun setNewChatDefaults(value: NewChatDefaults) {
@@ -434,14 +463,23 @@ class AppPreferences(context: Context) {
     ).normalized()
 
     private fun readDeveloperPromptOverrides(): DeveloperPromptOverrides {
-        val values = DeveloperPromptKey.entries.mapNotNull { key ->
+        val rawValues = DeveloperPromptKey.entries.mapNotNull { key ->
             val storageKey = KEY_DEVELOPER_PROMPT_OVERRIDE_PREFIX + key.id
             if (!preferences.contains(storageKey)) null
             else key.id to preferences.getString(storageKey, "").orEmpty()
         }.toMap()
+        // 0.25.1 pre-direct-editor builds represented a disabled component as
+        // an empty override. Keep those installs working, but migrate the
+        // runtime model to an independent disabled set so edits can be preserved.
+        val legacyDisabled = rawValues.filterValues(String::isEmpty).keys
+        val disabled = preferences
+            .getStringSet(KEY_DEVELOPER_PROMPT_DISABLED_IDS, emptySet())
+            .orEmpty()
+            .toSet() + legacyDisabled
         return DeveloperPromptOverrides(
             enabled = preferences.getBoolean(KEY_DEVELOPER_PROMPT_OVERRIDES_ENABLED, false),
-            values = values,
+            values = rawValues.filterValues(String::isNotEmpty),
+            disabledIds = disabled,
         )
     }
 
@@ -532,6 +570,7 @@ class AppPreferences(context: Context) {
         const val KEY_TOOL_DIAGNOSTICS_ENABLED = "tool_diagnostics_enabled"
         const val KEY_DEVELOPER_PROMPT_OVERRIDES_ENABLED = "developer_prompt_overrides_enabled"
         const val KEY_DEVELOPER_PROMPT_OVERRIDE_PREFIX = "developer_prompt_override_"
+        const val KEY_DEVELOPER_PROMPT_DISABLED_IDS = "developer_prompt_disabled_ids"
         const val KEY_PERFORMANCE_OVERLAY_ENABLED = "performance_overlay_enabled"
         const val KEY_DIAGNOSTIC_PROFILER_ENABLED = "diagnostic_profiler_enabled"
         const val KEY_PERFORMANCE_OVERLAY_DETAILED = "performance_overlay_detailed"
