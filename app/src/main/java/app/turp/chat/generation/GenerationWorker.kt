@@ -1047,15 +1047,15 @@ class GenerationWorker(
                     )
                     if (!passReceived && !nativeToolsDisabled && nativeToolDefinitions.isNotEmpty() && error.status in setOf(400, 404, 422, 501)) {
                         throw ProviderProtocolException(
-                            "The provider/API endpoint rejected Turp's native tool definitions. " +
-                                "This does not prove the underlying model is incapable of tool calling. " +
+                            buildString {
+                                append("The provider/API endpoint rejected Turp's native tool definitions. ")
+                                append("This does not prove the underlying model is incapable of tool calling. ")
                                 if (sudoModeActive && !model.supportsTools) {
-                                    "Sudo ignored the catalog's supportsTools=false hint and made the native attempt anyway. "
-                                } else {
-                                    ""
-                                } +
-                                "Use an endpoint that accepts native function schemas or disable Turp tools for this request. " +
-                                "Turp will not fall back to text-encoded fake tool commands.",
+                                    append("Sudo ignored the catalog's supportsTools=false hint and made the native attempt anyway. ")
+                                }
+                                append("Use an endpoint that accepts native function schemas or disable Turp tools for this request. ")
+                                append("Turp will not fall back to text-encoded fake tool commands.")
+                            },
                             error,
                         )
                     }
