@@ -64,9 +64,11 @@ enum class DeveloperPromptKey(
 data class DeveloperPromptOverrides(
     val enabled: Boolean = false,
     val values: Map<String, String> = emptyMap(),
+    val disabledIds: Set<String> = emptySet(),
 ) {
     fun resolve(key: DeveloperPromptKey, defaultValue: String): String {
         if (!enabled) return defaultValue
+        if (key.id in disabledIds) return ""
         val template = values[key.id] ?: return defaultValue
         return template.replace(DEVELOPER_PROMPT_DEFAULT_TOKEN, defaultValue)
     }
@@ -82,6 +84,11 @@ data class DeveloperPromptOverrides(
         values[key.id] ?: DEVELOPER_PROMPT_DEFAULT_TOKEN
 
     fun hasOverride(key: DeveloperPromptKey): Boolean = values.containsKey(key.id)
+
+    fun isDisabled(key: DeveloperPromptKey): Boolean = key.id in disabledIds
+
+    fun isCustomized(key: DeveloperPromptKey): Boolean =
+        hasOverride(key) || isDisabled(key)
 }
 
 data class DeveloperPromptComponentTrace(
