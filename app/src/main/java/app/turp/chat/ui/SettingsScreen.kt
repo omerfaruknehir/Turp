@@ -1689,11 +1689,12 @@ private fun DeveloperPromptComponentEditorPage(
     var showVariables by rememberSaveable(key.name) { mutableStateOf(false) }
     var showPreview by rememberSaveable(key.name) { mutableStateOf(false) }
 
-    val variableNames = (
+    val usedVariableNames = DeveloperPromptVariables.names(draft.text).toList()
+    val availableVariableNames = (
         variableDescriptions.keys +
-            currentVariables.keys +
-            DeveloperPromptVariables.names(draft.text)
-        ).distinct()
+            currentVariables.keys
+        ).distinct().filterNot { it in usedVariableNames }
+    val variableNames = usedVariableNames + availableVariableNames
     val renderedPreview = DeveloperPromptVariables.render(draft.text, currentVariables)
     val unresolvedVariables = DeveloperPromptVariables.unresolved(draft.text, currentVariables)
     val changed = draft.text != initialTemplate || includeLayer != !initiallyDisabled
@@ -1780,48 +1781,84 @@ private fun DeveloperPromptComponentEditorPage(
             Surface(
                 color = MaterialTheme.colorScheme.surfaceContainer,
                 shape = MaterialTheme.shapes.large,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 220.dp),
             ) {
                 Column(
-                    Modifier.padding(10.dp),
+                    Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(10.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        variableNames.forEach { name ->
-                            AssistChip(
-                                onClick = {
-                                    insertVariable(name)
-                                    showPreview = false
-                                },
-                                label = {
-                                    Text(
-                                        "{{" + name + "}}",
-                                        fontFamily = FontFamily.Monospace,
-                                    )
-                                },
-                            )
-                        }
-                    }
-                    currentVariables
-                        .filterKeys { it in variableNames }
-                        .toSortedMap()
-                        .forEach { (name, value) ->
+                    Text(
+                        if (usedVariableNames.isEmpty()) {
+                            "No variables are used in this prompt yet."
+                        } else {
+                            "Variables used in this prompt"
+                        },
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    usedVariableNames.forEach { name ->
+                        val value = currentVariables[name]
+                        Text(
+                            buildString {
+                                append("{{").append(name).append("}}")
+                                append(" = ")
+                                append(
+                                    value
+                                        ?.replace("\n", " ")
+                                        ?.take(150)
+                                        ?.ifBlank { "(empty)" }
+                                        ?: "(no captured value yet)",
+                                )
+                                if ((value?.length ?: 0) > 150) append(" …")
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                        )
+                        variableDescriptions[name]?.let { description ->
                             Text(
-                                "{{" + name + "}} = " +
-                                    value.replace("\n", " ").take(150)
-                                        .ifBlank { "(empty)" } +
-                                    if (value.length > 150) " …" else "",
+                                description,
                                 style = MaterialTheme.typography.labelSmall,
-                                fontFamily = FontFamily.Monospace,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 2,
                             )
                         }
+                    }
+
+                    if (availableVariableNames.isNotEmpty()) {
+                        Text(
+                            "Insert variable",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            variableNames.forEach { name ->
+                                AssistChip(
+                                    onClick = {
+                                        insertVariable(name)
+                                        showPreview = false
+                                    },
+                                    label = {
+                                        Text(
+                                            "{{" + name + "}}",
+                                            fontFamily = FontFamily.Monospace,
+                                        )
+                                    },
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
