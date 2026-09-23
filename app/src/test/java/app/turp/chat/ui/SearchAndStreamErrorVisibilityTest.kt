@@ -46,6 +46,17 @@ class SearchAndStreamErrorVisibilityTest {
     }
 
     @Test
+    fun `floating recovery banner is hidden when inline error card already represents failure`() {
+        val failed = failedMessage(updatedAt = 10, error = "provider failed before first token")
+        assertTrue(shouldRenderInlineRecoveryCard(failed))
+        assertFalse(shouldShowFloatingRecoveryNotice(failed, failed.nodeId, null))
+
+        val partial = failed.copy(content = "partial answer")
+        assertFalse(shouldRenderInlineRecoveryCard(partial))
+        assertTrue(shouldShowFloatingRecoveryNotice(partial, partial.nodeId, null))
+    }
+
+    @Test
     fun `empty terminal assistant remains visible for recovery`() {
         val failed = failedMessage(updatedAt = 10, error = "provider failed before first token")
         assertTrue(shouldRenderAssistantRecoveryState(failed))
