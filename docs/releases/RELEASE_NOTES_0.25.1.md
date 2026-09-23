@@ -2,6 +2,7 @@
 
 ## Android provider hotfix
 
+- Improves OpenAI-compatible proxy recovery: after repeated empty SSE completions (including `finish_reason: error`), Turp performs one non-stream compatibility retry, uses a valid completion if returned, or surfaces the proxy's JSON/HTTP error together with the individual streaming-attempt diagnostics.
 - Fixes request failures on Android caused by an invalid regular expression in provider endpoint-template validation.
 - Adds Android instrumentation coverage that executes endpoint expansion on Android's regex engine so this class of runtime-only failure is caught before release.
 - Stops streaming and completion haptics when Turp is backgrounded or its window is not focused, while generation continues normally.
