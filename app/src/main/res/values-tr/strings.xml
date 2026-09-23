@@ -46,6 +46,7 @@
     <string name="settings_local_execution">Yerel çalıştırma</string>
     <string name="settings_developer">Geliştirici ayarları</string>
     <string name="settings_prompt_editor">Sistem istemini düzenle</string>
+    <string name="settings_developer_prompts">Sistem istemleri</string>
     <string name="settings_custom_instructions">Özel talimatlar</string>
     <string name="settings_providers_models">Sağlayıcılar ve modeller</string>
     <string name="settings_about_turp">Turp hakkında</string>
