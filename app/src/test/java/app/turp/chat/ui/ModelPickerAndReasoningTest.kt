@@ -53,7 +53,12 @@ class ModelPickerAndReasoningTest {
 
         assertEquals(null, unsupportedToolCallingNotice(modelSupportsTools = true, toolCallingRequested = true))
         assertEquals(null, unsupportedToolCallingNotice(modelSupportsTools = false, toolCallingRequested = false))
-        assertTrue(unsupportedToolCallingNotice(modelSupportsTools = false, toolCallingRequested = true) != null)
+        val ordinaryNotice = unsupportedToolCallingNotice(
+            modelSupportsTools = false,
+            toolCallingRequested = true,
+        ).orEmpty()
+        assertTrue(ordinaryNotice.contains("Provider/catalog metadata reports"))
+        assertFalse(ordinaryNotice.startsWith("This model doesn't support"))
 
         val sudoNotice = unsupportedToolCallingNotice(
             modelSupportsTools = false,
@@ -63,6 +68,11 @@ class ModelPickerAndReasoningTest {
         assertTrue(sudoNotice.contains("Sudo will still try real native tool definitions"))
         assertTrue(sudoNotice.contains("provider/API may reject"))
         assertFalse(sudoNotice.contains("won't run"))
+    }
+
+    @Test
+    fun toolsFilterIsExplicitlyMetadataBased() {
+        assertEquals("Reported tools", ModelPickerFilter.TOOLS.label)
     }
 
     @Test
