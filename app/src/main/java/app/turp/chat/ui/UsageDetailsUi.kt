@@ -352,6 +352,155 @@ internal fun MessageUsageDialog(
 }
 
 @Composable
+internal fun MessageErrorDetailsDialog(
+    message: MessageEntity,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    val container = remember(context) { (context.applicationContext as TurpApplication).container }
+    val calls by produceState<List<GenerationUsageEntity>?>(initialValue = null, message.nodeId) {
+        value = withContext(Dispatchers.IO) { container.repository.generationUsage(message.nodeId) }
+    }
+    val fullError = message.error?.trim().orEmpty().ifBlank {
+        "No additional diagnostic text was returned by the provider."
+    }
+    val providerCalls = calls.orEmpty()
+    val copyText = remember(message, providerCalls, fullError) {
+        buildString {
+            appendLine("Turp request error")
+            append("Provider: ").appendLine(message.providerId ?: "—")
+            append("Model: ").appendLine(message.modelId ?: "—")
+            append("Status: ").appendLine(message.status.name)
+            appendLine()
+            appendLine("Final error:")
+            appendLine(fullError)
+            if (providerCalls.isNotEmpty()) {
+                appendLine()
+                appendLine("Provider attempts:")
+                providerCalls.forEachIndexed { index, call ->
+                    append("Attempt ").append(index + 1)
+                        .append(" · round ").append(call.roundIndex + 1)
+                        .append(" · ").append(call.status)
+                    call.finishReason?.takeIf(String::isNotBlank)?.let {
+                        append(" · finish=").append(it)
+                    }
+                    appendLine()
+                    call.error?.takeIf(String::isNotBlank)?.let {
+                        append("  error: ").appendLine(it)
+                    }
+                    append("  tokens: input=").append(call.inputTokens)
+                        .append(" cached=").append(call.cachedInputTokens)
+                        .append(" output=").append(call.outputTokens)
+                        .appendLine()
+                }
+            }
+        }.trimEnd()
+    }
+
+    TurpAlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(if (message.status == app.turp.chat.data.MessageStatus.ERROR) "Request error details" else "Response interruption details")
+        },
+        text = {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 580.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceContainerLow,
+                    shape = MaterialTheme.shapes.medium,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        UsageMetric("Provider", message.providerId ?: "—")
+                        UsageMetric("Model", message.modelId ?: "—")
+                        UsageMetric("Status", message.status.name.lowercase(Locale.ROOT))
+                    }
+                }
+
+                Text("Full error", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                CodeSourcePanel(language = "text", code = fullError, title = "ERROR")
+
+                HorizontalDivider()
+                Text("Provider attempts", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                when {
+                    calls == null -> Text(
+                        "Loading provider attempt history…",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    providerCalls.isEmpty() -> Text(
+                        "No per-attempt diagnostic rows were recorded for this response.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    else -> providerCalls.forEachIndexed { index, call ->
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceContainerLow,
+                            shape = MaterialTheme.shapes.medium,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                Text(
+                                    "Attempt ${index + 1} · round ${call.roundIndex + 1}",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                                Text(
+                                    buildString {
+                                        append(call.status.lowercase(Locale.ROOT))
+                                        call.finishReason?.takeIf(String::isNotBlank)?.let {
+                                            append(" · finish: ").append(it)
+                                        }
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Text(
+                                    "input ${call.inputTokens} · cached ${call.cachedInputTokens} · output ${call.outputTokens}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontFamily = FontFamily.Monospace,
+                                )
+                                call.error?.takeIf(String::isNotBlank)?.let { error ->
+                                    SelectionContainer {
+                                        Text(
+                                            error,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontFamily = FontFamily.Monospace,
+                                            color = MaterialTheme.colorScheme.error,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Text(
+                    "Provider bodies/status text are shown when Turp received and stored them. Secrets remain redacted by the existing transport/error capture paths.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = {
+                context.getSystemService(android.content.ClipboardManager::class.java)
+                    .setPrimaryClip(ClipData.newPlainText("Turp request error details", copyText))
+            }) {
+                MaterialText("Copy")
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { MaterialText("Close") }
+        },
+    )
+}
+@Composable
 internal fun ConversationUsageSection(conversationId: String) {
     val context = LocalContext.current
     val container = remember(context) { (context.applicationContext as TurpApplication).container }
