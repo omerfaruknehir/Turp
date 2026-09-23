@@ -218,7 +218,7 @@ class GenerationWorker(
             val baseVariables = mapOf(
                 "conversation_id" to conversation.id,
                 "provider_id" to provider.id,
-                "model_id" to model.id,
+                "model_id" to model.modelId,
                 "app_version" to installedVersion.versionName,
             )
             val variables = DeveloperPromptTemplateCatalog.runtimeVariables(key, defaultValue, baseVariables)
@@ -1195,7 +1195,7 @@ class GenerationWorker(
                         mapOf(
                             "conversation_id" to conversation.id,
                             "provider_id" to provider.id,
-                            "model_id" to model.id,
+                            "model_id" to model.modelId,
                             "app_version" to installedVersion.versionName,
                         ),
                     ),
