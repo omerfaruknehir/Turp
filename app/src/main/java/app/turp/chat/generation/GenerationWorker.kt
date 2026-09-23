@@ -31,7 +31,11 @@ import app.turp.chat.data.MessageStatus
 import app.turp.chat.data.GenerationUsageEntity
 import app.turp.chat.data.ProviderKind
 import app.turp.chat.provider.ChatRequest
-import app.turp.chat.provider.FallbackToolCallProtocol
+import app.turp.chat.provider.containsFallbackToolEnvelopeHint
+import app.turp.chat.provider.fallbackToolCallMessage
+import app.turp.chat.provider.fallbackToolInstruction
+import app.turp.chat.provider.fallbackToolResultMessage
+import app.turp.chat.provider.parseFallbackToolCallExact
 import app.turp.chat.provider.GeneratedImageOutput
 import app.turp.chat.provider.InputMessage
 import app.turp.chat.provider.NativeToolCall
@@ -313,7 +317,7 @@ class GenerationWorker(
         var fallbackToolMode =
             fallbackToolCallingEnabled && !model.supportsTools && !forceNativeToolAttempt
         val fallbackProtocolInstruction =
-            FallbackToolCallProtocol.instruction(executableToolDefinitions)
+            fallbackToolInstruction(executableToolDefinitions)
         val messages = ContextAssembler(
             attachmentDao = container.database.attachmentDao(),
             appVersion = installedVersion.versionName,
@@ -1080,13 +1084,13 @@ class GenerationWorker(
                         val fallbackReasoning = savedReasoning.substring(callReasoningStart.coerceAtMost(savedReasoning.length))
                         val allowedNames = executableToolDefinitions.mapTo(linkedSetOf()) { it.name }
                         val fallbackCall =
-                            FallbackToolCallProtocol.parseExact(fallbackText, allowedNames)
+                            parseFallbackToolCallExact(fallbackText, allowedNames)
                                 ?: fallbackReasoning
                                     .takeIf { fallbackText.isBlank() }
-                                    ?.let { FallbackToolCallProtocol.parseExact(it, allowedNames) }
+                                    ?.let { parseFallbackToolCallExact(it, allowedNames) }
                         val protocolHint =
-                            FallbackToolCallProtocol.containsEnvelopeHint(fallbackText) ||
-                                FallbackToolCallProtocol.containsEnvelopeHint(fallbackReasoning)
+                            containsFallbackToolEnvelopeHint(fallbackText) ||
+                                containsFallbackToolEnvelopeHint(fallbackReasoning)
                         if (fallbackCall != null || protocolHint) {
                             savedContent = savedContent.substring(0, callContentStart.coerceAtMost(savedContent.length))
                             savedReasoning = savedReasoning.substring(0, callReasoningStart.coerceAtMost(savedReasoning.length))
@@ -1224,7 +1228,7 @@ class GenerationWorker(
                     calls.forEach { call ->
                         messages += InputMessage(
                             role = MessageRole.ASSISTANT,
-                            content = FallbackToolCallProtocol.callMessage(call),
+                            content = fallbackToolCallMessage(call),
                         )
                     }
                 } else {
@@ -1295,7 +1299,7 @@ class GenerationWorker(
                     results.forEach { result ->
                         messages += InputMessage(
                             role = MessageRole.SYSTEM,
-                            content = FallbackToolCallProtocol.resultMessage(result),
+                            content = fallbackToolResultMessage(result),
                         )
                     }
                 } else {
