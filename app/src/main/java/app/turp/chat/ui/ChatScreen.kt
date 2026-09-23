@@ -447,6 +447,12 @@ internal fun isActionableRecoveryMessage(message: MessageEntity): Boolean =
         (message.status == MessageStatus.INTERRUPTED &&
             message.error !in setOf("Steered by user", "Replaced by an edited message"))
 
+internal fun shouldOfferToolFallbackForError(error: String?): Boolean {
+    val normalized = error.orEmpty().lowercase()
+    return normalized.contains("rejected a request that included turp's native tool definitions") ||
+        normalized.contains("enable tool-call fallback for this model")
+}
+
 internal fun isRecoveryNoticeCandidate(
     message: MessageEntity,
     activeLeafNodeId: String?,
@@ -593,6 +599,7 @@ fun ChatScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
     val allProviders by viewModel.providers.collectAsStateWithLifecycle()
     val favoriteModels by viewModel.favoriteModels.collectAsStateWithLifecycle()
     val recentModels by viewModel.recentModels.collectAsStateWithLifecycle()
+    val toolFallbackSettings by viewModel.toolCallFallbackSettings.collectAsStateWithLifecycle()
     val credentialRevision by viewModel.credentialRevision.collectAsStateWithLifecycle()
     val usableProviders = remember(allProviders, credentialRevision) { viewModel.configuredProviders(allProviders) }
     val linuxStatus by viewModel.ubuntuStatus.collectAsStateWithLifecycle()
@@ -1338,15 +1345,42 @@ fun ChatScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
                                 TextButton(onClick = { recoveryDetailsMessage = message }) {
                                     Text("Details")
                                 }
-                                TextButton(onClick = {
-                                    dismissedRecoveryNoticeKeys = withDismissedRecoveryNotice(
-                                        dismissedRecoveryNoticeKeys,
-                                        conversation?.id,
-                                        message,
-                                    )
-                                    if (failed) viewModel.retryMessage(message) else viewModel.resume(message)
-                                }) {
-                                    Text(if (failed) "Retry" else "Continue")
+                                val fallbackProviderId = message.providerId
+                                val fallbackModelId = message.modelId
+                                val canEnableFallbackAndRetry =
+                                    failed &&
+                                        shouldOfferToolFallbackForError(message.error) &&
+                                        !fallbackProviderId.isNullOrBlank() &&
+                                        !fallbackModelId.isNullOrBlank() &&
+                                        !toolFallbackSettings.isEnabled(fallbackProviderId, fallbackModelId)
+                                if (canEnableFallbackAndRetry) {
+                                    TextButton(
+                                        onClick = {
+                                            dismissedRecoveryNoticeKeys = withDismissedRecoveryNotice(
+                                                dismissedRecoveryNoticeKeys,
+                                                conversation?.id,
+                                                message,
+                                            )
+                                            viewModel.enableToolCallFallbackForModel(
+                                                fallbackProviderId!!,
+                                                fallbackModelId!!,
+                                            )
+                                            viewModel.retryMessage(message)
+                                        },
+                                    ) {
+                                        Text("Enable fallback & retry")
+                                    }
+                                } else {
+                                    TextButton(onClick = {
+                                        dismissedRecoveryNoticeKeys = withDismissedRecoveryNotice(
+                                            dismissedRecoveryNoticeKeys,
+                                            conversation?.id,
+                                            message,
+                                        )
+                                        if (failed) viewModel.retryMessage(message) else viewModel.resume(message)
+                                    }) {
+                                        Text(if (failed) "Retry" else "Continue")
+                                    }
                                 }
                             }
                         }
