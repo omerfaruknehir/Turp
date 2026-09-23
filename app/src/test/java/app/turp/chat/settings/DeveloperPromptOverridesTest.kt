@@ -35,15 +35,43 @@ class DeveloperPromptOverridesTest {
     }
 
     @Test
+    fun disabledStateIsIndependentFromSavedEdit() {
+        val customized = DeveloperPromptOverrides(
+            enabled = true,
+            values = mapOf(DeveloperPromptKey.CORE_PROMPT.id to "my edited prompt"),
+            disabledIds = setOf(DeveloperPromptKey.CORE_PROMPT.id),
+        )
+
+        assertTrue(customized.hasOverride(DeveloperPromptKey.CORE_PROMPT))
+        assertTrue(customized.isDisabled(DeveloperPromptKey.CORE_PROMPT))
+        assertTrue(customized.isCustomized(DeveloperPromptKey.CORE_PROMPT))
+        assertEquals("", customized.resolve(DeveloperPromptKey.CORE_PROMPT, "built-in"))
+        assertEquals(
+            "my edited prompt",
+            customized.editorText(DeveloperPromptKey.CORE_PROMPT, "built-in"),
+        )
+
+        val enabledAgain = customized.copy(disabledIds = emptySet())
+        assertEquals(
+            "my edited prompt",
+            enabledAgain.resolve(DeveloperPromptKey.CORE_PROMPT, "built-in"),
+        )
+    }
+
+    @Test
     fun everyRegisteredLayerIsReachableFromDeveloperEditor() {
         val settings = File("src/main/java/app/turp/chat/ui/SettingsScreen.kt").readText()
         assertTrue(settings.contains("DeveloperPromptKey.entries.forEach"))
         assertTrue(settings.contains("setDeveloperPromptOverride"))
         assertTrue(settings.contains("resetDeveloperPromptOverrides"))
-        assertTrue(settings.contains("\"Edit component\""))
-        assertTrue(settings.contains("\"Save changes\""))
-        assertTrue(settings.contains("\"Load built-in\""))
+        assertTrue(settings.contains("\"Manage prompts\""))
+        assertTrue(settings.contains("\"Search prompts\""))
+        assertTrue(settings.contains("\"Customized only\""))
+        assertTrue(settings.contains("\"Use built-in\""))
         assertTrue(settings.contains("\"Component enabled\""))
+        assertTrue(settings.contains("\"Effective system context\""))
+        assertTrue(settings.contains("DeveloperPromptGroup.entries.forEach"))
+        assertFalse(settings.contains("promptMenuExpanded"))
         assertFalse(settings.contains("DEVELOPER_PROMPT_DEFAULT_TOKEN"))
 
         val required = setOf(
@@ -64,6 +92,19 @@ class DeveloperPromptOverridesTest {
         )
         assertTrue(DeveloperPromptKey.entries.containsAll(required))
         assertFalse(DeveloperPromptKey.entries.any { it.id.isBlank() || it.title.isBlank() })
+    }
+
+    @Test
+    fun promptPersistenceKeepsDisabledStateSeparateAndMigratesLegacyEmptyValues() {
+        val prefs = File("src/main/java/app/turp/chat/settings/AppPreferences.kt").readText()
+        val viewModel = File("src/main/java/app/turp/chat/ui/ChatViewModel.kt").readText()
+
+        assertTrue(prefs.contains("KEY_DEVELOPER_PROMPT_DISABLED_IDS"))
+        assertTrue(prefs.contains("fun setDeveloperPromptDisabled"))
+        assertTrue(prefs.contains("fun resetDeveloperPromptCustomization"))
+        assertTrue(prefs.contains("legacyDisabled"))
+        assertTrue(viewModel.contains("fun setDeveloperPromptDisabled"))
+        assertTrue(viewModel.contains("fun resetDeveloperPromptCustomization"))
     }
 
     @Test
