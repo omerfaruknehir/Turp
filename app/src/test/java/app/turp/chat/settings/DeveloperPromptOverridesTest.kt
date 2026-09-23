@@ -141,7 +141,7 @@ class DeveloperPromptOverridesTest {
         assertTrue(httpStore.contains("DeveloperPromptTraceStore.recordProviderContext(request, protocol)"))
         assertTrue(worker.contains("developerPromptTraceEnabled = developerSettings.enabled"))
         assertTrue(settings.contains("\"Effective system context\""))
-        assertTrue(settings.contains("Provider/API-owned upstream system or developer instructions"))
+        assertTrue(settings.contains("Provider/API-owned upstream prompts"))
     }
 
     @Test
