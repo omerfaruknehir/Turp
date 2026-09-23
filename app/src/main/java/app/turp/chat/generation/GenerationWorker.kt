@@ -222,12 +222,17 @@ class GenerationWorker(
                 "app_version" to installedVersion.versionName,
             )
             val variables = DeveloperPromptTemplateCatalog.runtimeVariables(key, defaultValue, baseVariables)
-            val effectiveLayer = developerPromptOverrides.resolve(key, defaultValue, variables)
+            val builtInLayer = DeveloperPromptTemplateCatalog.builtInText(
+                key = key,
+                runtimeValue = defaultValue,
+                variables = variables,
+            )
+            val effectiveLayer = developerPromptOverrides.resolve(key, builtInLayer, variables)
             DeveloperPromptTraceStore.recordComponent(
                 conversationId = conversation.id,
                 key = key,
                 sourceTemplate = DeveloperPromptTemplateCatalog.spec(key).template,
-                defaultText = defaultValue,
+                defaultText = builtInLayer,
                 effectiveText = effectiveLayer,
                 variables = variables,
             )
@@ -236,16 +241,21 @@ class GenerationWorker(
                 effectiveLayer,
                 baseVariables,
             )
+            val builtInFinal = DeveloperPromptTemplateCatalog.builtInText(
+                key = DeveloperPromptKey.FINAL_SYSTEM_MESSAGE,
+                runtimeValue = effectiveLayer,
+                variables = finalVariables,
+            )
             val effectiveFinal = developerPromptOverrides.resolve(
                 DeveloperPromptKey.FINAL_SYSTEM_MESSAGE,
-                effectiveLayer,
+                builtInFinal,
                 finalVariables,
             )
             DeveloperPromptTraceStore.recordComponent(
                 conversationId = conversation.id,
                 key = DeveloperPromptKey.FINAL_SYSTEM_MESSAGE,
                 sourceTemplate = DeveloperPromptTemplateCatalog.spec(DeveloperPromptKey.FINAL_SYSTEM_MESSAGE).template,
-                defaultText = effectiveLayer,
+                defaultText = builtInFinal,
                 effectiveText = effectiveFinal,
                 variables = finalVariables,
             )
