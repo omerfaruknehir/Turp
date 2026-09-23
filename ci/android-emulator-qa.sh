@@ -461,27 +461,31 @@ PY2
                 editor_ok=true
                 for expected in \
                     "Core Turp prompt" \
-                    "Prompt text" \
                     "Restore built-in" \
+                    "Variables" \
                     "Preview" \
-                    "Include this layer" \
-                    "Cancel" \
+                    "Included" \
                     "Save"; do
                   if ! grep -Fq "$expected" "$OUT/promptqa-core-editor-ui.xml" 2>/dev/null; then
                     record_failure "promptQaEditorUi=FAIL missing=${expected}"
                     editor_ok=false
                   fi
                 done
+                if grep -Fq 'Open system prompts' "$OUT/promptqa-core-editor-ui.xml" 2>/dev/null ||
+                   grep -Fq 'Performance counter' "$OUT/promptqa-core-editor-ui.xml" 2>/dev/null; then
+                  record_failure "promptQaEditorUi=FAIL settings-page-chrome-leaked-into-editor"
+                  editor_ok=false
+                fi
                 if [[ "$editor_ok" == true ]]; then
                   echo "promptQaEditorUi=PASS" >> "$OUT/qa-summary.txt"
                 fi
 
-                editor_title_xy="$(pick_text_center "$OUT/promptqa-core-editor-ui.xml" "Edit system prompt" 2>/dev/null || true)"
+                editor_title_xy="$(pick_text_center "$OUT/promptqa-core-editor-ui.xml" "Core Turp prompt" 2>/dev/null || true)"
                 editor_save_xy="$(pick_text_center "$OUT/promptqa-core-editor-ui.xml" "Save" 2>/dev/null || true)"
                 if [[ -n "$editor_title_xy" && -n "$editor_save_xy" ]]; then
                   read -r editor_title_x editor_title_y <<<"$editor_title_xy"
                   read -r editor_save_x editor_save_y <<<"$editor_save_xy"
-                  if (( editor_title_y < 450 && editor_save_y > 1700 )); then
+                  if (( editor_title_y < 450 && editor_save_y < 450 )); then
                     echo "promptQaEditorFullScreen=PASS titleY=${editor_title_y} saveY=${editor_save_y}" >> "$OUT/qa-summary.txt"
                   else
                     record_failure "promptQaEditorFullScreen=FAIL titleY=${editor_title_y} saveY=${editor_save_y}"
@@ -490,15 +494,14 @@ PY2
                   record_failure "promptQaEditorFullScreen=FAIL missing-title-or-save-bounds"
                 fi
 
-                variables_xy="$(pick_text_prefix_center "$OUT/promptqa-core-editor-ui.xml" "Variables (" 2>/dev/null || true)"
+                variables_xy="$(pick_text_center "$OUT/promptqa-core-editor-ui.xml" "Variables" 2>/dev/null || true)"
                 if [[ -n "$variables_xy" ]]; then
                   read -r variables_x variables_y <<<"$variables_xy"
                   adb shell input tap "$variables_x" "$variables_y"
                   echo "promptQaOpenVariables=PASS coord=${variables_x},${variables_y}" >> "$OUT/qa-summary.txt"
                   sleep 1
                   capture_screen promptqa-core-editor-variables
-                  if grep -Fq 'No variables are used in this prompt yet.' "$OUT/promptqa-core-editor-variables-ui.xml" 2>/dev/null &&
-                     grep -Fq 'Insert variable' "$OUT/promptqa-core-editor-variables-ui.xml" 2>/dev/null; then
+                  if grep -Fq 'Insert variable' "$OUT/promptqa-core-editor-variables-ui.xml" 2>/dev/null; then
                     echo "promptQaVariablesUi=PASS" >> "$OUT/qa-summary.txt"
                   else
                     record_failure "promptQaVariablesUi=FAIL expected-variable-controls-missing"
