@@ -1543,8 +1543,9 @@ private fun DeveloperPromptComponentEditorDialog(
 ) {
     var draft by remember(key.name, initialText) { mutableStateOf(initialText) }
     var enabled by remember(key.name, initiallyDisabled) { mutableStateOf(!initiallyDisabled) }
-    val changed = draft != initialText || enabled == initiallyDisabled
-    val canSave = changed && (!enabled || draft.isNotBlank())
+    val changed = draft != initialText || enabled != !initiallyDisabled
+    val canUseRuntimeBuiltIn = builtInText == null && !hasSavedEdit
+    val canSave = changed && (!enabled || draft.isNotBlank() || canUseRuntimeBuiltIn)
 
     TurpAlertDialog(
         onDismissRequest = onDismiss,
@@ -1640,6 +1641,8 @@ private fun DeveloperPromptComponentEditorDialog(
 private fun DeveloperPromptManagerSheet(
     promptOverrides: DeveloperPromptOverrides,
     trace: app.turp.chat.settings.DeveloperPromptTrace?,
+    settingsEnabled: Boolean,
+    onCustomizationsEnabledChange: (Boolean) -> Unit,
     onDismiss: () -> Unit,
     onEdit: (DeveloperPromptKey) -> Unit,
     onInspectContext: () -> Unit,
@@ -1682,6 +1685,32 @@ private fun DeveloperPromptManagerSheet(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                shape = MaterialTheme.shapes.large,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Apply customizations", fontWeight = FontWeight.Medium)
+                        Text(
+                            if (promptOverrides.enabled) "Edited and disabled components affect new model requests."
+                            else "Customizations are saved but model requests use built-in behavior.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = promptOverrides.enabled,
+                        onCheckedChange = onCustomizationsEnabledChange,
+                        enabled = settingsEnabled,
+                    )
+                }
             }
 
             OutlinedTextField(
@@ -2084,6 +2113,8 @@ private fun DeveloperSettingsPage(
         DeveloperPromptManagerSheet(
             promptOverrides = promptOverrides,
             trace = latestPromptTrace,
+            settingsEnabled = settings.enabled,
+            onCustomizationsEnabledChange = viewModel::setDeveloperPromptOverridesEnabled,
             onDismiss = { promptManagerOpen = false },
             onEdit = { key -> editingPromptKeyName = key.name },
             onInspectContext = {
