@@ -67,6 +67,22 @@ object FallbackToolCallProtocol {
         )
     }
 
+    fun callMessage(call: NativeToolCall): String = buildString {
+        appendLine("<turp-tool-call>")
+        append(
+            buildJsonObject {
+                put("name", JsonPrimitive(call.name))
+                put(
+                    "arguments",
+                    runCatching { json.parseToJsonElement(call.argumentsJson).jsonObject }
+                        .getOrElse { JsonObject(emptyMap()) },
+                )
+            }.toString(),
+        )
+        appendLine()
+        append("</turp-tool-call>")
+    }
+
     fun resultMessage(result: NativeToolResult): String {
         val payload = buildJsonObject {
             put("name", JsonPrimitive(result.name))
