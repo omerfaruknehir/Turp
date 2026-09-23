@@ -1409,46 +1409,9 @@ fun ChatScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
         }
     }
     recoveryDetailsMessage?.let { message ->
-        val dialogContext = LocalContext.current
-        val fullError = message.error?.trim().orEmpty().ifBlank {
-            "No additional diagnostic text was returned by the provider."
-        }
-        TurpAlertDialog(
-            onDismissRequest = { recoveryDetailsMessage = null },
-            title = {
-                Text(if (message.status == MessageStatus.ERROR) "Request error" else "Interrupted response")
-            },
-            text = {
-                Column(
-                    Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Text(
-                        listOfNotNull(message.providerId, message.modelId).joinToString(" · ")
-                            .ifBlank { "Provider details unavailable" },
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    CodeSourcePanel(
-                        language = "text",
-                        code = fullError,
-                        title = if (message.status == MessageStatus.ERROR) "ERROR" else "DETAILS",
-                    )
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    dialogContext.getSystemService(android.content.ClipboardManager::class.java)
-                        .setPrimaryClip(android.content.ClipData.newPlainText("Turp stream error", fullError))
-                }) {
-                    Icon(Icons.Outlined.ContentCopy, null, Modifier.size(17.dp))
-                    Spacer(Modifier.width(5.dp))
-                    Text("Copy")
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { recoveryDetailsMessage = null }) { Text("Close") }
-            },
+        MessageErrorDetailsDialog(
+            message = message,
+            onDismiss = { recoveryDetailsMessage = null },
         )
     }
     if (showChatConfiguration) {
@@ -1712,6 +1675,7 @@ private fun MessageCard(
     var editing by remember(message.nodeId) { mutableStateOf(false) }
     var editedText by remember(message.nodeId) { mutableStateOf(message.content) }
     var copied by remember(message.nodeId) { mutableStateOf(false) }
+    var errorDetailsOpen by rememberSaveable("error-details-" + message.nodeId) { mutableStateOf(false) }
     val context = LocalContext.current
     Row(modifier.fillMaxWidth(), horizontalArrangement = if (user) Arrangement.End else Arrangement.Start) {
         Surface(
@@ -1777,6 +1741,11 @@ private fun MessageCard(
                                         !fallbackProviderId.isNullOrBlank() &&
                                         !fallbackModelId.isNullOrBlank() &&
                                         !toolFallbackSettings.isEnabled(fallbackProviderId, fallbackModelId)
+                                TextButton(
+                                    onClick = { errorDetailsOpen = true },
+                                ) {
+                                    Text("Details")
+                                }
                                 if (canEnableFallbackAndRetry) {
                                     TextButton(
                                         onClick = {
@@ -1953,6 +1922,12 @@ private fun MessageCard(
                 }
             }
         }
+    }
+    if (errorDetailsOpen) {
+        MessageErrorDetailsDialog(
+            message = message,
+            onDismiss = { errorDetailsOpen = false },
+        )
     }
     if (editing) TurpAlertDialog(
         onDismissRequest = { editing = false },
