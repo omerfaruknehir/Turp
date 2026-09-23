@@ -34,7 +34,10 @@ class ErrorDetailsUiRegressionTest {
 
         assertTrue(provider.contains("var lastStreamEvent: String?"))
         assertTrue(provider.contains("lastStreamEvent = payload.take(MAX_STREAM_DIAGNOSTIC_CHARS)"))
-        assertTrue(provider.contains("Last provider stream event:"))
+        assertTrue(provider.contains("val emptyStreamDiagnostics = mutableListOf<String>()"))
+        assertTrue(provider.contains("append(\"stream attempt \")"))
+        assertTrue(provider.contains("append(\"\\n  last event: \")"))
+        assertTrue(provider.contains("nonStreamingCompatibilityRetry("))
         assertTrue(provider.contains("MAX_STREAM_DIAGNOSTIC_CHARS = 1_500"))
     }
 }
