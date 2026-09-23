@@ -112,9 +112,11 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -163,6 +165,8 @@ import app.turp.chat.settings.DeveloperSettings
 import app.turp.chat.settings.DeveloperPromptTraceStore
 import app.turp.chat.settings.DeveloperPromptOverrides
 import app.turp.chat.settings.DeveloperPromptKey
+import app.turp.chat.settings.DeveloperPromptTemplateCatalog
+import app.turp.chat.settings.DeveloperPromptVariables
 import app.turp.chat.settings.PerformanceOverlayPosition
 import app.turp.chat.settings.NewChatDefaults
 import app.turp.chat.settings.DEFAULT_TURP_SYSTEM_PROMPT
@@ -1530,111 +1534,271 @@ private fun developerPromptGroup(key: DeveloperPromptKey): DeveloperPromptGroup 
     DeveloperPromptKey.AUX_COMPRESSION -> DeveloperPromptGroup.PROVIDER_AUX
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DeveloperPromptComponentEditorDialog(
+private fun DeveloperPromptComponentEditorSheet(
     key: DeveloperPromptKey,
-    initialText: String,
-    builtInText: String?,
+    initialTemplate: String,
+    builtInTemplate: String,
+    renderedDefault: String?,
+    currentVariables: Map<String, String>,
+    variableDescriptions: Map<String, String>,
     hasSavedEdit: Boolean,
     initiallyDisabled: Boolean,
     onDismiss: () -> Unit,
     onSave: (String, Boolean) -> Unit,
     onReset: () -> Unit,
 ) {
-    var draft by remember(key.name, initialText) { mutableStateOf(initialText) }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var draft by remember(key.name, initialTemplate) {
+        mutableStateOf(TextFieldValue(initialTemplate, TextRange(initialTemplate.length)))
+    }
     var enabled by remember(key.name, initiallyDisabled) { mutableStateOf(!initiallyDisabled) }
-    val changed = draft != initialText || enabled != !initiallyDisabled
-    val canUseRuntimeBuiltIn = builtInText == null && !hasSavedEdit
-    val canSave = changed && (!enabled || draft.isNotBlank() || canUseRuntimeBuiltIn)
+    var showPreview by rememberSaveable(key.name) { mutableStateOf(false) }
+    val renderedPreview = DeveloperPromptVariables.render(draft.text, currentVariables)
+    val unresolvedVariables = DeveloperPromptVariables.unresolved(draft.text, currentVariables)
+    val variableNames = (
+        variableDescriptions.keys +
+            currentVariables.keys +
+            DeveloperPromptVariables.names(draft.text)
+        ).distinct()
+    val changed = draft.text != initialTemplate || enabled != !initiallyDisabled
+    val canSave = changed && (!enabled || draft.text.isNotBlank())
 
-    TurpAlertDialog(
+    fun insertVariable(name: String) {
+        val token = "{{$name}}"
+        val startIndex = draft.selection.min.coerceIn(0, draft.text.length)
+        val endIndex = draft.selection.max.coerceIn(startIndex, draft.text.length)
+        val updated = draft.text.replaceRange(startIndex, endIndex, token)
+        draft = TextFieldValue(
+            text = updated,
+            selection = TextRange(startIndex + token.length),
+        )
+    }
+
+    ModalBottomSheet(
         onDismissRequest = onDismiss,
-        title = { Text(key.title) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        sheetState = sheetState,
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.96f)
+                .imePadding()
+                .padding(horizontal = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    key.title,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
                 Text(
                     key.description,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceContainer,
-                    shape = MaterialTheme.shapes.large,
-                    modifier = Modifier.fillMaxWidth(),
+                Text(
+                    key.id,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                shape = MaterialTheme.shapes.large,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Row(
-                        Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                if (enabled) "Component enabled" else "Component disabled",
-                                fontWeight = FontWeight.Medium,
-                            )
-                            Text(
-                                if (enabled) "This text can be included when the component is active."
-                                else "The saved edit is kept, but this component is omitted while customizations are applied.",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        Switch(checked = enabled, onCheckedChange = { enabled = it })
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            if (enabled) "Component enabled" else "Component disabled",
+                            fontWeight = FontWeight.Medium,
+                        )
+                        Text(
+                            if (enabled) "This template is resolved and used when this component is active."
+                            else "The saved template is kept but omitted while customizations are applied.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(checked = enabled, onCheckedChange = { enabled = it })
+                }
+            }
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                FilterChip(
+                    selected = !showPreview,
+                    onClick = { showPreview = false },
+                    label = { Text("Template") },
+                )
+                FilterChip(
+                    selected = showPreview,
+                    onClick = { showPreview = true },
+                    label = { Text("Rendered preview") },
+                )
+                Spacer(Modifier.weight(1f))
+                if (hasSavedEdit || initiallyDisabled) {
+                    TextButton(onClick = onReset) {
+                        Text("Reset component")
                     }
                 }
+            }
+
+            if (variableNames.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        "Variables · tap to insert",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        variableNames.forEach { name ->
+                            AssistChip(
+                                onClick = { insertVariable(name) },
+                                label = { Text("{{$name}}", fontFamily = FontFamily.Monospace) },
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (!showPreview) {
                 OutlinedTextField(
                     value = draft,
-                    onValueChange = { draft = it.take(128_000) },
-                    label = { Text("Prompt text") },
+                    onValueChange = { value ->
+                        if (value.text.length <= 128_000) draft = value
+                    },
+                    label = { Text("Prompt template") },
                     supportingText = {
                         Text(
-                            when {
-                                builtInText == null -> "Built-in rendered text is not available yet for this dynamic component."
-                                draft == builtInText -> "Matches the current built-in/rendered text."
-                                else -> "Edited text for this component."
+                            if (unresolvedVariables.isEmpty()) {
+                                "Named variables are resolved at request time. Unknown variables remain visible instead of being silently erased."
+                            } else {
+                                "Not available in the last captured runtime: " +
+                                    unresolvedVariables.joinToString { "{{$it}}" }
                             },
                         )
                     },
-                    minLines = 12,
-                    maxLines = 24,
-                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 14,
+                    maxLines = 28,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
                     textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                 )
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+            } else {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    shape = MaterialTheme.shapes.large,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
                 ) {
-                    OutlinedButton(
-                        onClick = { draft = builtInText.orEmpty() },
-                        enabled = builtInText != null && draft != builtInText,
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Text("Use built-in")
-                    }
-                    if (hasSavedEdit || initiallyDisabled) {
-                        TextButton(
-                            onClick = onReset,
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Text("Reset component")
-                        }
+                    SelectionContainer {
+                        Text(
+                            renderedPreview.ifBlank { "(empty after rendering)" },
+                            modifier = Modifier
+                                .padding(12.dp)
+                                .verticalScroll(rememberScrollState()),
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                        )
                     }
                 }
             }
-        },
-        confirmButton = {
-            Button(
-                onClick = { onSave(draft, enabled) },
-                enabled = canSave,
+
+            if (currentVariables.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        "Current variable values",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    currentVariables.toSortedMap().forEach { (name, value) ->
+                        val description = variableDescriptions[name]
+                        Text(
+                            buildString {
+                                append("{{").append(name).append("}} = ")
+                                append(
+                                    value.replace("\n", " ")
+                                        .take(220)
+                                        .ifBlank { "(empty)" },
+                                )
+                                if (value.length > 220) append(" … [").append(value.length).append(" chars]")
+                                if (!description.isNullOrBlank()) append("\n").append(description)
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            } else {
+                Text(
+                    "No live value has been captured for this component yet. The built-in source template is still fully editable; its variables will resolve when this runtime path is used.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            renderedDefault?.takeIf { it.isNotBlank() }?.let {
+                Text(
+                    "Last rendered built-in: ${it.take(240)}${if (it.length > 240) " …" else ""}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text("Save")
+                OutlinedButton(
+                    onClick = {
+                        draft = TextFieldValue(
+                            builtInTemplate,
+                            TextRange(builtInTemplate.length),
+                        )
+                        showPreview = false
+                    },
+                    enabled = draft.text != builtInTemplate,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Use built-in template")
+                }
+                TextButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Cancel")
+                }
+                Button(
+                    onClick = { onSave(draft.text, enabled) },
+                    enabled = canSave,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Save")
+                }
             }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
-        },
-    )
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1815,6 +1979,18 @@ private fun DeveloperPromptManagerSheet(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         maxLines = 2,
                                     )
+                                    Text(
+                                        (promptOverrides.values[key.id]
+                                            ?: DeveloperPromptTemplateCatalog.spec(key).template)
+                                            .lineSequence()
+                                            .firstOrNull { it.isNotBlank() }
+                                            .orEmpty()
+                                            .take(160),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 2,
+                                    )
                                     if (rendered) {
                                         Text(
                                             "Rendered in latest request",
@@ -1847,30 +2023,39 @@ private fun DeveloperPromptManagerSheet(
     }
 
     if (confirmResetAll) {
-        TurpAlertDialog(
-            onDismissRequest = { confirmResetAll = false },
-            title = { Text("Reset all prompt customizations?") },
-            text = {
+        Surface(
+            color = MaterialTheme.colorScheme.errorContainer,
+            shape = MaterialTheme.shapes.large,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(
+                Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text("Reset all prompt customizations?", fontWeight = FontWeight.SemiBold)
                 Text(
                     "This removes every saved prompt edit and disabled-component setting. Built-in Turp prompts are not changed.",
+                    style = MaterialTheme.typography.bodySmall,
                 )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        onResetAll()
-                        confirmResetAll = false
-                    },
-                ) {
-                    Text("Reset all")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(
+                        onClick = { confirmResetAll = false },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Cancel")
+                    }
+                    Button(
+                        onClick = {
+                            onResetAll()
+                            confirmResetAll = false
+                        },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Reset all")
+                    }
                 }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmResetAll = false }) {
-                    Text("Cancel")
-                }
-            },
-        )
+            }
+        }
     }
 }
 
@@ -2147,7 +2332,10 @@ private fun DeveloperSettingsPage(
             settingsEnabled = settings.enabled,
             onCustomizationsEnabledChange = viewModel::setDeveloperPromptOverridesEnabled,
             onDismiss = { promptManagerOpen = false },
-            onEdit = { key -> editingPromptKeyName = key.name },
+            onEdit = { key ->
+                promptManagerOpen = false
+                editingPromptKeyName = key.name
+            },
             onInspectContext = {
                 promptManagerOpen = false
                 effectiveContextOpen = true
@@ -2175,25 +2363,41 @@ private fun DeveloperSettingsPage(
             promptOverrides.hasOverride(key) -> promptOverrides.editorText(key, "")
             else -> ""
         }
-        DeveloperPromptComponentEditorDialog(
+        val builtInTemplate = DeveloperPromptTemplateCatalog.spec(key).template
+        val renderedDefault = renderedComponent?.defaultText
+        val currentVariables = renderedComponent?.variables.orEmpty()
+        val initialTemplate = if (promptOverrides.hasOverride(key)) {
+            promptOverrides.editorText(key, builtInTemplate)
+        } else {
+            builtInTemplate
+        }
+        DeveloperPromptComponentEditorSheet(
             key = key,
-            initialText = initialText,
-            builtInText = builtInText,
+            initialTemplate = initialTemplate,
+            builtInTemplate = builtInTemplate,
+            renderedDefault = renderedDefault,
+            currentVariables = currentVariables,
+            variableDescriptions = DeveloperPromptTemplateCatalog.variableDescriptions(key),
             hasSavedEdit = promptOverrides.hasOverride(key),
             initiallyDisabled = promptOverrides.isDisabled(key),
-            onDismiss = { editingPromptKeyName = null },
+            onDismiss = {
+                editingPromptKeyName = null
+                promptManagerOpen = true
+            },
             onSave = { value, enabled ->
-                if (builtInText != null && value == builtInText) {
+                if (value == builtInTemplate) {
                     viewModel.setDeveloperPromptOverride(key, null)
-                } else if (value.isNotBlank()) {
+                } else {
                     viewModel.setDeveloperPromptOverride(key, value)
                 }
                 viewModel.setDeveloperPromptDisabled(key, !enabled)
                 editingPromptKeyName = null
+                promptManagerOpen = true
             },
             onReset = {
                 viewModel.resetDeveloperPromptCustomization(key)
                 editingPromptKeyName = null
+                promptManagerOpen = true
             },
         )
     }
