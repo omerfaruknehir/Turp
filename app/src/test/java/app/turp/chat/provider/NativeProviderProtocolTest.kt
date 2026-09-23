@@ -4,6 +4,7 @@ import app.turp.chat.data.MessageRole
 import app.turp.chat.data.ModelEntity
 import app.turp.chat.data.ProviderEntity
 import app.turp.chat.data.ProviderKind
+import app.turp.chat.data.ProviderProfile
 import app.turp.chat.data.ThinkingEffort
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
