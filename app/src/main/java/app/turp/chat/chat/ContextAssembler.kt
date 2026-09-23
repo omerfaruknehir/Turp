@@ -18,6 +18,7 @@ import app.turp.chat.settings.DeveloperPromptTraceStore
 import app.turp.chat.settings.DeveloperPromptComponentTrace
 import app.turp.chat.settings.DeveloperPromptOverrides
 import app.turp.chat.settings.DeveloperPromptKey
+import app.turp.chat.settings.DeveloperPromptTemplateCatalog
 import java.time.ZoneOffset
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
@@ -94,14 +95,45 @@ class ContextAssembler(
     ): List<InputMessage> {
         val now = ZonedDateTime.now()
         val localFormatter = DateTimeFormatter.ofPattern("EEEE, d MMMM uuuu, HH:mm:ss XXX", Locale.getDefault())
+        val basePromptVariables = linkedMapOf(
+            "conversation_id" to conversation.id,
+            "provider_id" to conversation.selectedProviderId,
+            "model_id" to conversation.selectedModelId,
+            "app_version" to appVersion,
+            "core_prompt_revision" to TURP_CORE_PROMPT_REVISION,
+            "local_datetime" to now.format(localFormatter),
+            "timezone" to now.zone.id,
+            "locale" to Locale.getDefault().toLanguageTag(),
+            "utc_datetime" to now.withZoneSameInstant(ZoneOffset.UTC).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+            "web_search_enabled" to if (conversation.webSearchEnabled) "enabled" else "disabled",
+            "deep_research_enabled" to if (conversation.deepResearchEnabled) "enabled" else "disabled",
+            "python_enabled" to if (conversation.agentPythonEnabled) "enabled" else "disabled",
+            "linux_enabled" to if (conversation.agentUbuntuEnabled) "enabled" else "disabled",
+            "thinking_state" to if (conversation.thinkingEnabled) {
+                "enabled (${conversation.thinkingEffort.name.lowercase()})"
+            } else {
+                "disabled"
+            },
+        )
         val promptComponents = linkedMapOf<String, DeveloperPromptComponentTrace>()
-        fun promptLayer(key: DeveloperPromptKey, defaultValue: String): String {
-            val effective = developerPromptOverrides.resolve(key, defaultValue)
+        fun promptLayer(
+            key: DeveloperPromptKey,
+            defaultValue: String,
+            extraVariables: Map<String, String> = emptyMap(),
+        ): String {
+            val variables = DeveloperPromptTemplateCatalog.runtimeVariables(
+                key = key,
+                defaultValue = defaultValue,
+                extras = basePromptVariables + extraVariables,
+            )
+            val effective = developerPromptOverrides.resolve(key, defaultValue, variables)
             promptComponents[key.id] = DeveloperPromptComponentTrace(
                 key = key.id,
                 title = key.title,
+                sourceTemplate = DeveloperPromptTemplateCatalog.spec(key).template,
                 defaultText = defaultValue,
                 effectiveText = effective,
+                variables = variables,
             )
             return effective
         }
@@ -191,8 +223,19 @@ class ContextAssembler(
         val resolvedBasePrompt = promptLayer(
             if (overrideProfile) DeveloperPromptKey.CUSTOM_PROFILE_OVERRIDE else DeveloperPromptKey.CORE_PROMPT,
             basePrompt,
+            extraVariables = mapOf(
+                "profile_name" to promptProfile?.name.orEmpty().ifBlank { "Unnamed" },
+                "profile_prompt" to customProfileInstructions,
+            ),
         )
-        val resolvedProfileLayer = promptLayer(DeveloperPromptKey.PROFILE_APPEND, profileLayer)
+        val resolvedProfileLayer = promptLayer(
+            DeveloperPromptKey.PROFILE_APPEND,
+            profileLayer,
+            extraVariables = mapOf(
+                "profile_name" to promptProfile?.name.orEmpty().ifBlank { "Unnamed" },
+                "profile_prompt" to customProfileInstructions,
+            ),
+        )
 
         val memoryLayer = when {
             !memoryEnabled -> "Turp memory is disabled."
