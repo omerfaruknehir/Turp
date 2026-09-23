@@ -260,6 +260,27 @@ object DeveloperPromptTemplateCatalog {
         spec(key).passthroughVariable?.let { put(it, defaultValue) }
     }
 
+    /**
+     * Returns the canonical Turp-authored built-in text for a prompt component.
+     *
+     * Static/template components are rendered directly from this catalog, making
+     * the catalog the single source of truth shared by runtime assembly and the
+     * Developer editor. Passthrough components intentionally keep the live value
+     * produced by their owning subsystem and expose it through a named variable.
+     */
+    fun builtInText(
+        key: DeveloperPromptKey,
+        runtimeValue: String,
+        variables: Map<String, String>,
+    ): String {
+        val promptSpec = spec(key)
+        val sourceVariables = buildMap {
+            putAll(variables)
+            promptSpec.passthroughVariable?.let { put(it, runtimeValue) }
+        }
+        return DeveloperPromptVariables.render(promptSpec.template, sourceVariables)
+    }
+
     fun variableDescriptions(key: DeveloperPromptKey): Map<String, String> =
         commonVariableDescriptions + spec(key).variableDescriptions
 
