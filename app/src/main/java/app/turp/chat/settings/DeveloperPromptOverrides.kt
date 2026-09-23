@@ -66,11 +66,16 @@ data class DeveloperPromptOverrides(
     val values: Map<String, String> = emptyMap(),
     val disabledIds: Set<String> = emptySet(),
 ) {
-    fun resolve(key: DeveloperPromptKey, defaultValue: String): String {
+    fun resolve(
+        key: DeveloperPromptKey,
+        defaultValue: String,
+        variables: Map<String, String> = emptyMap(),
+    ): String {
         if (!enabled) return defaultValue
         if (key.id in disabledIds) return ""
         val template = values[key.id] ?: return defaultValue
-        return template.replace(DEVELOPER_PROMPT_DEFAULT_TOKEN, defaultValue)
+        val withLegacyDefault = template.replace(DEVELOPER_PROMPT_DEFAULT_TOKEN, defaultValue)
+        return DeveloperPromptVariables.render(withLegacyDefault, variables)
     }
 
     /**
@@ -94,8 +99,10 @@ data class DeveloperPromptOverrides(
 data class DeveloperPromptComponentTrace(
     val key: String,
     val title: String,
+    val sourceTemplate: String,
     val defaultText: String,
     val effectiveText: String,
+    val variables: Map<String, String> = emptyMap(),
 )
 
 data class DeveloperPromptTrace(
@@ -135,8 +142,10 @@ object DeveloperPromptTraceStore {
     fun recordComponent(
         conversationId: String,
         key: DeveloperPromptKey,
+        sourceTemplate: String = DeveloperPromptTemplateCatalog.spec(key).template,
         defaultText: String,
         effectiveText: String,
+        variables: Map<String, String> = emptyMap(),
     ) {
         val previous = _latest.value
         val base = if (previous?.conversationId == conversationId) {
@@ -154,8 +163,10 @@ object DeveloperPromptTraceStore {
                 key.id to DeveloperPromptComponentTrace(
                     key = key.id,
                     title = key.title,
+                    sourceTemplate = sourceTemplate,
                     defaultText = defaultText,
                     effectiveText = effectiveText,
+                    variables = variables,
                 )
             ),
         )
