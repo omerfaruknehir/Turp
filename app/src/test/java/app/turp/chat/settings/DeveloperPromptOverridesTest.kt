@@ -228,8 +228,10 @@ class DeveloperPromptOverridesTest {
         assertTrue(traceStore.contains("fun recordComponent("))
         assertTrue(httpStore.contains("DeveloperPromptTraceStore.recordProviderContext(request, protocol)"))
         assertTrue(worker.contains("developerPromptTraceEnabled = developerSettings.enabled"))
-        assertTrue(settings.contains("\"Effective system context\""))
-        assertTrue(settings.contains("Provider/API-owned upstream prompts"))
+        assertTrue(traceStore.contains("val modelId: String"))
+        assertTrue(settings.contains("\"Sent to model\""))
+        assertTrue(settings.contains("provider-boundary context"))
+        assertTrue(settings.contains("Provider-owned upstream instructions"))
     }
 
     @Test
