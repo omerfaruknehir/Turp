@@ -70,7 +70,7 @@ internal enum class ModelPickerFilter(val label: String) {
     FAVORITES("Favorites"),
     RECENT("Recent"),
     THINKING("Thinking"),
-    TOOLS("Tools"),
+    TOOLS("Reported tools"),
     VISION("Vision"),
     FILES("Files"),
     IMAGE("Image"),
@@ -468,7 +468,7 @@ private val ModelPickerChoice.pickerSummary: String
             add("${model.contextWindow.compactTokens()} context")
             add("${model.maxOutputTokens.compactTokens()} output")
             if (model.supportsThinking) add(if (model.reasoningMandatory) "Thinking always on" else "Thinking")
-            if (model.supportsTools) add("Tools")
+            if (model.supportsTools) add("Tools (reported)")
             if (model.supportsVision) add("Vision")
             if (model.supportsFiles) add("Files")
             if (model.isActuallyFree) add("Free")
