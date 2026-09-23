@@ -1428,14 +1428,15 @@ internal fun unsupportedToolCallingNotice(
     modelSupportsTools: Boolean?,
     toolCallingRequested: Boolean,
     sudoNativeAttempt: Boolean = false,
+    fallbackEnabled: Boolean = false,
 ): String? = when {
     modelSupportsTools != false || !toolCallingRequested -> null
+    fallbackEnabled ->
+        "Native tool calling is not reported for this model. Turp fallback tool calling is enabled and will use the strict fallback protocol instead."
     sudoNativeAttempt ->
-        "Catalog metadata says this model doesn't support tool calling. " +
-            "Sudo will still try real native tool definitions; the provider/API may reject them."
+        "Catalog metadata says this model doesn't support tool calling. Sudo will still try real native tool definitions first; the provider/API may reject them."
     else ->
-        "Provider/catalog metadata reports tool calling as unsupported for this model. " +
-            "Turp will not send native tool definitions unless Sudo overrides that metadata."
+        "Provider/catalog metadata reports native tool calling as unsupported for this model. Enable fallback to let Turp execute tools through its strict fallback protocol."
 }
 
 @Composable
@@ -3003,6 +3004,7 @@ private fun Composer(
     val chromeEdgeSoftness by viewModel.chromeEdgeSoftness.collectAsStateWithLifecycle()
     val chromeOverlayOpacity by viewModel.chromeOverlayOpacity.collectAsStateWithLifecycle()
     val developerSettings by viewModel.developerSettings.collectAsStateWithLifecycle()
+    val toolFallbackSettings by viewModel.toolCallFallbackSettings.collectAsStateWithLifecycle()
     val draft by viewModel.draft.collectAsState()
     val staged by viewModel.stagedAttachments.collectAsState()
     val importing by viewModel.importing.collectAsState()
@@ -3137,6 +3139,9 @@ private fun Composer(
                     developerSettings.enabled &&
                         developerSettings.sudoModeControlEnabled &&
                         current.sudoModeEnabled
+                val fallbackEnabledForModel = model?.let {
+                    toolFallbackSettings.isEnabled(it.providerId, it.modelId)
+                } == true
                 if (!imageGenerationMode) unsupportedToolCallingNotice(
                     modelSupportsTools = model?.supportsTools,
                     toolCallingRequested = current.webSearchEnabled ||
@@ -3144,28 +3149,47 @@ private fun Composer(
                         current.agentPythonEnabled ||
                         current.agentUbuntuEnabled,
                     sudoNativeAttempt = sudoNativeAttempt,
+                    fallbackEnabled = fallbackEnabledForModel,
                 )?.let { notice ->
+                    val canEnableFallback = !fallbackEnabledForModel && provider != null && model != null
                     Surface(
-                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = .72f),
+                        color = if (fallbackEnabledForModel) {
+                            MaterialTheme.colorScheme.secondaryContainer.copy(alpha = .72f)
+                        } else {
+                            MaterialTheme.colorScheme.errorContainer.copy(alpha = .72f)
+                        },
                         shape = MaterialTheme.shapes.large,
                         modifier = Modifier.fillMaxWidth().padding(bottom = 7.dp),
                     ) {
-                        Row(
+                        Column(
                             Modifier.padding(horizontal = 11.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
-                            Icon(
-                                Icons.Outlined.WarningAmber,
-                                null,
-                                Modifier.size(18.dp),
-                                tint = MaterialTheme.colorScheme.onErrorContainer,
-                            )
-                            Text(
-                                notice,
-                                Modifier.padding(start = 8.dp),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onErrorContainer,
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    if (fallbackEnabledForModel) Icons.Outlined.Build else Icons.Outlined.WarningAmber,
+                                    null,
+                                    Modifier.size(18.dp),
+                                )
+                                Text(
+                                    notice,
+                                    Modifier.padding(start = 8.dp).weight(1f),
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                            if (canEnableFallback) {
+                                TextButton(
+                                    onClick = {
+                                        viewModel.enableToolCallFallbackForModel(
+                                            provider!!.id,
+                                            model!!.modelId,
+                                        )
+                                    },
+                                    modifier = Modifier.align(Alignment.End),
+                                ) {
+                                    Text("Enable fallback for this model")
+                                }
+                            }
                         }
                     }
                 }
