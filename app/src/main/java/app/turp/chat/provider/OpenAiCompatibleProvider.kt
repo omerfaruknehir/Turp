@@ -562,13 +562,15 @@ class OpenAiCompatibleProvider(
                 if (isAlibaba) "max_completion_tokens" else "max_tokens",
                 JsonPrimitive(request.maxOutputTokens),
             )
-            if (stream && profile in setOf(
-                    ProviderProfile.OPENAI,
-                    ProviderProfile.DEEPSEEK,
-                    ProviderProfile.OPENROUTER,
-                    ProviderProfile.XAI,
-                    ProviderProfile.QWEN_CLOUD,
-                ) || isAlibaba
+            if (stream && (
+                    profile in setOf(
+                        ProviderProfile.OPENAI,
+                        ProviderProfile.DEEPSEEK,
+                        ProviderProfile.OPENROUTER,
+                        ProviderProfile.XAI,
+                        ProviderProfile.QWEN_CLOUD,
+                    ) || isAlibaba
+                )
             ) {
                 put("stream_options", buildJsonObject { put("include_usage", JsonPrimitive(true)) })
             }
