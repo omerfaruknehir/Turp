@@ -100,7 +100,10 @@ class DeveloperPromptOverridesTest {
         assertTrue(qa.contains("promptQaExpandCore"))
         assertTrue(qa.contains("promptQaOpenCoreEditor"))
         assertTrue(qa.contains("promptQaEditorUi=PASS"))
+        assertTrue(qa.contains("promptQaEditorFullScreen=PASS"))
+        assertTrue(qa.contains("promptQaVariablesUi=PASS"))
         assertTrue(qa.contains("promptqa-core-editor.png"))
+        assertTrue(qa.contains("promptqa-core-editor-variables.png"))
         assertTrue(qa.contains("\"Prompt text\""))
         assertTrue(qa.contains("\"Include this layer\""))
     }
