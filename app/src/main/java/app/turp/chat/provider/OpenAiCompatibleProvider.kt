@@ -77,6 +77,7 @@ class OpenAiCompatibleProvider(
             var attemptInputTokens: Long? = null
             var attemptOutputTokens: Long? = null
             var attemptCachedTokens: Long? = null
+            var lastStreamEvent: String? = null
 
             DeveloperHttpTraceStore.record(attemptRequest, httpRequest, attemptRequest.provider.effectiveProtocol.name)
             client.newCall(httpRequest).useCancellable { response ->
@@ -91,6 +92,7 @@ class OpenAiCompatibleProvider(
                     if (!line.startsWith("data:")) continue
                     val payload = line.removePrefix("data:").trim()
                     if (payload == "[DONE]") break
+                    if (payload.isNotBlank()) lastStreamEvent = payload.take(MAX_STREAM_DIAGNOSTIC_CHARS)
                     parseChunk(payload, calls)?.let { chunk ->
                         val tagged = thinkingTags.accept(chunk.text, chunk.reasoning)
                         rawText.append(tagged.text)
@@ -216,8 +218,12 @@ class OpenAiCompatibleProvider(
             if (meaningfulPayloadReceived) break
             if (emptyAttempt >= MAX_EMPTY_STREAM_RETRIES) {
                 val suffix = finishReason?.takeIf(String::isNotBlank)?.let { " (finish reason: $it)" }.orEmpty()
+                val diagnostic = lastStreamEvent
+                    ?.takeIf(String::isNotBlank)
+                    ?.let { "\nLast provider stream event: $it" }
+                    .orEmpty()
                 throw ProviderProtocolException(
-                    "Provider completed without returning content after ${emptyAttempt + 1} attempts$suffix",
+                    "Provider completed without returning content after ${emptyAttempt + 1} attempts$suffix$diagnostic",
                 )
             }
             emptyAttempt++
@@ -696,6 +702,7 @@ class OpenAiCompatibleProvider(
         const val MAX_EMPTY_STREAM_RETRIES = 2
         const val EMPTY_STREAM_RETRY_DELAY_MS = 750L
         const val MAX_IMAGE_RESPONSE_BYTES = 96L * 1024 * 1024
+        const val MAX_STREAM_DIAGNOSTIC_CHARS = 1_500
         const val MAX_DEEPSEEK_TOOL_CORRECTION_RETRIES = 1
         const val DEEPSEEK_TOOL_CORRECTION_RETRY_DELAY_MS = 350L
         const val DEEPSEEK_TOOL_CALL_GUARD =
