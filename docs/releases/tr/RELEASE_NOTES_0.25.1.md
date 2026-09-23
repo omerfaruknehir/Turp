@@ -2,6 +2,7 @@
 
 ## Android sağlayıcı düzeltmesi
 
+- OpenAI uyumlu proxy kurtarmasını iyileştirir: art arda boş SSE tamamlamalarından (`finish_reason: error` dahil) sonra Turp bir kez akışsız uyumluluk yeniden denemesi yapar; geçerli yanıt dönerse onu kullanır, aksi halde proxy'nin JSON/HTTP hatasını ayrı akış denemelerinin tanılarıyla birlikte gösterir.
 - Sağlayıcı uç nokta şablonu doğrulamasındaki geçersiz düzenli ifade nedeniyle Android'de oluşan istek hatalarını düzeltir.
 - Bu tür yalnızca çalışma zamanında görülen hataların yayımdan önce yakalanması için Android düzenli ifade motorunda uç nokta genişletmesini gerçekten çalıştıran enstrümantasyon kapsamı ekler.
 - Turp arka plandayken veya uygulama penceresi odakta değilken akış ve tamamlanma titreşimlerini durdurur; yanıt üretimi arka planda normal şekilde devam eder.
