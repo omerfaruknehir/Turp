@@ -172,7 +172,6 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
         "developer_prompt_editor_key",
         null,
     )
-    val developerPromptInspectorRequested = MutableStateFlow(false)
     val settingsPageRevisions = MutableStateFlow<Map<SettingsRoute, Long>>(emptyMap())
     val searchQuery = savedStateHandle.getMutableStateFlow("search_query", restoredUiState.searchQuery)
     val focusedMessageNodeId = savedStateHandle.getMutableStateFlow<String?>(
@@ -581,19 +580,18 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
         settingsRoute.value = route
     }
 
+    fun openDeveloperPrompts() {
+        openSettingsRoute(SettingsRoute.DEVELOPER_PROMPTS)
+    }
+
     fun openDeveloperPromptEditor(key: app.turp.chat.settings.DeveloperPromptKey) {
         developerPromptEditorKey.value = key.name
         openSettingsRoute(SettingsRoute.PROMPT_EDITOR)
     }
 
-    fun closeDeveloperPromptEditor(reopenInspector: Boolean = true) {
+    fun closeDeveloperPromptEditor() {
         developerPromptEditorKey.value = null
-        developerPromptInspectorRequested.value = reopenInspector
-        openSettingsRoute(SettingsRoute.DEVELOPER)
-    }
-
-    fun consumeDeveloperPromptInspectorRequest() {
-        developerPromptInspectorRequested.value = false
+        openSettingsRoute(SettingsRoute.DEVELOPER_PROMPTS)
     }
 
     fun openSettingsHome() {
