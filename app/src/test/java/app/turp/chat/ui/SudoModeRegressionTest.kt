@@ -30,6 +30,9 @@ class SudoModeRegressionTest {
 
         assertTrue(worker.contains("developerSettings.enabled && developerSettings.sudoModeControlEnabled"))
         assertTrue(worker.contains("sudoSyntheticDefinitions"))
+        assertTrue(worker.contains("shouldExposeNativeToolDefinitions"))
+        assertTrue(worker.contains("modelSupportsTools || sudoModeActive"))
+        assertTrue(worker.contains("does not prove the underlying model is incapable of tool calling"))
         assertTrue(assembler.contains("latest user-authored text as system-priority instruction"))
         assertTrue(assembler.contains("synthetic native function"))
         assertTrue(assembler.contains("real provider-native tool call"))
