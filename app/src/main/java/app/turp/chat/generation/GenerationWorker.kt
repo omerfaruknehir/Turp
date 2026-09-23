@@ -31,6 +31,7 @@ import app.turp.chat.data.MessageStatus
 import app.turp.chat.data.GenerationUsageEntity
 import app.turp.chat.data.ProviderKind
 import app.turp.chat.provider.ChatRequest
+import app.turp.chat.provider.FallbackToolCallProtocol
 import app.turp.chat.provider.GeneratedImageOutput
 import app.turp.chat.provider.InputMessage
 import app.turp.chat.provider.NativeToolCall
@@ -274,6 +275,15 @@ class GenerationWorker(
             it.role == MessageRole.USER && it.content.isNotBlank()
         }?.content.orEmpty()
         val forceNativeToolAttempt = sudoModeActive && !directImageModel
+        val executableToolDefinitions = if (!directImageModel) {
+            TurpNativeTools.definitions(conversation, memoryEnabled = automationSettings.memoryEnabled)
+                .filterNot { tool ->
+                    !webSearchSettings.pageFetchEnabled && tool.name.equals("web_fetch", ignoreCase = true)
+                }
+        } else emptyList()
+        val fallbackToolCallingEnabled =
+            executableToolDefinitions.isNotEmpty() &&
+                container.appPreferences.toolCallFallbackEnabled(provider.id, model.modelId)
         val regularNativeToolDefinitions = if (
             shouldExposeNativeToolDefinitions(
                 modelSupportsTools = model.supportsTools,
@@ -281,10 +291,7 @@ class GenerationWorker(
                 directImageModel = directImageModel,
             )
         ) {
-            TurpNativeTools.definitions(conversation, memoryEnabled = automationSettings.memoryEnabled)
-                .filterNot { tool ->
-                    !webSearchSettings.pageFetchEnabled && tool.name.equals("web_fetch", ignoreCase = true)
-                }
+            executableToolDefinitions
         } else emptyList()
         // Catalog/provider metadata is only a capability hint. In Sudo mode Turp
         // deliberately attempts real native definitions even when that metadata
@@ -303,6 +310,10 @@ class GenerationWorker(
         val sudoSyntheticToolNames = sudoSyntheticToolDefinitions
             .mapTo(linkedSetOf()) { it.name.lowercase() }
         val nativeToolDefinitions = regularNativeToolDefinitions + sudoSyntheticToolDefinitions
+        var fallbackToolMode =
+            fallbackToolCallingEnabled && !model.supportsTools && !forceNativeToolAttempt
+        val fallbackProtocolInstruction =
+            FallbackToolCallProtocol.instruction(executableToolDefinitions)
         val messages = ContextAssembler(
             attachmentDao = container.database.attachmentDao(),
             appVersion = installedVersion.versionName,
@@ -310,7 +321,8 @@ class GenerationWorker(
             conversation,
             newest,
             compressedContext,
-            nativeToolsAvailable = nativeToolDefinitions.isNotEmpty(),
+            nativeToolsAvailable = nativeToolDefinitions.isNotEmpty() && !fallbackToolMode,
+            fallbackToolsAvailable = fallbackToolMode,
             promptProfile = snapshot.promptProfile(),
             continuationAssistantNodeId = assistantId.takeIf { continuation || initial.streamOffset > 0 },
             memories = activeMemories,
@@ -320,7 +332,19 @@ class GenerationWorker(
             sudoModeAllowed = sudoModeAllowed,
             developerPromptOverrides = developerPromptOverrides,
         ).toMutableList()
-        var nativeToolsDisabled = false
+        fun appendFallbackProtocolInstruction(reason: String? = null) {
+            if (fallbackProtocolInstruction.isBlank()) return
+            val content = buildString {
+                reason?.takeIf(String::isNotBlank)?.let {
+                    appendLine(it)
+                    appendLine()
+                }
+                append(fallbackProtocolInstruction)
+            }
+            messages += InputMessage(MessageRole.SYSTEM, content)
+        }
+        if (fallbackToolMode) appendFallbackProtocolInstruction()
+        var nativeToolsDisabled = fallbackToolMode
         val effectiveContinuation = continuation || initial.streamOffset > 0
         if (!effectiveContinuation) {
             val current = repository.message(assistantId)
@@ -820,6 +844,7 @@ class GenerationWorker(
             var lastFlush = System.currentTimeMillis()
             var lastNotification = 0L
             var attempt = 0
+            var fallbackCorrectionAttempt = 0
             val passToolCalls = mutableListOf<NativeToolCall>()
             var passNativePayload = ""
             val progressEventIds = mutableMapOf<Int, String>()
@@ -894,13 +919,19 @@ class GenerationWorker(
             }
 
             while (true) {
-                val outgoing = if (universalFallback) messages + InputMessage(
+                val continuationMessages = if (universalFallback) messages + InputMessage(
                     MessageRole.USER,
                     developerPromptOverrides.resolve(
                         DeveloperPromptKey.OUTPUT_CONTINUATION,
                         "The previous reply was cut off. Continue from exactly where it stopped. Do not repeat text, add a preamble, or reopen an already-open code fence.",
                     ),
                 ) else messages
+                val outgoing = if (fallbackCorrectionAttempt > 0) {
+                    continuationMessages + InputMessage(
+                        MessageRole.SYSTEM,
+                        "Your previous fallback tool call was malformed. Retry from scratch. If a tool is needed, output exactly one complete <turp-tool-call> JSON envelope and no other text. Otherwise answer normally.",
+                    )
+                } else continuationMessages
                 val callId = UUID.randomUUID().toString()
                 val callStartedAt = System.currentTimeMillis()
                 val callContentStart = savedContent.length
@@ -926,10 +957,14 @@ class GenerationWorker(
                         webSearchRoute = webSearchSettings.route,
                         webSearchEngine = webSearchSettings.engine,
                         webSearchMaxResults = webSearchSettings.maxResults,
-                        tools = if (nativeToolsDisabled) emptyList() else nativeToolDefinitions,
-                        // Tool execution can be disabled for the final synthesis turn, but
-                        // stale text-encoded calls must still be recognized and suppressed.
-                        toolProtocolNames = nativeToolDefinitions.mapTo(linkedSetOf()) { it.name },
+                        tools = if (nativeToolsDisabled || fallbackToolMode) emptyList() else nativeToolDefinitions,
+                        // Native protocol recovery/firewall stays active only for native mode.
+                        // Fallback mode has its own exact whole-response parser below.
+                        toolProtocolNames = if (fallbackToolMode) {
+                            emptySet()
+                        } else {
+                            nativeToolDefinitions.mapTo(linkedSetOf()) { it.name }
+                        },
                         developerTraceId = if (
                             developerSettings.enabled && developerSettings.showHttpRequestEnabled
                         ) assistantId else "",
@@ -1040,6 +1075,49 @@ class GenerationWorker(
                         if (pendingCharacters >= STREAM_FLUSH_CHARACTERS || System.currentTimeMillis() - lastFlush >= STREAM_FLUSH_MS) flush()
                     }
                     flush()
+                    if (fallbackToolMode && !finalizationRequested && passToolCalls.isEmpty()) {
+                        val fallbackText = savedContent.substring(callContentStart.coerceAtMost(savedContent.length))
+                        val fallbackReasoning = savedReasoning.substring(callReasoningStart.coerceAtMost(savedReasoning.length))
+                        val allowedNames = executableToolDefinitions.mapTo(linkedSetOf()) { it.name }
+                        val fallbackCall =
+                            FallbackToolCallProtocol.parseExact(fallbackText, allowedNames)
+                                ?: fallbackReasoning
+                                    .takeIf { fallbackText.isBlank() }
+                                    ?.let { FallbackToolCallProtocol.parseExact(it, allowedNames) }
+                        val protocolHint =
+                            FallbackToolCallProtocol.containsEnvelopeHint(fallbackText) ||
+                                FallbackToolCallProtocol.containsEnvelopeHint(fallbackReasoning)
+                        if (fallbackCall != null || protocolHint) {
+                            savedContent = savedContent.substring(0, callContentStart.coerceAtMost(savedContent.length))
+                            savedReasoning = savedReasoning.substring(0, callReasoningStart.coerceAtMost(savedReasoning.length))
+                            if (timeline.size > callTimelineStart) {
+                                timeline.subList(callTimelineStart, timeline.size).clear()
+                            }
+                            timelineDirty = true
+                            pendingCharacters = 0
+                            publishPreview()
+                            persistTimeline(forceMetadata = true)
+                        }
+                        if (fallbackCall != null) {
+                            passToolCalls += fallbackCall
+                            passFinishReason = "fallback_tool_call"
+                        } else if (protocolHint) {
+                            saveCallUsage(
+                                callId, round, callStartedAt, outgoing, passReceived,
+                                passInput, passOutput, passCached,
+                                fallbackText + fallbackReasoning,
+                                passFinishReason, "ERROR",
+                                ProviderProtocolException("Malformed fallback tool-call envelope"),
+                            )
+                            if (fallbackCorrectionAttempt < 1) {
+                                fallbackCorrectionAttempt++
+                                continue
+                            }
+                            throw ProviderProtocolException(
+                                "The model repeatedly returned an invalid fallback tool-call envelope. Turp discarded it and did not execute anything.",
+                            )
+                        }
+                    }
                     lastFinishReason = passFinishReason ?: lastFinishReason
                     saveCallUsage(
                         callId, round, callStartedAt, outgoing, passReceived, passInput, passOutput, passCached,
@@ -1056,6 +1134,14 @@ class GenerationWorker(
                         passFinishReason, "ERROR", error,
                     )
                     if (!passReceived && !nativeToolsDisabled && nativeToolDefinitions.isNotEmpty() && error.status in setOf(400, 404, 422, 501)) {
+                        if (fallbackToolCallingEnabled && executableToolDefinitions.isNotEmpty()) {
+                            fallbackToolMode = true
+                            nativeToolsDisabled = true
+                            appendFallbackProtocolInstruction(
+                                "The provider/API endpoint rejected Turp's native function definitions. Ignore earlier native-tool instructions for this request; Turp is switching to its strict fallback tool protocol.",
+                            )
+                            continue
+                        }
                         throw ProviderProtocolException(
                             buildString {
                                 append("The provider/API endpoint rejected a request that included Turp's native tool definitions. ")
@@ -1063,8 +1149,7 @@ class GenerationWorker(
                                 if (sudoModeActive && !model.supportsTools) {
                                     append("Sudo ignored the catalog's supportsTools=false hint and made the native attempt anyway. ")
                                 }
-                                append("Use an endpoint that accepts native function schemas or disable Turp tools for this request. ")
-                                append("Turp will not fall back to text-encoded fake tool commands.")
+                                append("Enable Tool-call fallback for this model in Turp, use an endpoint that accepts native function schemas, or disable Turp tools for this request.")
                             },
                             error,
                         )
@@ -1135,13 +1220,22 @@ class GenerationWorker(
                     break
                 }
                 val calls = passToolCalls.distinctBy { it.id.ifBlank { it.name + it.argumentsJson } }
-                messages += InputMessage(
-                    role = MessageRole.ASSISTANT,
-                    content = passText,
-                    reasoning = passReasoning,
-                    nativeToolCalls = calls,
-                    nativeProviderPayloadJson = passNativePayload,
-                )
+                if (fallbackToolMode) {
+                    calls.forEach { call ->
+                        messages += InputMessage(
+                            role = MessageRole.ASSISTANT,
+                            content = FallbackToolCallProtocol.callMessage(call),
+                        )
+                    }
+                } else {
+                    messages += InputMessage(
+                        role = MessageRole.ASSISTANT,
+                        content = passText,
+                        reasoning = passReasoning,
+                        nativeToolCalls = calls,
+                        nativeProviderPayloadJson = passNativePayload,
+                    )
+                }
                 val results = calls.map { call ->
                     val syntheticSudoCall = call.name.lowercase() in sudoSyntheticToolNames
                     val parsed = runCatching {
@@ -1197,11 +1291,20 @@ class GenerationWorker(
                         )
                     }
                 }
-                messages += InputMessage(
-                    role = MessageRole.TOOL,
-                    content = "",
-                    nativeToolResults = results,
-                )
+                if (fallbackToolMode) {
+                    results.forEach { result ->
+                        messages += InputMessage(
+                            role = MessageRole.SYSTEM,
+                            content = FallbackToolCallProtocol.resultMessage(result),
+                        )
+                    }
+                } else {
+                    messages += InputMessage(
+                        role = MessageRole.TOOL,
+                        content = "",
+                        nativeToolResults = results,
+                    )
+                }
                 // The tool result already carries the mandatory research
                 // state reminder. Never insert another hidden model request here.
                 continue
