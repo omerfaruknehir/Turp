@@ -426,7 +426,7 @@ PY2
             "promptqa-about-scroll" \
             "$OUT/promptqa-about-ui.xml" \
             "Developer options" \
-            12; then
+            24; then
           adb shell input tap "$SCROLL_FOUND_X" "$SCROLL_FOUND_Y"
           echo "promptQaOpenDeveloper=PASS coord=${SCROLL_FOUND_X},${SCROLL_FOUND_Y}" >> "$OUT/qa-summary.txt"
           sleep 2
