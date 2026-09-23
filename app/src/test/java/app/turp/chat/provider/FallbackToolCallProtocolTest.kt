@@ -12,7 +12,7 @@ class FallbackToolCallProtocolTest {
 
     @Test
     fun acceptsOnlyExactWholeResponseEnvelopeForAllowedTool() {
-        val call = FallbackToolCallProtocol.parseExact(
+        val call = parseFallbackToolCallExact(
             """
             <turp-tool-call>
             {"name":"web_search","arguments":{"query":"Turp Android"}}
@@ -29,7 +29,7 @@ class FallbackToolCallProtocolTest {
     @Test
     fun rejectsEnvelopeEmbeddedInOrdinaryProse() {
         assertNull(
-            FallbackToolCallProtocol.parseExact(
+            parseFallbackToolCallExact(
                 """I'll search now. <turp-tool-call>{"name":"web_search","arguments":{"query":"x"}}</turp-tool-call>""",
                 allowed,
             ),
@@ -39,19 +39,19 @@ class FallbackToolCallProtocolTest {
     @Test
     fun rejectsUnknownToolExtraFieldsAndNonObjectArguments() {
         assertNull(
-            FallbackToolCallProtocol.parseExact(
+            parseFallbackToolCallExact(
                 """<turp-tool-call>{"name":"delete_everything","arguments":{}}</turp-tool-call>""",
                 allowed,
             ),
         )
         assertNull(
-            FallbackToolCallProtocol.parseExact(
+            parseFallbackToolCallExact(
                 """<turp-tool-call>{"name":"web_search","arguments":{},"extra":true}</turp-tool-call>""",
                 allowed,
             ),
         )
         assertNull(
-            FallbackToolCallProtocol.parseExact(
+            parseFallbackToolCallExact(
                 """<turp-tool-call>{"name":"web_search","arguments":"nope"}</turp-tool-call>""",
                 allowed,
             ),
@@ -61,10 +61,10 @@ class FallbackToolCallProtocolTest {
     @Test
     fun canonicalCallAndResultMessagesUseDedicatedEnvelope() {
         val call = NativeToolCall("c1", "python", """{"code":"print(42)"}""")
-        val callMessage = FallbackToolCallProtocol.callMessage(call)
-        assertNotNull(FallbackToolCallProtocol.parseExact(callMessage, setOf("python")))
+        val callMessage = fallbackToolCallMessage(call)
+        assertNotNull(parseFallbackToolCallExact(callMessage, setOf("python")))
 
-        val result = FallbackToolCallProtocol.resultMessage(
+        val result = fallbackToolResultMessage(
             NativeToolResult("c1", "python", "42", isError = false),
         )
         assertTrue(result.contains("<turp-tool-result>"))
@@ -74,7 +74,7 @@ class FallbackToolCallProtocolTest {
 
     @Test
     fun instructionListsOnlyExposedRequestTools() {
-        val instruction = FallbackToolCallProtocol.instruction(
+        val instruction = fallbackToolInstruction(
             listOf(
                 NativeToolDefinition(
                     name = "web_search",
