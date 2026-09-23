@@ -168,6 +168,7 @@ import app.turp.chat.settings.DeveloperPromptOverrides
 import app.turp.chat.settings.DeveloperPromptKey
 import app.turp.chat.settings.DeveloperPromptTemplateCatalog
 import app.turp.chat.settings.DeveloperPromptVariables
+import app.turp.chat.settings.ModelToolFallbackOverride
 import app.turp.chat.settings.PerformanceOverlayPosition
 import app.turp.chat.settings.NewChatDefaults
 import app.turp.chat.settings.DEFAULT_TURP_SYSTEM_PROMPT
@@ -3361,6 +3362,7 @@ private fun ProviderSettings(
     var protocol by remember { mutableStateOf(ProviderProtocol.OPENAI_COMPATIBLE) }
     var profile by remember { mutableStateOf(ProviderProfile.GENERIC) }
     val scope = rememberCoroutineScope()
+    val toolFallbackSettings by viewModel.toolCallFallbackSettings.collectAsStateWithLifecycle()
     var syncingModels by remember { mutableStateOf(false) }
     var modelSyncStatus by remember { mutableStateOf<String?>(null) }
     var automaticMetadataAttemptedFor by remember { mutableStateOf<String?>(null) }
@@ -3450,6 +3452,34 @@ private fun ProviderSettings(
     }
 
     SettingsPage {
+        SettingsGroup("Tool-call compatibility") {
+            ListItem(
+                headlineContent = { Text("Fallback tool calling", fontWeight = FontWeight.SemiBold) },
+                supportingContent = {
+                    Text(
+                        "Native function calling stays preferred. When unavailable or rejected by the endpoint, allow Turp's strict fallback protocol for models that inherit this setting.",
+                    )
+                },
+                leadingContent = { Icon(Icons.Outlined.Build, null, tint = MaterialTheme.colorScheme.primary) },
+                trailingContent = {
+                    Switch(
+                        checked = toolFallbackSettings.enabledByDefault,
+                        onCheckedChange = viewModel::setToolCallFallbackEnabledByDefault,
+                    )
+                },
+                colors = androidx.compose.material3.ListItemDefaults.colors(
+                    containerColor = androidx.compose.ui.graphics.Color.Transparent,
+                ),
+            )
+        }
+        Text(
+            "Each model can override this default from Edit model. Fallback tool calls are executed only when the whole model response matches Turp's strict tool envelope.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 6.dp),
+        )
+        HorizontalDivider()
+
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 SectionTitle("Providers", "Connect an account or API, then manage its models in one place.")
@@ -5258,6 +5288,7 @@ private fun PackageApprovalEditor(
 private fun ModelCatalogEditor(provider: ProviderEntity, viewModel: ChatViewModel) {
     val modelFlow = remember(provider.id) { viewModel.modelsFor(provider.id) }
     val models by modelFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val toolFallbackSettings by viewModel.toolCallFallbackSettings.collectAsStateWithLifecycle()
     var editing by remember { mutableStateOf<ModelEntity?>(null) }
     var creating by remember { mutableStateOf(false) }
     var search by remember { mutableStateOf("") }
@@ -5352,18 +5383,28 @@ private fun ModelCatalogEditor(provider: ProviderEntity, viewModel: ChatViewMode
         title = "Add model",
         provider = provider,
         initial = ModelEntity(provider.id, "", "", 128_000, 16_384, 0.0, 0.0, 0.0),
+        initialToolFallbackOverride = ModelToolFallbackOverride.INHERIT,
         allowIdEdit = true,
         onDismiss = { creating = false },
-        onSave = { viewModel.saveModel(it); creating = false },
+        onSave = { model, fallbackOverride ->
+            viewModel.saveModel(model)
+            viewModel.setModelToolFallbackOverride(provider.id, model.modelId, fallbackOverride)
+            creating = false
+        },
     )
     editing?.let { model ->
         ModelEditorSheet(
             title = "Edit model",
             provider = provider,
             initial = model,
+            initialToolFallbackOverride = toolFallbackSettings.overrideFor(provider.id, model.modelId),
             allowIdEdit = false,
             onDismiss = { editing = null },
-            onSave = { viewModel.saveModel(it); editing = null },
+            onSave = { updated, fallbackOverride ->
+                viewModel.saveModel(updated)
+                viewModel.setModelToolFallbackOverride(provider.id, updated.modelId, fallbackOverride)
+                editing = null
+            },
         )
     }
 }
@@ -5389,9 +5430,10 @@ private fun ModelEditorSheet(
     title: String,
     provider: ProviderEntity,
     initial: ModelEntity,
+    initialToolFallbackOverride: ModelToolFallbackOverride,
     allowIdEdit: Boolean,
     onDismiss: () -> Unit,
-    onSave: (ModelEntity) -> Unit,
+    onSave: (ModelEntity, ModelToolFallbackOverride) -> Unit,
 ) {
     var id by remember(initial) { mutableStateOf(initial.modelId) }
     var name by remember(initial) { mutableStateOf(initial.displayName) }
@@ -5405,6 +5447,9 @@ private fun ModelEditorSheet(
     var files by remember(initial) { mutableStateOf(initial.supportsFiles) }
     var thinking by remember(initial) { mutableStateOf(initial.supportsThinking) }
     var tools by remember(initial) { mutableStateOf(initial.supportsTools) }
+    var toolFallbackOverride by remember(initial, initialToolFallbackOverride) {
+        mutableStateOf(initialToolFallbackOverride)
+    }
     var requestType by remember(initial, provider) {
         mutableStateOf(ModelRequestPolicy.requestType(provider, initial))
     }
@@ -5462,6 +5507,33 @@ private fun ModelEditorSheet(
                 }
             }
 
+            Text("Tool-call fallback", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                ModelToolFallbackOverride.entries.forEach { option ->
+                    FilterChip(
+                        selected = toolFallbackOverride == option,
+                        onClick = { toolFallbackOverride = option },
+                        label = {
+                            Text(
+                                when (option) {
+                                    ModelToolFallbackOverride.INHERIT -> "Inherit"
+                                    ModelToolFallbackOverride.ENABLED -> "Enabled"
+                                    ModelToolFallbackOverride.DISABLED -> "Disabled"
+                                },
+                            )
+                        },
+                    )
+                }
+            }
+            Text(
+                "Native tool calls remain preferred. Enabled fallback uses Turp's strict text envelope only when native schemas cannot be used.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
             Surface(
                 onClick = { showPricing = !showPricing },
                 color = MaterialTheme.colorScheme.surfaceContainer,
@@ -5503,7 +5575,7 @@ private fun ModelEditorSheet(
                             supportsThinking = thinking,
                             supportsTools = tools,
                             supportsImageGeneration = requestType == ModelRequestType.IMAGE_GENERATION,
-                        ))
+                        ), toolFallbackOverride)
                     },
                 ) { Text("Save") }
             }
