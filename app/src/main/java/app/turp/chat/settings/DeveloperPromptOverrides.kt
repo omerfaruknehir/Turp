@@ -112,6 +112,7 @@ data class DeveloperPromptTrace(
     val components: Map<String, DeveloperPromptComponentTrace> = emptyMap(),
     val stage: String = "ASSEMBLED",
     val providerId: String = "",
+    val modelId: String = "",
     val profile: String = "",
     val protocol: String = "",
 )
@@ -186,6 +187,7 @@ object DeveloperPromptTraceStore {
                 .orEmpty(),
             stage = "PROVIDER_BOUNDARY",
             providerId = request.provider.id,
+            modelId = request.model.modelId,
             profile = request.provider.effectiveProfile.name,
             protocol = protocol,
         )
