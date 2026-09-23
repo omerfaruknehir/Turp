@@ -85,9 +85,6 @@ data class DeveloperPromptOverrides(
     fun editorText(key: DeveloperPromptKey, defaultValue: String): String =
         values[key.id]?.replace(DEVELOPER_PROMPT_DEFAULT_TOKEN, defaultValue) ?: defaultValue
 
-    fun editValue(key: DeveloperPromptKey): String =
-        values[key.id] ?: DEVELOPER_PROMPT_DEFAULT_TOKEN
-
     fun hasOverride(key: DeveloperPromptKey): Boolean = values.containsKey(key.id)
 
     fun isDisabled(key: DeveloperPromptKey): Boolean = key.id in disabledIds
