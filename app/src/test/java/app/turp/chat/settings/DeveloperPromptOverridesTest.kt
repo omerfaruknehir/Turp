@@ -94,7 +94,7 @@ class DeveloperPromptOverridesTest {
 
     @Test
     fun emulatorQaActuallyOpensFullScreenPromptEditor() {
-        val qa = File("ci/android-emulator-qa.sh").readText()
+        val qa = File("../ci/android-emulator-qa.sh").readText()
 
         assertTrue(qa.contains("promptQaOpenSystemPrompts=PASS"))
         assertTrue(qa.contains("promptQaExpandCore"))
