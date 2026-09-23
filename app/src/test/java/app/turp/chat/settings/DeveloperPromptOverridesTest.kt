@@ -69,7 +69,7 @@ class DeveloperPromptOverridesTest {
         assertTrue(settings.contains("DeveloperPromptInspectorPage"))
         assertTrue(settings.contains("DeveloperPromptComponentEditorContent"))
         assertTrue(settings.contains("SettingsRoute.DEVELOPER_PROMPTS -> DeveloperPromptInspectorPage"))
-        assertTrue(settings.contains("SettingsRoute.PROMPT_EDITOR -> DeveloperPromptEditorRoutePage"))
+        assertTrue(settings.contains("SettingsRoute.PROMPT_EDITOR -> Unit"))
         assertTrue(settings.contains("\"Components\""))
         assertTrue(settings.contains("\"Sent to model\""))
         assertTrue(settings.contains("\"Show advanced internals (\""))
