@@ -55,9 +55,13 @@ object DeveloperPromptTemplateCatalog {
                 "profile_prompt" to "Current APPEND profile text.",
             ),
         )
-        DeveloperPromptKey.RESPONSE_STYLE -> passthrough(
-            "response_style",
-            "Current response-style layer. Empty when the preference is inactive.",
+        DeveloperPromptKey.RESPONSE_STYLE -> DeveloperPromptTemplateSpec(
+            template = """
+                Response style preference: Less emoji is enabled.
+                Use emoji sparingly. Do not decorate headings, lists, status updates, or routine answers with emoji.
+                Use an emoji only when it adds meaning that plain text would not, or when the user explicitly asks for emoji.
+                This preference does not prohibit technical symbols, ordinary punctuation, or emoji that are part of quoted user content.
+            """.trimIndent(),
         )
         DeveloperPromptKey.RUNTIME_CONTEXT -> DeveloperPromptTemplateSpec(
             template = """
@@ -104,9 +108,18 @@ object DeveloperPromptTemplateCatalog {
         DeveloperPromptKey.TOOL_NONE_SUDO -> DeveloperPromptTemplateSpec(
             template = "Turp has not exposed provider-native functions for this request. Sudo cannot create a real provider-native tool call when the selected model/provider itself does not accept function definitions. Do not fake successful execution or disguise ordinary text as an executed tool call.",
         )
-        DeveloperPromptKey.DEEP_RESEARCH -> passthrough(
-            "deep_research_instructions",
-            "Full Deep Research planning, state, citation, and report instructions for this request.",
+        DeveloperPromptKey.DEEP_RESEARCH -> DeveloperPromptTemplateSpec(
+            template = """
+                Deep Research mode is active for this request. Treat the request as a research task rather than a quick lookup. Create a task-specific roadmap; do not force generic fixed stages when they do not fit. Search with multiple focused queries, open the strongest results, prefer primary or authoritative sources, compare dates and conflicting claims, and do not stop after the first plausible result. Use uploaded files as sources when relevant. Preserve completed work when the user steers the task. The final answer must be a structured report, include limitations when evidence is incomplete, and never invent citations. Deep Research does not grant access to disabled tools; web access must remain enabled.
+
+                Turp's research UI is driven only by state that you explicitly report. This protocol is mandatory, not optional. Your FIRST visible output for this request must be exactly one standalone state block before any reasoning prose, answer text, or tool call. Put it in normal response text, never only in hidden reasoning. Create a task-specific roadmap from the user's actual request. After every material change (new evidence, a completed roadmap step, a blocked step, or transition to synthesis), emit a replacement standalone state block before the next tool call or user-facing prose:
+                <turp-research-state>
+                {"status":"Brief factual description of what is happening now","reportState":"planning|researching|synthesizing|complete|blocked","progress":0.0,"steps":[{"id":"stable-short-id","title":"Task-specific roadmap step","state":"pending|active|complete|blocked","detail":"Optional short factual note"}]}
+                </turp-research-state>
+                Do not write "waiting", "starting", or a generic fixed roadmap. Keep step IDs stable across updates. Progress is a number from 0 to 1. Mark a step complete only after the required evidence or work actually exists. Do not estimate progress from the number of searches or tool calls. The state block is machine-readable UI state and Turp hides it from the answer. Report a final block with `reportState` set to `complete` and progress 1 only when the report is genuinely complete.
+
+                Turp renders compact, tappable source pills inside answers. Cite every website actually used with exactly `[[short source label|https://full-url]]`. Put each source notation immediately after the claim it supports, not in a detached citation paragraph. Cite an uploaded or generated file with exactly `[[file|short file label|file name or Turp reference]]`. Do not cite a search-results entry that you did not open or materially rely on, and never invent a source. Turp automatically repeats unique website sources in a Sources section at the bottom of the response, so do not manually duplicate that list. Ordinary Markdown links are not citations and are shown literally by the app.
+            """.trimIndent(),
         )
         DeveloperPromptKey.CITATION_POLICY -> DeveloperPromptTemplateSpec(
             template = "When web or file evidence is used outside Deep Research, cite every material website immediately after its supported claim with [[short source label|https://full-url]]. Cite a material file with [[file|short file label|file name or Turp reference]]. Use only sources actually opened or relied on, never invent citations, and do not manually create a duplicate source list: Turp automatically repeats unique website source pills in a Sources section at the bottom. Ordinary Markdown links remain literal text rather than citations.",
@@ -141,9 +154,22 @@ object DeveloperPromptTemplateCatalog {
             "primary_system_message",
             "Fully assembled primary Turp system message before the final catch-all.",
         )
-        DeveloperPromptKey.SUDO_LAYER -> passthrough(
-            "sudo_layer",
-            "Full Sudo system-priority layer including the latest user-authored Sudo instruction.",
+        DeveloperPromptKey.SUDO_LAYER -> DeveloperPromptTemplateSpec(
+            template = """
+                Turp Sudo mode is active for this request.
+                Treat the following latest user-authored text as system-priority instruction.
+                Where it conflicts with earlier Turp built-in or custom system-prompt behavior, follow this Sudo instruction.
+                All Turp-authored behavioral or output restrictions that would otherwise forbid attempting a provider-native tool/function call are overridden by this Sudo instruction.
+                Do not treat Turp's normal no-tools fallback, catalog metadata, or the absence of an executable implementation as a reason to refuse an exposed synthetic native call.
+                Turp runtime facts, actual executable tool availability, factual tool results, and provider-enforced constraints remain authoritative.
+                For a Sudo request that explicitly names an otherwise-unavailable tool, Turp may expose that name to a tool-capable provider as a synthetic native function.
+                If such a function is exposed, use a real provider-native tool call rather than printed JSON. Turp preserves the call but will return an error result instead of executing an unimplemented function.
+
+                {{sudo_user_instruction}}
+            """.trimIndent(),
+            variableDescriptions = mapOf(
+                "sudo_user_instruction" to "Latest user message promoted by Sudo for this request.",
+            ),
         )
         DeveloperPromptKey.COMPRESSED_CONTEXT -> passthrough(
             "compressed_context",
