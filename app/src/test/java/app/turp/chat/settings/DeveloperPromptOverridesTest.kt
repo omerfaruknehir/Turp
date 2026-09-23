@@ -61,7 +61,7 @@ class DeveloperPromptOverridesTest {
     @Test
     fun everyRegisteredLayerIsReachableFromDeveloperEditor() {
         val settings = File("src/main/java/app/turp/chat/ui/SettingsScreen.kt").readText()
-        assertTrue(settings.contains("DeveloperPromptKey.entries.forEach"))
+        assertTrue(settings.contains("val filtered = DeveloperPromptKey.entries.filter"))
         assertTrue(settings.contains("setDeveloperPromptOverride"))
         assertTrue(settings.contains("resetDeveloperPromptOverrides"))
         assertTrue(settings.contains("\"Manage prompts\""))
