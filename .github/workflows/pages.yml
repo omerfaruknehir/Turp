@@ -102,6 +102,7 @@ jobs:
         run: |
           cmp docs/sitemap.xml _site/sitemap.xml
           cmp docs/assets/images/turp-banner-background-2-1.webp _site/assets/images/turp-banner-background-2-1.webp
+          cmp docs/.well-known/microsoft-identity-association.json _site/.well-known/microsoft-identity-association.json
           python3 - <<'PY'
           import xml.etree.ElementTree as ET
           ET.parse('_site/sitemap.xml')
@@ -160,9 +161,10 @@ jobs:
           assert 'M54,24.484818' in logo
           assert 'M734' not in logo
           PY
-      - uses: actions/upload-pages-artifact@v4
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: ./_site
+          include-hidden-files: true
 
   deploy:
     if: github.event_name != 'pull_request'
@@ -178,6 +180,40 @@ jobs:
         uses: actions/deploy-pages@v4
         with:
           timeout: 600000
+      - name: Verify live Microsoft publisher association
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="${{ steps.deployment.outputs.page_url }}"
+          url="${base%/}/.well-known/microsoft-identity-association.json"
+
+          for attempt in 1 2 3 4 5; do
+            code="$(curl --silent --show-error --location --output /tmp/microsoft-identity-association.json --dump-header /tmp/microsoft-identity-association.headers --write-out '%{http_code}' "$url" || true)"
+            if [[ "$code" == "200" ]] && python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path('/tmp/microsoft-identity-association.json').read_text(encoding='utf-8'))
+          assert data == {
+              'associatedApplications': [
+                  {'applicationId': '8a39da15-8397-489a-adcc-c6766bcfb085'}
+              ]
+          }, data
+          PY
+            then
+              content_type="$(awk 'BEGIN{IGNORECASE=1} /^content-type:/ {sub(/\r$/, ""); print $2}' /tmp/microsoft-identity-association.headers | tail -n1)"
+              case "$content_type" in
+                application/json*|"") exit 0 ;;
+              esac
+            fi
+            sleep $((attempt * 3))
+          done
+
+          echo "Live Microsoft publisher association verification failed for $url" >&2
+          cat /tmp/microsoft-identity-association.headers >&2 || true
+          cat /tmp/microsoft-identity-association.json >&2 || true
+          exit 1
+
       - name: Verify live sitemap
         shell: bash
         run: |
