@@ -45,6 +45,7 @@
     <string name="settings_backup_transfer">Backup &amp; transfer</string>
     <string name="settings_local_execution">Local execution</string>
     <string name="settings_developer">Developer settings</string>
+    <string name="settings_prompt_editor">Edit system prompt</string>
     <string name="settings_custom_instructions">Custom instructions</string>
     <string name="settings_providers_models">Providers &amp; models</string>
     <string name="settings_about_turp">About Turp</string>
