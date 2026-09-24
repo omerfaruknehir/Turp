@@ -427,6 +427,11 @@ PY2
       adb shell input keyevent 4
       sleep 2
       capture_screen promptqa-settings-home
+      if dismiss_quickstep_anr promptqa-settings-home; then
+        echo "promptQaSettingsHomeSystemOverlayClear=PASS" >> "$OUT/qa-summary.txt"
+      else
+        record_failure "promptQaSettingsHomeSystemOverlayClear=FAIL Quickstep ANR persisted"
+      fi
 
       if scroll_until_text \
           "promptqa-settings-home-scroll" \
