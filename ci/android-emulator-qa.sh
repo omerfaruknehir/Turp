@@ -183,11 +183,27 @@ raise SystemExit(1)
 PY_SCROLL
     )" || true
     if [[ -z "$scroll_xy" ]]; then
-      echo "scrollUntilText=FAIL target=${target} reason=no-scrollable-node attempt=${attempt}" >> "$OUT/qa-summary.txt"
-      return 1
+      # Compose's Modifier.verticalScroll does not reliably expose a
+      # scrollable=true accessibility node to uiautomator. Fall back to a
+      # bounded screen swipe instead of incorrectly treating the page as
+      # non-scrollable.
+      screen_size="$(adb shell wm size 2>/dev/null | tr -d '\r' | sed -n 's/.*Physical size: \([0-9]*\)x\([0-9]*\).*/\1 \2/p' | head -n1)"
+      if [[ -n "$screen_size" ]]; then
+        read -r screen_w screen_h <<<"$screen_size"
+        sx=$((screen_w / 2))
+        sy=$((screen_h * 3 / 4))
+        ex=$sx
+        ey=$((screen_h / 4))
+      else
+        sx=540
+        sy=1800
+        ex=540
+        ey=650
+      fi
+      echo "scrollUntilText=INFO target=${target} attempt=${attempt} mode=screen-fallback coord=${sx},${sy}->${ex},${ey}" >> "$OUT/qa-summary.txt"
+    else
+      read -r sx sy ex ey <<<"$scroll_xy"
     fi
-
-    read -r sx sy ex ey <<<"$scroll_xy"
     adb shell input swipe "$sx" "$sy" "$ex" "$ey" 350
     capture_name="${prefix}-${attempt}"
     sleep 1
