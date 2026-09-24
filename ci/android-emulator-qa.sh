@@ -462,6 +462,11 @@ PY2
             echo "promptQaOpenSystemPrompts=PASS coord=${SCROLL_FOUND_X},${SCROLL_FOUND_Y}" >> "$OUT/qa-summary.txt"
             sleep 2
             capture_screen promptqa-system-prompts
+            if dismiss_quickstep_anr promptqa-system-prompts; then
+              echo "promptQaSystemPromptsSystemOverlayClear=PASS" >> "$OUT/qa-summary.txt"
+            else
+              record_failure "promptQaSystemPromptsSystemOverlayClear=FAIL Quickstep ANR persisted"
+            fi
 
             if grep -Fq 'Components' "$OUT/promptqa-system-prompts-ui.xml" 2>/dev/null &&
                grep -Fq 'Sent to model' "$OUT/promptqa-system-prompts-ui.xml" 2>/dev/null &&
@@ -474,10 +479,20 @@ PY2
             if tap_text "$OUT/promptqa-system-prompts-ui.xml" "Core behavior" "promptQaExpandCore"; then
               sleep 1
               capture_screen promptqa-core-expanded
+              if dismiss_quickstep_anr promptqa-core-expanded; then
+                echo "promptQaCoreExpandedSystemOverlayClear=PASS" >> "$OUT/qa-summary.txt"
+              else
+                record_failure "promptQaCoreExpandedSystemOverlayClear=FAIL Quickstep ANR persisted"
+              fi
 
               if tap_text "$OUT/promptqa-core-expanded-ui.xml" "Core Turp prompt" "promptQaOpenCoreEditor"; then
                 sleep 2
                 capture_screen promptqa-core-editor
+                if dismiss_quickstep_anr promptqa-core-editor; then
+                  echo "promptQaEditorSystemOverlayClear=PASS" >> "$OUT/qa-summary.txt"
+                else
+                  record_failure "promptQaEditorSystemOverlayClear=FAIL Quickstep ANR persisted"
+                fi
 
                 editor_ok=true
                 for expected in \
@@ -522,6 +537,11 @@ PY2
                   echo "promptQaOpenVariables=PASS coord=${variables_x},${variables_y}" >> "$OUT/qa-summary.txt"
                   sleep 1
                   capture_screen promptqa-core-editor-variables
+                  if dismiss_quickstep_anr promptqa-core-editor-variables; then
+                    echo "promptQaVariablesSystemOverlayClear=PASS" >> "$OUT/qa-summary.txt"
+                  else
+                    record_failure "promptQaVariablesSystemOverlayClear=FAIL Quickstep ANR persisted"
+                  fi
                   if grep -Fq 'Insert variable' "$OUT/promptqa-core-editor-variables-ui.xml" 2>/dev/null; then
                     echo "promptQaVariablesUi=PASS" >> "$OUT/qa-summary.txt"
                   else
