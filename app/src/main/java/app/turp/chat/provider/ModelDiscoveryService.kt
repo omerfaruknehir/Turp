@@ -496,8 +496,18 @@ class ModelDiscoveryService(
                 "inputTokenLimit",
                 "max_model_len",
                 "max_sequence_length",
+            ) ?: (model["capabilities"] as? JsonObject)?.int(
+                "context_length",
+                "context_window",
+                "contextWindow",
+                "max_model_len",
             ) ?: topProvider?.int("context_length", "context_window"),
             maxOutputTokens = model.int(
+                "outputTokenLimit",
+                "max_output_tokens",
+                "maxOutputTokens",
+                "max_completion_tokens",
+            ) ?: (model["capabilities"] as? JsonObject)?.int(
                 "outputTokenLimit",
                 "max_output_tokens",
                 "maxOutputTokens",
@@ -511,11 +521,13 @@ class ModelDiscoveryService(
                 "image" in inputModalities
             } else {
                 model.booleanCapability("supports_vision", "supportsVision", "vision", "vision_enabled")
+                    ?: ("image" in inputModalities).takeIf { inputModalities.isNotEmpty() }
             },
             supportsFiles = if (openRouter) {
                 "file" in inputModalities
             } else {
                 model.booleanCapability("supports_files", "supportsFiles", "files", "file_uploads")
+                    ?: ("file" in inputModalities).takeIf { inputModalities.isNotEmpty() }
             },
             supportsTools = if (openRouter) {
                 "tools" in supportedParameters
@@ -526,10 +538,16 @@ class ModelDiscoveryService(
                     "tools",
                     "tool_calling",
                     "function_calling",
-                )
+                ) ?: (
+                    "tools" in supportedParameters ||
+                        "tool_choice" in supportedParameters ||
+                        "function_calling" in supportedParameters ||
+                        "functions" in supportedParameters
+                    ).takeIf { supportedParameters.isNotEmpty() }
             },
             supportsImageGeneration = model.booleanCapability("supports_image_generation", "supportsImageGeneration", "image_generation") ?: when {
                 openRouter -> "image" in outputModalities
+                outputModalities.isNotEmpty() -> "image" in outputModalities
                 (officialOpenAiOverride ?: ModelRequestPolicy.isOfficialOpenAiBaseUrl(baseUrlForParsing)) -> imageGenerationModelHeuristic(id)
                 else -> null
             },
