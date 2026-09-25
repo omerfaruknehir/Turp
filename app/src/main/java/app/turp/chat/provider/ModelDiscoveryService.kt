@@ -342,13 +342,20 @@ class ModelDiscoveryService(
                                 customHeaders = customHeaders,
                             )
                         }.getOrNull() ?: return@withPermit base
-                        val detailObject = (root["data"] as? JsonObject) ?: root
-                        val detail = parseDataModels(
-                            JsonArray(listOf(detailObject)),
+                        val detailObjects = when (val data = root["data"]) {
+                            is JsonObject -> listOf(data)
+                            is JsonArray -> data.mapNotNull { it as? JsonObject }
+                            else -> listOf(root)
+                        }
+                        val parsedDetails = parseDataModels(
+                            JsonArray(detailObjects),
                             baseUrlForParsing,
                             openRouterOverride = false,
                             officialOpenAiOverride = false,
-                        ).firstOrNull() ?: return@withPermit base
+                        )
+                        val detail = parsedDetails.firstOrNull { it.id == base.id }
+                            ?: parsedDetails.firstOrNull()
+                            ?: return@withPermit base
                         mergeAuthoritativeModelDetail(base, detail)
                     }
                 }
