@@ -8,7 +8,6 @@ import app.turp.chat.sandbox.UbuntuRuntime
 import app.turp.chat.sandbox.RunRecordStore
 import app.turp.chat.sandbox.ScriptRuntime
 import app.turp.chat.sandbox.ExecutionProgress
-import app.turp.chat.files.AttachmentStore
 import app.turp.chat.generated.GeneratedBlockCompiler
 import app.turp.chat.generated.GeneratedBlockType
 import app.turp.chat.generated.WidgetCompilerToolProtocol
@@ -406,7 +405,6 @@ class AgentTools internal constructor(
             require(source.isFile && source.path.startsWith(workspace.path + File.separator)) {
                 "The requested file does not exist in this conversation workspace"
             }
-            require(source.length() <= AttachmentStore.MAX_FILE_BYTES) { "Returned files are limited to 64 MB" }
             AgentToolOutcome(
                 json.encodeToString(SentFileResult(relative, source.name, source.length(), request.caption?.take(500).orEmpty())),
                 listOf(relative),
