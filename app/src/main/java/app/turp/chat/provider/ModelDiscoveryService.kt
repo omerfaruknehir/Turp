@@ -360,7 +360,7 @@ class ModelDiscoveryService(
         base: DiscoveredModel,
         detail: DiscoveredModel,
     ): DiscoveredModel = base.copy(
-        displayName = detail.displayName.ifBlank { base.displayName },
+        displayName = base.displayName.ifBlank { detail.displayName },
         contextWindow = detail.contextWindow ?: base.contextWindow,
         maxOutputTokens = detail.maxOutputTokens ?: base.maxOutputTokens,
         supportsThinking = detail.supportsThinking ?: base.supportsThinking,
