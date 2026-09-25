@@ -1,5 +1,6 @@
 package app.turp.chat.ui
 
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -24,6 +25,33 @@ class TurpHapticsIntegrationTest {
         assertTrue(source("TurpHaptics.kt").contains("fun streamTick()"))
         assertTrue(source("TurpHaptics.kt").contains("fun streamComplete()"))
         assertTrue(chat.contains("STREAM_HAPTIC_CHARACTER_INTERVAL = 32"))
+    }
+
+    @Test fun backgroundAndUnfocusedWindowsDoNotVibrate() {
+        assertTrue(
+            shouldPerformTurpHaptic(
+                hapticsEnabled = true,
+                attachedToWindow = true,
+                windowVisible = true,
+                hasWindowFocus = true,
+            ),
+        )
+        assertFalse(
+            shouldPerformTurpHaptic(
+                hapticsEnabled = true,
+                attachedToWindow = true,
+                windowVisible = false,
+                hasWindowFocus = true,
+            ),
+        )
+        assertFalse(
+            shouldPerformTurpHaptic(
+                hapticsEnabled = true,
+                attachedToWindow = true,
+                windowVisible = true,
+                hasWindowFocus = false,
+            ),
+        )
     }
 
     private fun source(name: String) = java.io.File("src/main/java/app/turp/chat/ui/$name").readText()

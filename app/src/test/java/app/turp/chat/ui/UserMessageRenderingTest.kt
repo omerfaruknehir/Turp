@@ -23,7 +23,10 @@ class UserMessageRenderingTest {
         assertTrue(preferences.contains("showMessageSourceEnabled"))
         assertTrue(preferences.contains("KEY_SHOW_MESSAGE_SOURCE_ENABLED"))
         assertTrue(chat.contains("developerSettings.enabled && developerSettings.showMessageSourceEnabled"))
-        assertTrue(chat.contains("code = message.content"))
+        assertTrue(chat.contains("code = developerMessageSource("))
+        assertTrue(chat.contains("content = message.content"))
+        assertTrue(chat.contains("reasoning = message.reasoning"))
+        assertTrue(chat.contains("[DIRECT HTTP REQUEST · REDACTED]"))
         assertTrue(chat.contains("title = \"MESSAGE SOURCE\""))
         assertTrue(chat.contains("if (sourceVisible) \"Rendered\" else \"Source\""))
     }

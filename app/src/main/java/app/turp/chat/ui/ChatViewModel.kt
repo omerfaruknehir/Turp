@@ -33,6 +33,7 @@ import app.turp.chat.data.PackageTransactionEntity
 import app.turp.chat.provider.ProviderCredentialPolicy
 import app.turp.chat.provider.ProviderEndpointPolicy
 import app.turp.chat.provider.ProviderEndpointResolver
+import app.turp.chat.provider.DeveloperHttpTraceStore
 import app.turp.chat.provider.ModelRequestPolicy
 import app.turp.chat.provider.defaultThinkingEffort
 import app.turp.chat.provider.effectiveThinkingEnabled
@@ -61,6 +62,7 @@ import app.turp.chat.sandbox.ScriptRunResult
 import app.turp.chat.sandbox.WorkspaceReadResult
 import app.turp.chat.agent.AgentToolRequest
 import app.turp.chat.settings.NewChatDefaults
+import app.turp.chat.settings.ModelToolFallbackOverride
 import app.turp.chat.settings.LauncherIconManager
 import app.turp.chat.settings.PersistentUiStateStore
 import app.turp.chat.transfer.ArchiveOptions
@@ -167,6 +169,10 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
     val importing = MutableStateFlow(false)
     val screen = savedStateHandle.getMutableStateFlow("screen", restoredUiState.screen)
     val settingsRoute = savedStateHandle.getMutableStateFlow("settings_route", restoredUiState.settingsRoute)
+    val developerPromptEditorKey = savedStateHandle.getMutableStateFlow<String?>(
+        "developer_prompt_editor_key",
+        null,
+    )
     val settingsPageRevisions = MutableStateFlow<Map<SettingsRoute, Long>>(emptyMap())
     val searchQuery = savedStateHandle.getMutableStateFlow("search_query", restoredUiState.searchQuery)
     val focusedMessageNodeId = savedStateHandle.getMutableStateFlow<String?>(
@@ -209,6 +215,10 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
     val automaticUpdateChecks: StateFlow<Boolean> = container.appPreferences.automaticUpdateChecks
     val generatedRepairMaxAttempts: StateFlow<Int> = container.appPreferences.generatedRepairMaxAttempts
     val developerSettings: StateFlow<app.turp.chat.settings.DeveloperSettings> = container.appPreferences.developerSettings
+    val developerPromptOverrides: StateFlow<app.turp.chat.settings.DeveloperPromptOverrides> =
+        container.appPreferences.developerPromptOverrides
+    val toolCallFallbackSettings = container.appPreferences.toolCallFallbackSettings
+    val developerHttpTraces = DeveloperHttpTraceStore.traces
     val palette = container.appPreferences.palette
     val themeMode = container.appPreferences.themeMode
     val matchLauncherIconToPalette = container.appPreferences.matchLauncherIconToPalette
@@ -570,6 +580,20 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
         }
         container.persistentUiState.saveSettingsScroll(route, 0)
         settingsRoute.value = route
+    }
+
+    fun openDeveloperPrompts() {
+        openSettingsRoute(SettingsRoute.DEVELOPER_PROMPTS)
+    }
+
+    fun openDeveloperPromptEditor(key: app.turp.chat.settings.DeveloperPromptKey) {
+        developerPromptEditorKey.value = key.name
+        openSettingsRoute(SettingsRoute.PROMPT_EDITOR)
+    }
+
+    fun closeDeveloperPromptEditor() {
+        developerPromptEditorKey.value = null
+        openSettingsRoute(SettingsRoute.DEVELOPER_PROMPTS)
     }
 
     fun openSettingsHome() {
@@ -1493,6 +1517,33 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
     fun setGeneratedRepairMaxAttempts(value: Int) = container.appPreferences.setGeneratedRepairMaxAttempts(value)
     fun updateDeveloperSettings(transform: (app.turp.chat.settings.DeveloperSettings) -> app.turp.chat.settings.DeveloperSettings) =
         container.appPreferences.updateDeveloperSettings(transform)
+
+    fun setToolCallFallbackEnabledByDefault(enabled: Boolean) =
+        container.appPreferences.setToolCallFallbackEnabledByDefault(enabled)
+
+    fun setModelToolFallbackOverride(
+        providerId: String,
+        modelId: String,
+        override: ModelToolFallbackOverride,
+    ) = container.appPreferences.setModelToolFallbackOverride(providerId, modelId, override)
+
+    fun enableToolCallFallbackForModel(providerId: String, modelId: String) =
+        setModelToolFallbackOverride(providerId, modelId, ModelToolFallbackOverride.ENABLED)
+
+    fun setDeveloperPromptOverride(key: app.turp.chat.settings.DeveloperPromptKey, value: String?) =
+        container.appPreferences.setDeveloperPromptOverride(key, value)
+
+    fun setDeveloperPromptDisabled(key: app.turp.chat.settings.DeveloperPromptKey, disabled: Boolean) =
+        container.appPreferences.setDeveloperPromptDisabled(key, disabled)
+
+    fun resetDeveloperPromptCustomization(key: app.turp.chat.settings.DeveloperPromptKey) =
+        container.appPreferences.resetDeveloperPromptCustomization(key)
+
+    fun resetDeveloperPromptOverrides() =
+        container.appPreferences.resetDeveloperPromptOverrides()
+
+    suspend fun generationUsage(assistantId: String) =
+        container.repository.generationUsage(assistantId)
 
     fun setDemoModeEnabled(enabled: Boolean, openWalkthrough: Boolean = false) = launchAction {
         if (!BuildConfig.DEBUG) return@launchAction

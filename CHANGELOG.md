@@ -1,3 +1,13 @@
+## 0.25.1 — 2026-09-22
+
+- Let Sudo dynamically expose explicitly named otherwise-unavailable functions to tool-capable providers as synthetic native definitions, preserving genuine native tool calls while refusing to execute unimplemented functions.
+- Fix Android request failures caused by an invalid endpoint-template regular expression in the configurable provider resolver.
+- Add Android instrumentation coverage that executes provider endpoint expansion on Android's regex engine.
+- Suppress streaming and completion haptics while Turp is backgrounded or its window is unfocused.
+- Expand Developer source inspection with provider-returned reasoning, tool/request diagnostics, and a redacted final HTTP request captured from the actual provider request.
+- Add a Developer system-prompt laboratory covering all Turp-authored prompt layers, including provider-stage guards and auxiliary/research prompts.
+- Show “Trup is upper to date!?” when the installed build is ahead of the latest GitHub release.
+
 ## 0.25.0 — 2026-09-22
 
 - Separate provider wire protocol from provider profile so provider-specific behavior works through arbitrary proxy and self-hosted base URLs.

@@ -4,6 +4,7 @@ import app.turp.chat.data.ConversationEntity
 import app.turp.chat.data.MessageEntity
 import app.turp.chat.data.MessageRole
 import app.turp.chat.data.MessageStatus
+import app.turp.chat.generation.shouldExposeNativeToolDefinitions
 import java.io.File
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -26,6 +27,77 @@ class SudoModeRegressionTest {
         assertTrue(layer.contains("latest user instruction"))
         assertFalse(layer.contains("older user instruction"))
         assertTrue(layer.contains("runtime facts"))
+        assertTrue(layer.contains("All Turp-authored behavioral or output restrictions"))
+        assertTrue(layer.contains("absence of an executable implementation"))
+        assertTrue(layer.contains("synthetic native function"))
+        assertTrue(layer.contains("real provider-native tool call"))
+        assertTrue(layer.contains("error result instead of executing an unimplemented function"))
+    }
+
+    @Test
+    fun `sudo uses real native calls when provider functions are available`() {
+        val instructions = toolInstructionsForRequest(
+            nativeToolsAvailable = true,
+            sudoModeActive = true,
+        )
+
+        assertTrue(instructions.contains("REAL provider-native tool/function call"))
+        assertTrue(instructions.contains("do not substitute printed tool-call JSON"))
+        assertTrue(instructions.contains("structured error result"))
+    }
+
+    @Test
+    fun `sudo does not fake native calls when provider functions are unavailable`() {
+        val instructions = toolInstructionsForRequest(
+            nativeToolsAvailable = false,
+            sudoModeActive = true,
+        )
+
+        assertTrue(instructions.contains("does not accept function definitions"))
+        assertTrue(instructions.contains("Do not fake successful execution"))
+    }
+
+    @Test
+    fun `normal mode still forbids fake textual tool calls when tools are unavailable`() {
+        val instructions = toolInstructionsForRequest(
+            nativeToolsAvailable = false,
+            sudoModeActive = false,
+        )
+
+        assertTrue(instructions.contains("Do not emit `turp-tool` fences"))
+        assertTrue(instructions.contains("State the limitation"))
+    }
+
+    @Test
+    fun `sudo overrides catalog tool capability but never image-generation transport`() {
+        assertTrue(
+            shouldExposeNativeToolDefinitions(
+                modelSupportsTools = false,
+                sudoModeActive = true,
+                directImageModel = false,
+            ),
+        )
+        assertTrue(
+            shouldExposeNativeToolDefinitions(
+                modelSupportsTools = true,
+                sudoModeActive = false,
+                directImageModel = false,
+            ),
+        )
+        assertFalse(
+            shouldExposeNativeToolDefinitions(
+                modelSupportsTools = false,
+                sudoModeActive = false,
+                directImageModel = false,
+            ),
+        )
+        assertFalse(
+            shouldExposeNativeToolDefinitions(
+                modelSupportsTools = true,
+                sudoModeActive = true,
+                directImageModel = true,
+            ),
+        )
     }
 
     @Test

@@ -1110,7 +1110,7 @@ internal fun turpUiStringResource(text: String): Int? = when (text) {
     "Workspace" -> R.string.ui_copy_workspace_4ca0a75c
     "Writing report" -> R.string.ui_copy_writing_report_37d1a667
     "Writing source request…" -> R.string.ui_copy_writing_source_request_3021661d
-    "Turp adds request-specific date, enabled-tool, research, memory, attachment, and generated-content instructions at runtime. Those dynamic layers are not editable either and are not presented as one misleading static block." -> R.string.ui_copy_turp_adds_request_specific_date_enabled__388d9dd8
+    "Turp adds request-specific date, enabled-tool, research, memory, attachment, and generated-content instructions at runtime. Developer Options → System prompts lets you inspect and directly edit those Turp-controlled components and see the effective context. Provider/API-owned prompts that Turp never receives remain outside Turp's control." -> R.string.ui_copy_turp_adds_request_specific_date_enabled__388d9dd8
     "Turp asks for the non-sensitive drive.appdata scope only. The backup files remain hidden from normal Drive browsing and from other apps." -> R.string.ui_copy_turp_asks_for_the_non_sensitive_drive_ap_1514dc2b
     "Turp cannot send messages until ChatGPT, an API provider, or a local model server is connected." -> R.string.ui_copy_turp_cannot_send_messages_until_chatgpt__31d3179a
     "Turp chat" -> R.string.ui_copy_turp_chat_cb1f11e8

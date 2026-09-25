@@ -57,7 +57,9 @@ class OpenAiOAuthProvider(
 
             val state = OpenAiOAuthStreamState()
             var retryWithFreshToken = false
-            client.newCall(builder.build()).useCancellable { response ->
+            val httpRequest = builder.build()
+            DeveloperHttpTraceStore.record(request, httpRequest, request.provider.effectiveProtocol.name)
+            client.newCall(httpRequest).useCancellable { response ->
                 if (response.code == 401 && !refreshed) {
                     retryWithFreshToken = true
                     return@useCancellable
@@ -106,7 +108,7 @@ class OpenAiOAuthProvider(
         put("reasoning", reasoning)
 
         val tools = buildJsonArray {
-            if (request.model.supportsTools) request.tools.forEach { tool ->
+            request.tools.forEach { tool ->
                 add(buildJsonObject {
                     put("type", JsonPrimitive("function"))
                     put("name", JsonPrimitive(tool.name))

@@ -65,6 +65,30 @@ pick_text_center() {
   pick_node_center "$1" text "$2"
 }
 
+pick_text_prefix_center() {
+  local file="$1"
+  local prefix="$2"
+  python3 - "$file" "$prefix" <<'PY_PREFIX'
+import html
+import re
+import sys
+
+path, prefix = sys.argv[1], sys.argv[2]
+data = open(path, encoding="utf-8", errors="replace").read()
+for tag in re.findall(r"<node\b[^>]*>", data):
+    attrs = dict(re.findall(r'([\w-]+)="([^"]*)"', tag))
+    text = html.unescape(attrs.get("text", ""))
+    if not text.startswith(prefix):
+        continue
+    m = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", attrs.get("bounds", ""))
+    if m:
+        x1, y1, x2, y2 = map(int, m.groups())
+        print((x1 + x2) // 2, (y1 + y2) // 2)
+        raise SystemExit(0)
+raise SystemExit(1)
+PY_PREFIX
+}
+
 pick_desc_center() {
   pick_node_center "$1" content-desc "$2"
 }
@@ -111,6 +135,84 @@ tap_provider_cta() {
     fi
   done
   record_failure "tapProviderCta=FAIL no-provider-cta-node"
+  return 1
+
+}
+
+scroll_until_text() {
+  local prefix="$1"
+  local ui="$2"
+  local target="$3"
+  local max_attempts="${4:-10}"
+  local safe_y="${5:-2200}"
+  local attempt xy x y scroll_xy sx sy ex ey capture_name
+
+  SCROLL_FOUND_UI="$ui"
+  SCROLL_FOUND_X=""
+  SCROLL_FOUND_Y=""
+
+  for ((attempt=0; attempt<=max_attempts; attempt++)); do
+    xy="$(pick_text_center "$ui" "$target" 2>/dev/null || true)"
+    if [[ -n "$xy" ]]; then
+      read -r x y <<<"$xy"
+      if (( y <= safe_y )); then
+        SCROLL_FOUND_UI="$ui"
+        SCROLL_FOUND_X="$x"
+        SCROLL_FOUND_Y="$y"
+        echo "scrollUntilText=PASS target=${target} attempt=${attempt} coord=${x},${y}" >> "$OUT/qa-summary.txt"
+        return 0
+      fi
+    fi
+
+    (( attempt == max_attempts )) && break
+
+    scroll_xy="$(python3 - "$ui" <<'PY_SCROLL'
+import re, sys
+data = open(sys.argv[1], encoding='utf-8', errors='replace').read()
+for tag in re.findall(r'<node\b[^>]*>', data):
+    if 'scrollable="true"' not in tag:
+        continue
+    m = re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', tag)
+    if not m:
+        continue
+    x1, y1, x2, y2 = map(int, m.groups())
+    x = (x1 + x2) // 2
+    print(x, y1 + (y2-y1)*3//4, x, y1 + (y2-y1)//4)
+    raise SystemExit(0)
+raise SystemExit(1)
+PY_SCROLL
+    )" || true
+    if [[ -z "$scroll_xy" ]]; then
+      # Compose's Modifier.verticalScroll does not reliably expose a
+      # scrollable=true accessibility node to uiautomator. Fall back to a
+      # bounded screen swipe instead of incorrectly treating the page as
+      # non-scrollable.
+      screen_size="$(adb shell wm size 2>/dev/null | tr -d '\r' | sed -n 's/.*Physical size: \([0-9]*\)x\([0-9]*\).*/\1 \2/p' | head -n1)"
+      if [[ -n "$screen_size" ]]; then
+        read -r screen_w screen_h <<<"$screen_size"
+        sx=$((screen_w / 2))
+        sy=$((screen_h * 3 / 4))
+        ex=$sx
+        ey=$((screen_h / 4))
+      else
+        sx=540
+        sy=1800
+        ex=540
+        ey=650
+      fi
+      echo "scrollUntilText=INFO target=${target} attempt=${attempt} mode=screen-fallback coord=${sx},${sy}->${ex},${ey}" >> "$OUT/qa-summary.txt"
+    else
+      read -r sx sy ex ey <<<"$scroll_xy"
+    fi
+    adb shell input swipe "$sx" "$sy" "$ex" "$ey" 350
+    capture_name="${prefix}-${attempt}"
+    sleep 1
+    capture_screen "$capture_name"
+    dismiss_quickstep_anr "$capture_name" || true
+    ui="$OUT/${capture_name}-ui.xml"
+  done
+
+  echo "scrollUntilText=FAIL target=${target} reason=not-visible" >> "$OUT/qa-summary.txt"
   return 1
 }
 
@@ -316,6 +418,156 @@ PY2
         || record_failure "searchScreenshot=FAIL"
     else
       record_failure "openSearchSettings=FAIL safe-visible-search-row-not-found"
+    fi
+
+    # Targeted Developer System Prompt QA. The generic Settings smoke path used
+    # to stop before this feature, so prompt-manager/editor regressions could
+    # pass CI without ever rendering these screens.
+    if [[ "$search_ready" == true ]]; then
+      adb shell input keyevent 4
+      sleep 2
+      capture_screen promptqa-settings-home
+      if dismiss_quickstep_anr promptqa-settings-home; then
+        echo "promptQaSettingsHomeSystemOverlayClear=PASS" >> "$OUT/qa-summary.txt"
+      else
+        record_failure "promptQaSettingsHomeSystemOverlayClear=FAIL Quickstep ANR persisted"
+      fi
+
+      if scroll_until_text \
+          "promptqa-settings-home-scroll" \
+          "$OUT/promptqa-settings-home-ui.xml" \
+          "About Turp" \
+          12; then
+        adb shell input tap "$SCROLL_FOUND_X" "$SCROLL_FOUND_Y"
+        echo "promptQaOpenAbout=PASS coord=${SCROLL_FOUND_X},${SCROLL_FOUND_Y}" >> "$OUT/qa-summary.txt"
+        sleep 2
+        capture_screen promptqa-about
+
+        if scroll_until_text \
+            "promptqa-about-scroll" \
+            "$OUT/promptqa-about-ui.xml" \
+            "Developer options" \
+            24; then
+          adb shell input tap "$SCROLL_FOUND_X" "$SCROLL_FOUND_Y"
+          echo "promptQaOpenDeveloper=PASS coord=${SCROLL_FOUND_X},${SCROLL_FOUND_Y}" >> "$OUT/qa-summary.txt"
+          sleep 2
+          capture_screen promptqa-developer
+
+          if scroll_until_text \
+              "promptqa-developer-scroll" \
+              "$OUT/promptqa-developer-ui.xml" \
+              "Open system prompts" \
+              12; then
+            adb shell input tap "$SCROLL_FOUND_X" "$SCROLL_FOUND_Y"
+            echo "promptQaOpenSystemPrompts=PASS coord=${SCROLL_FOUND_X},${SCROLL_FOUND_Y}" >> "$OUT/qa-summary.txt"
+            sleep 2
+            capture_screen promptqa-system-prompts
+            if dismiss_quickstep_anr promptqa-system-prompts; then
+              echo "promptQaSystemPromptsSystemOverlayClear=PASS" >> "$OUT/qa-summary.txt"
+            else
+              record_failure "promptQaSystemPromptsSystemOverlayClear=FAIL Quickstep ANR persisted"
+            fi
+
+            if grep -Fq 'Components' "$OUT/promptqa-system-prompts-ui.xml" 2>/dev/null &&
+               grep -Fq 'Sent to model' "$OUT/promptqa-system-prompts-ui.xml" 2>/dev/null &&
+               grep -Fq 'Core behavior' "$OUT/promptqa-system-prompts-ui.xml" 2>/dev/null; then
+              echo "promptQaManagerUi=PASS" >> "$OUT/qa-summary.txt"
+            else
+              record_failure "promptQaManagerUi=FAIL expected-system-prompt-controls-missing"
+            fi
+
+            if tap_text "$OUT/promptqa-system-prompts-ui.xml" "Core behavior" "promptQaExpandCore"; then
+              sleep 1
+              capture_screen promptqa-core-expanded
+              if dismiss_quickstep_anr promptqa-core-expanded; then
+                echo "promptQaCoreExpandedSystemOverlayClear=PASS" >> "$OUT/qa-summary.txt"
+              else
+                record_failure "promptQaCoreExpandedSystemOverlayClear=FAIL Quickstep ANR persisted"
+              fi
+
+              if tap_text "$OUT/promptqa-core-expanded-ui.xml" "Core Turp prompt" "promptQaOpenCoreEditor"; then
+                sleep 2
+                capture_screen promptqa-core-editor
+                if dismiss_quickstep_anr promptqa-core-editor; then
+                  echo "promptQaEditorSystemOverlayClear=PASS" >> "$OUT/qa-summary.txt"
+                else
+                  record_failure "promptQaEditorSystemOverlayClear=FAIL Quickstep ANR persisted"
+                fi
+
+                editor_ok=true
+                for expected in \
+                    "Core Turp prompt" \
+                    "Restore built-in" \
+                    "Variables" \
+                    "Preview" \
+                    "Included" \
+                    "Save"; do
+                  if ! grep -Fq "$expected" "$OUT/promptqa-core-editor-ui.xml" 2>/dev/null; then
+                    record_failure "promptQaEditorUi=FAIL missing=${expected}"
+                    editor_ok=false
+                  fi
+                done
+                if grep -Fq 'Open system prompts' "$OUT/promptqa-core-editor-ui.xml" 2>/dev/null ||
+                   grep -Fq 'Performance counter' "$OUT/promptqa-core-editor-ui.xml" 2>/dev/null; then
+                  record_failure "promptQaEditorUi=FAIL settings-page-chrome-leaked-into-editor"
+                  editor_ok=false
+                fi
+                if [[ "$editor_ok" == true ]]; then
+                  echo "promptQaEditorUi=PASS" >> "$OUT/qa-summary.txt"
+                fi
+
+                editor_title_xy="$(pick_text_center "$OUT/promptqa-core-editor-ui.xml" "Core Turp prompt" 2>/dev/null || true)"
+                editor_save_xy="$(pick_text_center "$OUT/promptqa-core-editor-ui.xml" "Save" 2>/dev/null || true)"
+                if [[ -n "$editor_title_xy" && -n "$editor_save_xy" ]]; then
+                  read -r editor_title_x editor_title_y <<<"$editor_title_xy"
+                  read -r editor_save_x editor_save_y <<<"$editor_save_xy"
+                  if (( editor_title_y < 450 && editor_save_y < 450 )); then
+                    echo "promptQaEditorFullScreen=PASS titleY=${editor_title_y} saveY=${editor_save_y}" >> "$OUT/qa-summary.txt"
+                  else
+                    record_failure "promptQaEditorFullScreen=FAIL titleY=${editor_title_y} saveY=${editor_save_y}"
+                  fi
+                else
+                  record_failure "promptQaEditorFullScreen=FAIL missing-title-or-save-bounds"
+                fi
+
+                variables_xy="$(pick_text_center "$OUT/promptqa-core-editor-ui.xml" "Variables" 2>/dev/null || true)"
+                if [[ -n "$variables_xy" ]]; then
+                  read -r variables_x variables_y <<<"$variables_xy"
+                  adb shell input tap "$variables_x" "$variables_y"
+                  echo "promptQaOpenVariables=PASS coord=${variables_x},${variables_y}" >> "$OUT/qa-summary.txt"
+                  sleep 1
+                  capture_screen promptqa-core-editor-variables
+                  if dismiss_quickstep_anr promptqa-core-editor-variables; then
+                    echo "promptQaVariablesSystemOverlayClear=PASS" >> "$OUT/qa-summary.txt"
+                  else
+                    record_failure "promptQaVariablesSystemOverlayClear=FAIL Quickstep ANR persisted"
+                  fi
+                  if grep -Fq 'Insert variable' "$OUT/promptqa-core-editor-variables-ui.xml" 2>/dev/null; then
+                    echo "promptQaVariablesUi=PASS" >> "$OUT/qa-summary.txt"
+                  else
+                    record_failure "promptQaVariablesUi=FAIL expected-variable-controls-missing"
+                  fi
+                  [[ -s "$OUT/promptqa-core-editor-variables.png" ]] &&
+                    echo "promptQaVariablesScreenshot=PASS" >> "$OUT/qa-summary.txt" ||
+                    record_failure "promptQaVariablesScreenshot=FAIL"
+                else
+                  record_failure "promptQaOpenVariables=FAIL variables-chip-not-found"
+                fi
+
+                [[ -s "$OUT/promptqa-core-editor.png" ]] &&
+                  echo "promptQaEditorScreenshot=PASS" >> "$OUT/qa-summary.txt" ||
+                  record_failure "promptQaEditorScreenshot=FAIL"
+              fi
+            fi
+          else
+            record_failure "promptQaOpenSystemPrompts=FAIL row-not-found"
+          fi
+        else
+          record_failure "promptQaOpenDeveloper=FAIL row-not-found"
+        fi
+      else
+        record_failure "promptQaOpenAbout=FAIL row-not-found"
+      fi
     fi
   fi
 fi

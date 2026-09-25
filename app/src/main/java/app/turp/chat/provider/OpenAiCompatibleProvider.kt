@@ -1,6 +1,7 @@
 package app.turp.chat.provider
 
 import app.turp.chat.data.MessageRole
+import app.turp.chat.settings.DeveloperPromptTraceStore
 import app.turp.chat.data.ProviderProfile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -45,6 +46,7 @@ class OpenAiCompatibleProvider(
         var discardedInputTokens = 0L
         var discardedOutputTokens = 0L
         var discardedCachedTokens = 0L
+        val emptyStreamDiagnostics = mutableListOf<String>()
 
         while (true) {
             val attemptRequest = deepSeekToolGuardedRequest(request, deepSeekCorrectionAttempt)
@@ -76,7 +78,9 @@ class OpenAiCompatibleProvider(
             var attemptInputTokens: Long? = null
             var attemptOutputTokens: Long? = null
             var attemptCachedTokens: Long? = null
+            var lastStreamEvent: String? = null
 
+            DeveloperHttpTraceStore.record(attemptRequest, httpRequest, attemptRequest.provider.effectiveProtocol.name)
             client.newCall(httpRequest).useCancellable { response ->
                 if (!response.isSuccessful) {
                     val error = response.body?.readErrorSnippet().orEmpty()
@@ -89,6 +93,7 @@ class OpenAiCompatibleProvider(
                     if (!line.startsWith("data:")) continue
                     val payload = line.removePrefix("data:").trim()
                     if (payload == "[DONE]") break
+                    if (payload.isNotBlank()) lastStreamEvent = payload.take(MAX_STREAM_DIAGNOSTIC_CHARS)
                     parseChunk(payload, calls)?.let { chunk ->
                         val tagged = thinkingTags.accept(chunk.text, chunk.reasoning)
                         rawText.append(tagged.text)
@@ -212,11 +217,46 @@ class OpenAiCompatibleProvider(
             }
 
             if (meaningfulPayloadReceived) break
+            emptyStreamDiagnostics += buildString {
+                append("stream attempt ").append(emptyAttempt + 1)
+                finishReason?.takeIf(String::isNotBlank)?.let { append(" · finish=").append(it) }
+                lastStreamEvent?.takeIf(String::isNotBlank)?.let {
+                    append("\n  last event: ").append(it)
+                }
+            }
             if (emptyAttempt >= MAX_EMPTY_STREAM_RETRIES) {
-                val suffix = finishReason?.takeIf(String::isNotBlank)?.let { " (finish reason: $it)" }.orEmpty()
-                throw ProviderProtocolException(
-                    "Provider completed without returning content after ${emptyAttempt + 1} attempts$suffix",
-                )
+                try {
+                    val fallbackChunk = nonStreamingCompatibilityRetry(
+                        request = attemptRequest,
+                        endpoint = endpoint,
+                    )
+                    emit(fallbackChunk)
+                    break
+                } catch (error: ProviderHttpException) {
+                    throw ProviderHttpException(
+                        error.status,
+                        buildString {
+                            append("Streaming returned no content after ")
+                                .append(emptyAttempt + 1)
+                                .append(" attempts. Non-stream compatibility retry failed: ")
+                                .append(error.message ?: "HTTP ${error.status}")
+                            append("\nStreaming attempts:\n")
+                            append(emptyStreamDiagnostics.joinToString("\n"))
+                        },
+                    )
+                } catch (error: ProviderProtocolException) {
+                    throw ProviderProtocolException(
+                        buildString {
+                            append("Streaming returned no content after ")
+                                .append(emptyAttempt + 1)
+                                .append(" attempts. ")
+                                .append(error.message ?: "Non-stream compatibility retry failed.")
+                            append("\nStreaming attempts:\n")
+                            append(emptyStreamDiagnostics.joinToString("\n"))
+                        },
+                        error,
+                    )
+                }
             }
             emptyAttempt++
             delay(EMPTY_STREAM_RETRY_DELAY_MS * emptyAttempt)
@@ -238,7 +278,9 @@ class OpenAiCompatibleProvider(
             .post(buildImageRequestBody(request, prompt).toString().toRequestBody("application/json".toMediaType()))
         if (request.apiKey.isNotBlank()) builder.header("Authorization", "Bearer ${request.apiKey}")
         request.customHeaders.forEach(builder::header)
-        client.newCall(builder.build()).useCancellable { response ->
+        val httpRequest = builder.build()
+        DeveloperHttpTraceStore.record(request, httpRequest, request.provider.effectiveProtocol.name)
+        client.newCall(httpRequest).useCancellable { response ->
             if (!response.isSuccessful) {
                 val error = response.body?.readErrorSnippet().orEmpty()
                 throw ProviderHttpException(response.code, "${response.code} ${response.message}: $error")
@@ -265,6 +307,118 @@ class OpenAiCompatibleProvider(
         }
     }
 
+    internal suspend fun nonStreamingCompatibilityRetry(
+        request: ChatRequest,
+        endpoint: String = endpointFor(request),
+    ): StreamChunk {
+        val bodyJson = buildRequestBody(request, stream = false)
+        val builder = Request.Builder()
+            .url(endpoint)
+            .header("Accept", "application/json")
+            .header("Content-Type", "application/json")
+            .post(bodyJson.toString().toRequestBody("application/json".toMediaType()))
+        if (request.apiKey.isNotBlank()) builder.header("Authorization", "Bearer ${request.apiKey}")
+        request.customHeaders.forEach(builder::header)
+        val httpRequest = builder.build()
+
+        DeveloperHttpTraceStore.record(request, httpRequest, request.provider.effectiveProtocol.name)
+        return client.newCall(httpRequest).useCancellable { response ->
+            if (!response.isSuccessful) {
+                val error = response.body?.readErrorSnippet().orEmpty()
+                throw ProviderHttpException(
+                    response.code,
+                    "${response.code} ${response.message}: ${error.ifBlank { "No response body" }}",
+                )
+            }
+            val raw = response.body?.string().orEmpty()
+            if (raw.isBlank()) {
+                throw ProviderProtocolException("Non-stream compatibility retry returned an empty response body.")
+            }
+            parseNonStreamingCompletion(raw)
+        }
+    }
+
+    internal fun parseNonStreamingCompletion(raw: String): StreamChunk {
+        val root = runCatching { ProviderJson.parseToJsonElement(raw).jsonObject }
+            .getOrElse { throw ProviderProtocolException("Non-stream compatibility retry returned invalid JSON", it) }
+
+        root.obj("error")?.let { error ->
+            val message = error.string("message")
+                ?: error.string("detail")
+                ?: error.toString()
+            throw ProviderProtocolException("Provider error from non-stream compatibility retry: $message")
+        }
+        root["error"]?.let { error ->
+            if (error is JsonPrimitive && error.contentOrNull?.isNotBlank() == true) {
+                throw ProviderProtocolException(
+                    "Provider error from non-stream compatibility retry: ${error.content}",
+                )
+            }
+        }
+
+        val choice = root.array("choices")?.firstOrNull() as? JsonObject
+            ?: throw ProviderProtocolException(
+                "Non-stream compatibility retry returned no choices. Raw response: " +
+                    raw.take(MAX_STREAM_DIAGNOSTIC_CHARS),
+            )
+        val message = choice.obj("message")
+        val content = message?.openAiCompatibleMessageText().orEmpty()
+        val reasoning = message.openAiCompatibleReasoningText()
+        val calls = message?.array("tool_calls").orEmpty().mapIndexedNotNull { index, element ->
+            val item = element as? JsonObject ?: return@mapIndexedNotNull null
+            val function = item.obj("function") ?: return@mapIndexedNotNull null
+            val name = function.string("name")?.takeIf(String::isNotBlank) ?: return@mapIndexedNotNull null
+            val arguments = function.string("arguments").orEmpty().ifBlank { "{}" }
+            NativeToolCall(
+                id = item.string("id").orEmpty().ifBlank {
+                    "call_" + (name + "\n" + arguments + "\n" + index)
+                        .hashCode()
+                        .toUInt()
+                        .toString(16)
+                },
+                name = name,
+                argumentsJson = arguments,
+            )
+        }
+        val usage = root.obj("usage")
+        val details = usage?.obj("prompt_tokens_details")
+        val finishReason = choice.string("finish_reason")
+
+        val chunk = StreamChunk(
+            text = content,
+            reasoning = reasoning,
+            inputTokens = usage?.long("prompt_tokens"),
+            outputTokens = usage?.long("completion_tokens"),
+            cachedInputTokens = details?.long("cached_tokens"),
+            finishReason = finishReason,
+            toolCalls = calls,
+        )
+        if (!chunk.hasMeaningfulPayload()) {
+            throw ProviderProtocolException(
+                buildString {
+                    append("Non-stream compatibility retry also returned no content")
+                    finishReason?.takeIf(String::isNotBlank)?.let {
+                        append(" (finish reason: ").append(it).append(")")
+                    }
+                    append(". Raw response: ").append(raw.take(MAX_STREAM_DIAGNOSTIC_CHARS))
+                },
+            )
+        }
+        return chunk
+    }
+
+    private fun JsonObject?.openAiCompatibleMessageText(): String {
+        if (this == null) return ""
+        return when (val content = this["content"]) {
+            is JsonPrimitive -> content.contentOrNull.orEmpty()
+            is JsonArray -> content.mapNotNull { element ->
+                val part = element as? JsonObject ?: return@mapNotNull null
+                part.string("text") ?: part.string("content")
+            }.joinToString("")
+            else -> ""
+        }
+    }
+
     internal fun deepSeekToolGuardedRequest(
         request: ChatRequest,
         correctionAttempt: Int,
@@ -274,12 +428,15 @@ class OpenAiCompatibleProvider(
         if (correctionAttempt == 0 && !(request.isDeepSeekFamily() && hasExposedTools)) return request
         if (!hasExposedTools && !hasProtocolGuard) return request
         val instruction = buildString {
-            if (hasExposedTools) append(DEEPSEEK_TOOL_CALL_GUARD)
+            if (hasExposedTools) append(request.deepSeekToolGuardPrompt ?: DEEPSEEK_TOOL_CALL_GUARD)
             if (correctionAttempt > 0) {
                 if (isNotEmpty()) append("\n\n")
                 append(
-                    if (hasExposedTools) DEEPSEEK_TOOL_CALL_CORRECTION
-                    else TOOL_DISABLED_PROTOCOL_CORRECTION
+                    if (hasExposedTools) {
+                        request.deepSeekToolCorrectionPrompt ?: DEEPSEEK_TOOL_CALL_CORRECTION
+                    } else {
+                        request.toolDisabledProtocolCorrectionPrompt ?: TOOL_DISABLED_PROTOCOL_CORRECTION
+                    }
                 )
             }
         }
@@ -295,6 +452,7 @@ class OpenAiCompatibleProvider(
         } else {
             messages.add(0, InputMessage(MessageRole.SYSTEM, instruction))
         }
+        DeveloperPromptTraceStore.record(request.sessionId, messages)
         return request.copy(messages = messages)
     }
 
@@ -389,29 +547,34 @@ class OpenAiCompatibleProvider(
         }
     }
 
-    internal fun buildRequestBody(request: ChatRequest): JsonObject {
+    internal fun buildRequestBody(
+        request: ChatRequest,
+        stream: Boolean = true,
+    ): JsonObject {
         val profile = request.provider.effectiveProfile
         val isDeepSeek = profile == ProviderProfile.DEEPSEEK
         val isOpenRouter = profile == ProviderProfile.OPENROUTER
         val isAlibaba = ModelRequestPolicy.isAlibabaModelStudio(request.provider)
         return buildJsonObject {
             put("model", JsonPrimitive(request.model.modelId))
-            put("stream", JsonPrimitive(true))
+            put("stream", JsonPrimitive(stream))
             put(
                 if (isAlibaba) "max_completion_tokens" else "max_tokens",
                 JsonPrimitive(request.maxOutputTokens),
             )
-            if (profile in setOf(
-                    ProviderProfile.OPENAI,
-                    ProviderProfile.DEEPSEEK,
-                    ProviderProfile.OPENROUTER,
-                    ProviderProfile.XAI,
-                    ProviderProfile.QWEN_CLOUD,
-                ) || isAlibaba
+            if (stream && (
+                    profile in setOf(
+                        ProviderProfile.OPENAI,
+                        ProviderProfile.DEEPSEEK,
+                        ProviderProfile.OPENROUTER,
+                        ProviderProfile.XAI,
+                        ProviderProfile.QWEN_CLOUD,
+                    ) || isAlibaba
+                )
             ) {
                 put("stream_options", buildJsonObject { put("include_usage", JsonPrimitive(true)) })
             }
-            if (request.tools.isNotEmpty() && request.model.supportsTools) {
+            if (request.tools.isNotEmpty()) {
                 put("tools", buildJsonArray {
                     request.tools.forEach { tool ->
                         add(buildJsonObject {
@@ -426,7 +589,7 @@ class OpenAiCompatibleProvider(
                 })
                 // Turp executes one side effect at a time so interruption and replay remain deterministic.
                 put("parallel_tool_calls", JsonPrimitive(false))
-                if (isAlibaba && (
+                if (stream && isAlibaba && (
                         ModelRequestPolicy.isAlibabaGlmModel(request.model) ||
                             ModelRequestPolicy.isAlibabaQwenTextModel(request.model)
                     )
@@ -688,6 +851,7 @@ class OpenAiCompatibleProvider(
         const val MAX_EMPTY_STREAM_RETRIES = 2
         const val EMPTY_STREAM_RETRY_DELAY_MS = 750L
         const val MAX_IMAGE_RESPONSE_BYTES = 96L * 1024 * 1024
+        const val MAX_STREAM_DIAGNOSTIC_CHARS = 1_500
         const val MAX_DEEPSEEK_TOOL_CORRECTION_RETRIES = 1
         const val DEEPSEEK_TOOL_CORRECTION_RETRY_DELAY_MS = 350L
         const val DEEPSEEK_TOOL_CALL_GUARD =

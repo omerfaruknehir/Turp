@@ -45,7 +45,9 @@ class OpenCodeV2Provider(
             if (request.apiKey.isNotBlank()) builder.header("Authorization", "Bearer ${request.apiKey}")
             request.customHeaders.forEach(builder::header)
 
-            client.newCall(builder.build()).useCancellable { response ->
+            val httpRequest = builder.build()
+            DeveloperHttpTraceStore.record(request, httpRequest, request.provider.effectiveProtocol.name)
+            client.newCall(httpRequest).useCancellable { response ->
                 if (!response.isSuccessful) {
                     val error = response.body?.readErrorSnippet().orEmpty()
                     throw ProviderHttpException(

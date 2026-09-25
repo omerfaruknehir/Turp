@@ -367,6 +367,7 @@ internal object TurkishUiCopy {
         "Check for updates" -> "Güncellemeleri kontrol et"
         "Check again" -> "Tekrar kontrol et"
         "Turp is up to date" -> "Turp güncel"
+        "Trup is upper to date!?" -> "Trup daha güncel!?"
         "Update check failed" -> "Güncelleme kontrolü başarısız"
         "Download update" -> "Güncellemeyi indir"
         "Open release page" -> "Sürüm sayfasını aç"

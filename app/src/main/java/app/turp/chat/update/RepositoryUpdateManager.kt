@@ -36,6 +36,10 @@ sealed interface RepositoryUpdateState {
         val latestVersion: String,
         val checkedAt: Long,
     ) : RepositoryUpdateState
+    data class Ahead(
+        val latestVersion: String,
+        val checkedAt: Long,
+    ) : RepositoryUpdateState
     data class Available(
         val release: RepositoryRelease,
         val checkedAt: Long,
@@ -129,16 +133,20 @@ class RepositoryUpdateManager(context: Context) {
             }.onSuccess { release ->
                 cacheRelease(release)
                 preferences.edit { putLong(KEY_LAST_SUCCESS, now) }
-                _state.value = if (isRepositoryVersionNewer(
+                _state.value = when {
+                    isRepositoryVersionNewer(
                         candidateVersion = release.versionName,
                         currentVersion = installedVersion.versionName,
                         candidateVersionCode = release.versionCode,
                         currentVersionCode = installedVersion.versionCode,
-                    )
-                ) {
-                    RepositoryUpdateState.Available(release, now)
-                } else {
-                    RepositoryUpdateState.UpToDate(release.versionName, now)
+                    ) -> RepositoryUpdateState.Available(release, now)
+                    isInstalledRepositoryVersionAhead(
+                        installedVersion = installedVersion.versionName,
+                        latestVersion = release.versionName,
+                        installedVersionCode = installedVersion.versionCode,
+                        latestVersionCode = release.versionCode,
+                    ) -> RepositoryUpdateState.Ahead(release.versionName, now)
+                    else -> RepositoryUpdateState.UpToDate(release.versionName, now)
                 }
             }.onFailure { error ->
                 _state.value = RepositoryUpdateState.Failed(
@@ -483,6 +491,18 @@ internal fun isRepositoryVersionNewer(
     }
     return compareRepositoryVersions(candidateVersion, currentVersion) > 0
 }
+
+internal fun isInstalledRepositoryVersionAhead(
+    installedVersion: String,
+    latestVersion: String,
+    installedVersionCode: Int? = null,
+    latestVersionCode: Int? = null,
+): Boolean = isRepositoryVersionNewer(
+    candidateVersion = installedVersion,
+    currentVersion = latestVersion,
+    candidateVersionCode = installedVersionCode,
+    currentVersionCode = latestVersionCode,
+)
 
 internal fun compareRepositoryVersions(left: String, right: String): Int {
     val leftParsed = parseRepositoryVersion(left)

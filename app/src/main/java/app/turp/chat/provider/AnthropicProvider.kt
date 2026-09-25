@@ -33,8 +33,12 @@ class AnthropicProvider(
             .also { builder -> request.customHeaders.forEach(builder::header) }
             .build()
         val state = AnthropicStreamState()
+        DeveloperHttpTraceStore.record(request, httpRequest, request.provider.effectiveProtocol.name)
         client.newCall(httpRequest).useCancellable { response ->
-            if (!response.isSuccessful) throw ProviderHttpException(response.code, response.body?.readErrorSnippet().orEmpty())
+            if (!response.isSuccessful) {
+                val error = response.body?.readErrorSnippet().orEmpty()
+                throw ProviderHttpException(response.code, error)
+            }
             val source = response.body?.source() ?: error("Provider returned an empty response")
             while (!source.exhausted()) {
                 coroutineContext.ensureActive()
@@ -73,7 +77,7 @@ class AnthropicProvider(
                     })
                 }
             }
-            if (request.tools.isNotEmpty() && request.model.supportsTools) {
+            if (request.tools.isNotEmpty()) {
                 put("tools", buildJsonArray {
                     request.tools.forEach { tool ->
                         add(buildJsonObject {

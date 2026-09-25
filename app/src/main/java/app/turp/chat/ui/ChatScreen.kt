@@ -53,6 +53,7 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.AttachFile
 import androidx.compose.material.icons.outlined.AudioFile
+import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.CameraAlt
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Cloud
@@ -143,6 +144,7 @@ import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.compose.collectAsLazyPagingItems
 import app.turp.chat.R
+import app.turp.chat.data.GenerationUsageEntity
 import app.turp.chat.data.MessageEntity
 import app.turp.chat.data.MessageRole
 import app.turp.chat.data.MessageStatus
@@ -446,6 +448,12 @@ internal fun isActionableRecoveryMessage(message: MessageEntity): Boolean =
         (message.status == MessageStatus.INTERRUPTED &&
             message.error !in setOf("Steered by user", "Replaced by an edited message"))
 
+internal fun shouldOfferToolFallbackForError(error: String?): Boolean {
+    val normalized = error.orEmpty().lowercase()
+    return normalized.contains("rejected a request that included turp's native tool definitions") ||
+        normalized.contains("enable tool-call fallback for this model")
+}
+
 internal fun isRecoveryNoticeCandidate(
     message: MessageEntity,
     activeLeafNodeId: String?,
@@ -456,6 +464,24 @@ internal fun isRecoveryNoticeCandidate(
 
 internal fun shouldRenderAssistantRecoveryState(message: MessageEntity): Boolean =
     message.role == MessageRole.ASSISTANT && isActionableRecoveryMessage(message)
+
+internal fun shouldRenderInlineRecoveryCard(message: MessageEntity): Boolean {
+    val timeline = message.timelineJson.trim()
+    return shouldRenderAssistantRecoveryState(message) &&
+        message.content.isBlank() &&
+        message.reasoning.isBlank() &&
+        (timeline.isBlank() || timeline == "[]")
+}
+
+internal fun shouldShowFloatingRecoveryNotice(
+    message: MessageEntity,
+    activeLeafNodeId: String?,
+    dismissedNoticeKey: String?,
+): Boolean = isRecoveryNoticeCandidate(
+    message = message,
+    activeLeafNodeId = activeLeafNodeId,
+    dismissedNoticeKey = dismissedNoticeKey,
+) && !shouldRenderInlineRecoveryCard(message)
 
 internal fun withDismissedRecoveryNotice(
     current: Map<String, String>,
@@ -592,6 +618,7 @@ fun ChatScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
     val allProviders by viewModel.providers.collectAsStateWithLifecycle()
     val favoriteModels by viewModel.favoriteModels.collectAsStateWithLifecycle()
     val recentModels by viewModel.recentModels.collectAsStateWithLifecycle()
+    val toolFallbackSettings by viewModel.toolCallFallbackSettings.collectAsStateWithLifecycle()
     val credentialRevision by viewModel.credentialRevision.collectAsStateWithLifecycle()
     val usableProviders = remember(allProviders, credentialRevision) { viewModel.configuredProviders(allProviders) }
     val linuxStatus by viewModel.ubuntuStatus.collectAsStateWithLifecycle()
@@ -1273,7 +1300,7 @@ fun ChatScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
                 }
             }
             val interrupted = recoverable.firstOrNull { candidate ->
-                isRecoveryNoticeCandidate(
+                shouldShowFloatingRecoveryNotice(
                     message = candidate,
                     activeLeafNodeId = conversation?.activeLeafNodeId,
                     dismissedNoticeKey = dismissedRecoveryNoticeKey,
@@ -1337,15 +1364,42 @@ fun ChatScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
                                 TextButton(onClick = { recoveryDetailsMessage = message }) {
                                     Text("Details")
                                 }
-                                TextButton(onClick = {
-                                    dismissedRecoveryNoticeKeys = withDismissedRecoveryNotice(
-                                        dismissedRecoveryNoticeKeys,
-                                        conversation?.id,
-                                        message,
-                                    )
-                                    if (failed) viewModel.retryMessage(message) else viewModel.resume(message)
-                                }) {
-                                    Text(if (failed) "Retry" else "Continue")
+                                val fallbackProviderId = message.providerId
+                                val fallbackModelId = message.modelId
+                                val canEnableFallbackAndRetry =
+                                    failed &&
+                                        shouldOfferToolFallbackForError(message.error) &&
+                                        !fallbackProviderId.isNullOrBlank() &&
+                                        !fallbackModelId.isNullOrBlank() &&
+                                        !toolFallbackSettings.isEnabled(fallbackProviderId, fallbackModelId)
+                                if (canEnableFallbackAndRetry) {
+                                    TextButton(
+                                        onClick = {
+                                            dismissedRecoveryNoticeKeys = withDismissedRecoveryNotice(
+                                                dismissedRecoveryNoticeKeys,
+                                                conversation?.id,
+                                                message,
+                                            )
+                                            viewModel.enableToolCallFallbackForModel(
+                                                fallbackProviderId!!,
+                                                fallbackModelId!!,
+                                            )
+                                            viewModel.retryMessage(message)
+                                        },
+                                    ) {
+                                        Text("Enable fallback & retry")
+                                    }
+                                } else {
+                                    TextButton(onClick = {
+                                        dismissedRecoveryNoticeKeys = withDismissedRecoveryNotice(
+                                            dismissedRecoveryNoticeKeys,
+                                            conversation?.id,
+                                            message,
+                                        )
+                                        if (failed) viewModel.retryMessage(message) else viewModel.resume(message)
+                                    }) {
+                                        Text(if (failed) "Retry" else "Continue")
+                                    }
                                 }
                             }
                         }
@@ -1355,46 +1409,9 @@ fun ChatScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
         }
     }
     recoveryDetailsMessage?.let { message ->
-        val dialogContext = LocalContext.current
-        val fullError = message.error?.trim().orEmpty().ifBlank {
-            "No additional diagnostic text was returned by the provider."
-        }
-        TurpAlertDialog(
-            onDismissRequest = { recoveryDetailsMessage = null },
-            title = {
-                Text(if (message.status == MessageStatus.ERROR) "Request error" else "Interrupted response")
-            },
-            text = {
-                Column(
-                    Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Text(
-                        listOfNotNull(message.providerId, message.modelId).joinToString(" · ")
-                            .ifBlank { "Provider details unavailable" },
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    CodeSourcePanel(
-                        language = "text",
-                        code = fullError,
-                        title = if (message.status == MessageStatus.ERROR) "ERROR" else "DETAILS",
-                    )
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    dialogContext.getSystemService(android.content.ClipboardManager::class.java)
-                        .setPrimaryClip(android.content.ClipData.newPlainText("Turp stream error", fullError))
-                }) {
-                    Icon(Icons.Outlined.ContentCopy, null, Modifier.size(17.dp))
-                    Spacer(Modifier.width(5.dp))
-                    Text("Copy")
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { recoveryDetailsMessage = null }) { Text("Close") }
-            },
+        MessageErrorDetailsDialog(
+            message = message,
+            onDismiss = { recoveryDetailsMessage = null },
         )
     }
     if (showChatConfiguration) {
@@ -1426,9 +1443,17 @@ internal fun shouldShowOcrCompatibility(isImage: Boolean, modelSupportsVision: B
 internal fun unsupportedToolCallingNotice(
     modelSupportsTools: Boolean?,
     toolCallingRequested: Boolean,
-): String? = if (modelSupportsTools == false && toolCallingRequested) {
-    "This model doesn't support tool calling. Web, Python, and Linux tools won't run."
-} else null
+    sudoNativeAttempt: Boolean = false,
+    fallbackEnabled: Boolean = false,
+): String? = when {
+    modelSupportsTools != false || !toolCallingRequested -> null
+    fallbackEnabled ->
+        "Native tool calling is not reported for this model. Turp fallback tool calling is enabled and will use the strict fallback protocol instead."
+    sudoNativeAttempt ->
+        "Catalog metadata says this model doesn't support tool calling. Sudo will still try real native tool definitions first; the provider/API may reject them."
+    else ->
+        "Provider/catalog metadata reports native tool calling as unsupported for this model. Enable fallback to let Turp execute tools through its strict fallback protocol."
+}
 
 @Composable
 private fun EmptyConversation(
@@ -1474,6 +1499,101 @@ private fun EmptyConversation(
         }
     }
 }
+
+internal fun developerMessageSource(
+    content: String,
+    reasoning: String,
+    role: String = "",
+    providerId: String? = null,
+    modelId: String? = null,
+    status: String = "",
+    toolTraceJson: String = "",
+    timelineJson: String = "",
+    requestSnapshotJson: String? = null,
+    providerCalls: String = "",
+    error: String? = null,
+    httpRequest: String = "",
+): String {
+    val hasDiagnostics = reasoning.isNotBlank() ||
+        role.isNotBlank() ||
+        !providerId.isNullOrBlank() ||
+        !modelId.isNullOrBlank() ||
+        status.isNotBlank() ||
+        (toolTraceJson.isNotBlank() && toolTraceJson != "[]") ||
+        (timelineJson.isNotBlank() && timelineJson != "[]") ||
+        !requestSnapshotJson.isNullOrBlank() ||
+        providerCalls.isNotBlank() ||
+        !error.isNullOrBlank() ||
+        httpRequest.isNotBlank()
+    if (!hasDiagnostics) return content
+    return buildString {
+        if (role.isNotBlank() || !providerId.isNullOrBlank() || !modelId.isNullOrBlank() || status.isNotBlank()) {
+            appendLine("[MESSAGE METADATA]")
+            if (role.isNotBlank()) append("role: ").appendLine(role)
+            providerId?.takeIf(String::isNotBlank)?.let { append("provider: ").appendLine(it) }
+            modelId?.takeIf(String::isNotBlank)?.let { append("model: ").appendLine(it) }
+            if (status.isNotBlank()) append("status: ").appendLine(status)
+            appendLine()
+        }
+        if (reasoning.isNotBlank()) {
+            appendLine("[PROVIDER REASONING]")
+            appendLine(reasoning)
+            appendLine()
+        }
+        if (toolTraceJson.isNotBlank() && toolTraceJson != "[]") {
+            appendLine("[TOOL TRACE]")
+            appendLine(toolTraceJson)
+            appendLine()
+        }
+        if (timelineJson.isNotBlank() && timelineJson != "[]") {
+            appendLine("[MESSAGE TIMELINE · RAW]")
+            appendLine(timelineJson)
+            appendLine()
+        }
+        requestSnapshotJson?.takeIf(String::isNotBlank)?.let {
+            appendLine("[REQUEST SNAPSHOT]")
+            appendLine(it)
+            appendLine()
+        }
+        if (providerCalls.isNotBlank()) {
+            appendLine("[PROVIDER CALLS]")
+            appendLine(providerCalls)
+            appendLine()
+        }
+        if (httpRequest.isNotBlank()) {
+            appendLine("[DIRECT HTTP REQUEST · REDACTED]")
+            appendLine(httpRequest)
+            appendLine()
+        }
+        error?.takeIf(String::isNotBlank)?.let {
+            appendLine("[ERROR]")
+            appendLine(it)
+            appendLine()
+        }
+        appendLine("[MESSAGE CONTENT]")
+        append(content)
+    }
+}
+
+internal fun developerProviderCallSource(usages: List<GenerationUsageEntity>): String =
+    usages.joinToString("\n\n") { usage ->
+        buildString {
+            append("call_id: ").appendLine(usage.id)
+            append("round: ").appendLine(usage.roundIndex.toString())
+            append("provider: ").appendLine(usage.providerId)
+            append("model: ").appendLine(usage.modelId)
+            append("status: ").appendLine(usage.status)
+            usage.finishReason?.takeIf(String::isNotBlank)?.let {
+                append("finish_reason: ").appendLine(it)
+            }
+            usage.error?.takeIf(String::isNotBlank)?.let {
+                append("error: ").appendLine(it)
+            }
+            append("input_tokens: ").appendLine(usage.inputTokens.toString())
+            append("output_tokens: ").appendLine(usage.outputTokens.toString())
+            append("cached_input_tokens: ").appendLine(usage.cachedInputTokens.toString())
+        }.trimEnd()
+    }
 
 @Composable
 private fun MessageCard(
@@ -1532,10 +1652,22 @@ private fun MessageCard(
         !showRecoveryState
     ) return
     val developerSettings by viewModel.developerSettings.collectAsStateWithLifecycle()
+    val toolFallbackSettings by viewModel.toolCallFallbackSettings.collectAsStateWithLifecycle()
+    val developerHttpTraces by viewModel.developerHttpTraces.collectAsStateWithLifecycle()
     val sourceControlsEnabled =
         developerSettings.enabled && developerSettings.showMessageSourceEnabled
     var sourceVisible by rememberSaveable("message-source-${message.nodeId}") {
         mutableStateOf(false)
+    }
+    var developerUsage by remember(message.nodeId) {
+        mutableStateOf<List<GenerationUsageEntity>>(emptyList())
+    }
+    LaunchedEffect(sourceControlsEnabled, sourceVisible, message.nodeId, message.updatedAt) {
+        developerUsage = if (sourceControlsEnabled && sourceVisible) {
+            viewModel.generationUsage(message.nodeId)
+        } else {
+            emptyList()
+        }
     }
     LaunchedEffect(sourceControlsEnabled) {
         if (!sourceControlsEnabled) sourceVisible = false
@@ -1543,6 +1675,7 @@ private fun MessageCard(
     var editing by remember(message.nodeId) { mutableStateOf(false) }
     var editedText by remember(message.nodeId) { mutableStateOf(message.content) }
     var copied by remember(message.nodeId) { mutableStateOf(false) }
+    var errorDetailsOpen by rememberSaveable("error-details-" + message.nodeId) { mutableStateOf(false) }
     val context = LocalContext.current
     Row(modifier.fillMaxWidth(), horizontalArrangement = if (user) Arrangement.End else Arrangement.Start) {
         Surface(
@@ -1600,12 +1733,39 @@ private fun MessageCard(
                                 Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.End,
                             ) {
+                                val fallbackProviderId = message.providerId
+                                val fallbackModelId = message.modelId
+                                val canEnableFallbackAndRetry =
+                                    failed &&
+                                        shouldOfferToolFallbackForError(message.error) &&
+                                        !fallbackProviderId.isNullOrBlank() &&
+                                        !fallbackModelId.isNullOrBlank() &&
+                                        !toolFallbackSettings.isEnabled(fallbackProviderId, fallbackModelId)
                                 TextButton(
-                                    onClick = {
-                                        if (failed) viewModel.retryMessage(message) else viewModel.resume(message)
-                                    },
+                                    onClick = { errorDetailsOpen = true },
                                 ) {
-                                    Text(if (failed) "Retry" else "Continue")
+                                    Text("Details")
+                                }
+                                if (canEnableFallbackAndRetry) {
+                                    TextButton(
+                                        onClick = {
+                                            viewModel.enableToolCallFallbackForModel(
+                                                fallbackProviderId!!,
+                                                fallbackModelId!!,
+                                            )
+                                            viewModel.retryMessage(message)
+                                        },
+                                    ) {
+                                        Text("Enable fallback & retry")
+                                    }
+                                } else {
+                                    TextButton(
+                                        onClick = {
+                                            if (failed) viewModel.retryMessage(message) else viewModel.resume(message)
+                                        },
+                                    ) {
+                                        Text(if (failed) "Retry" else "Continue")
+                                    }
                                 }
                             }
                         }
@@ -1614,7 +1774,24 @@ private fun MessageCard(
                 if (sourceControlsEnabled && sourceVisible) {
                     CodeSourcePanel(
                         language = "markdown",
-                        code = message.content,
+                        code = developerMessageSource(
+                            content = message.content,
+                            reasoning = message.reasoning,
+                            role = message.role.name,
+                            providerId = message.providerId,
+                            modelId = message.modelId,
+                            status = message.status.name,
+                            toolTraceJson = message.toolTraceJson,
+                            timelineJson = message.timelineJson,
+                            requestSnapshotJson = message.requestSnapshotJson,
+                            providerCalls = developerProviderCallSource(developerUsage),
+                            error = message.error,
+                            httpRequest = if (developerSettings.showHttpRequestEnabled) {
+                                developerHttpTraces[message.nodeId]
+                                    .orEmpty()
+                                    .joinToString("\n\n") { it.formatted() }
+                            } else "",
+                        ),
                         title = "MESSAGE SOURCE",
                         live = animateStreaming,
                     )
@@ -1745,6 +1922,12 @@ private fun MessageCard(
                 }
             }
         }
+    }
+    if (errorDetailsOpen) {
+        MessageErrorDetailsDialog(
+            message = message,
+            onDismiss = { errorDetailsOpen = false },
+        )
     }
     if (editing) TurpAlertDialog(
         onDismissRequest = { editing = false },
@@ -2872,6 +3055,7 @@ private fun Composer(
     val chromeEdgeSoftness by viewModel.chromeEdgeSoftness.collectAsStateWithLifecycle()
     val chromeOverlayOpacity by viewModel.chromeOverlayOpacity.collectAsStateWithLifecycle()
     val developerSettings by viewModel.developerSettings.collectAsStateWithLifecycle()
+    val toolFallbackSettings by viewModel.toolCallFallbackSettings.collectAsStateWithLifecycle()
     val draft by viewModel.draft.collectAsState()
     val staged by viewModel.stagedAttachments.collectAsState()
     val importing by viewModel.importing.collectAsState()
@@ -3002,34 +3186,61 @@ private fun Composer(
                         }
                     }
                 }
+                val sudoNativeAttempt =
+                    developerSettings.enabled &&
+                        developerSettings.sudoModeControlEnabled &&
+                        current.sudoModeEnabled
+                val fallbackEnabledForModel = model?.let {
+                    toolFallbackSettings.isEnabled(it.providerId, it.modelId)
+                } == true
                 if (!imageGenerationMode) unsupportedToolCallingNotice(
                     modelSupportsTools = model?.supportsTools,
                     toolCallingRequested = current.webSearchEnabled ||
                         current.deepResearchEnabled ||
                         current.agentPythonEnabled ||
                         current.agentUbuntuEnabled,
+                    sudoNativeAttempt = sudoNativeAttempt,
+                    fallbackEnabled = fallbackEnabledForModel,
                 )?.let { notice ->
+                    val canEnableFallback = !fallbackEnabledForModel && provider != null && model != null
                     Surface(
-                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = .72f),
+                        color = if (fallbackEnabledForModel) {
+                            MaterialTheme.colorScheme.secondaryContainer.copy(alpha = .72f)
+                        } else {
+                            MaterialTheme.colorScheme.errorContainer.copy(alpha = .72f)
+                        },
                         shape = MaterialTheme.shapes.large,
                         modifier = Modifier.fillMaxWidth().padding(bottom = 7.dp),
                     ) {
-                        Row(
+                        Column(
                             Modifier.padding(horizontal = 11.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
-                            Icon(
-                                Icons.Outlined.WarningAmber,
-                                null,
-                                Modifier.size(18.dp),
-                                tint = MaterialTheme.colorScheme.onErrorContainer,
-                            )
-                            Text(
-                                notice,
-                                Modifier.padding(start = 8.dp),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onErrorContainer,
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    if (fallbackEnabledForModel) Icons.Outlined.Build else Icons.Outlined.WarningAmber,
+                                    null,
+                                    Modifier.size(18.dp),
+                                )
+                                Text(
+                                    notice,
+                                    Modifier.padding(start = 8.dp).weight(1f),
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                            if (canEnableFallback) {
+                                TextButton(
+                                    onClick = {
+                                        viewModel.enableToolCallFallbackForModel(
+                                            provider!!.id,
+                                            model!!.modelId,
+                                        )
+                                    },
+                                    modifier = Modifier.align(Alignment.End),
+                                ) {
+                                    Text("Enable fallback for this model")
+                                }
+                            }
                         }
                     }
                 }
@@ -3197,7 +3408,7 @@ private fun Composer(
                         ComposerToggleRow(
                             icon = Icons.Outlined.Security,
                             title = "Sudo mode",
-                            subtitle = "Promote the latest user turn to system priority while Sudo is enabled",
+                            subtitle = "Promote the latest user turn and force native tool attempts even when catalog metadata says unsupported",
                             checked = current.sudoModeEnabled,
                             onCheckedChange = { enabled ->
                                 viewModel.updateConversation { it.copy(sudoModeEnabled = enabled) }
