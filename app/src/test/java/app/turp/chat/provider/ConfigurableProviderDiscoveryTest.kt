@@ -24,8 +24,8 @@ class ConfigurableProviderDiscoveryTest {
             seen += path
             val json = when (path) {
                 "/v1/models" -> """{"data":[{"id":"alpha","name":"Alpha Listed","context_length":4096},{"id":"vendor/beta","name":"Beta Listed"}]}"""
-                "/v1/models/alpha" -> """{"id":"alpha","context_window":131072,"max_output_tokens":8192,"thinking":true,"capabilities":{"supports_tools":true,"supports_vision":true},"description":"Alpha detail"}"""
-                "/v1/models/vendor%2Fbeta" -> """{"data":{"id":"vendor/beta","contextWindow":262144,"maxOutputTokens":16384,"capabilities":{"supportsFiles":true,"function_calling":true},"description":"Beta detail"}}"""
+                "/v1/models/alpha" -> """{"id":"alpha","capabilities":{"context_window":131072},"max_output_tokens":8192,"thinking":true,"architecture":{"input_modalities":["text","image"],"output_modalities":["text"]},"supported_parameters":["tools"],"description":"Alpha detail"}"""
+                "/v1/models/vendor%2Fbeta" -> """{"data":[{"id":"vendor/beta","contextWindow":262144,"maxOutputTokens":16384,"capabilities":{"supportsFiles":true,"function_calling":true},"description":"Beta detail"}]}"""
                 else -> error("Unexpected path: $path")
             }
             Response.Builder()
