@@ -13,7 +13,9 @@ import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.gestures.animateScrollBy
@@ -121,6 +123,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
@@ -3281,6 +3284,7 @@ private fun Composer(
             }
 
             val promptShellShape = RoundedCornerShape(30.dp)
+            val promptShellOutline = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.72f)
             val promptShellModifier = when (promptBarBackgroundStyle) {
                 PromptBarBackgroundStyle.BLURRED -> Modifier
                     .fillMaxWidth()
@@ -3296,80 +3300,115 @@ private fun Composer(
                         expandToMeasuredHeight = true,
                     )
                     .clip(promptShellShape)
+                    .border(1.dp, promptShellOutline, promptShellShape)
                 PromptBarBackgroundStyle.SOLID -> Modifier
                     .fillMaxWidth()
                     .clip(promptShellShape)
                     .background(
                         MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = promptBarBackgroundOpacity),
                     )
-                PromptBarBackgroundStyle.TRANSPARENT -> Modifier.fillMaxWidth()
+                    .border(1.dp, promptShellOutline, promptShellShape)
+                PromptBarBackgroundStyle.TRANSPARENT -> Modifier
+                    .fillMaxWidth()
+                    .clip(promptShellShape)
+                    .border(1.dp, promptShellOutline, promptShellShape)
             }
 
             Box(promptShellModifier) {
                 Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(start = 4.dp, top = 4.dp, end = 5.dp, bottom = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                IconButton(onClick = {
-                    haptics.tap()
-                    plusMenu = true
-                }, enabled = !importing && providerConfigured && !imageGenerationMode) {
-                    Icon(
-                        Icons.Outlined.Add,
-                        if (imageGenerationMode) "Attachments are unavailable in image generation mode"
-                        else "Attachments and tools",
-                    )
-                }
-                OutlinedTextField(
-                    value = draft,
-                    onValueChange = viewModel::setDraft,
-                    enabled = providerConfigured,
-                    placeholder = {
-                        Text(
-                            if (generating) "Add direction…"
-                            else if (imageGenerationBlocked) "Remove attachments to generate an image"
-                            else if (imageGenerationMode) "Describe an image to generate…"
-                            else if (conversation?.deepResearchEnabled == true) "Research request…"
-                            else "Message Turp…",
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    },
-                    modifier = Modifier.weight(1f).heightIn(min = 54.dp, max = 170.dp),
-                    shape = MaterialTheme.shapes.extraLarge,
-                    maxLines = 7,
-                )
-                Spacer(Modifier.width(6.dp))
-                Surface(
-                    shape = CircleShape,
-                    color = if (providerConfigured && hasPayload && !importing) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.surfaceContainerHighest,
-                    contentColor = if (providerConfigured && hasPayload && !importing) MaterialTheme.colorScheme.onPrimary
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(48.dp).combinedClickable(
-                        enabled = providerConfigured && hasPayload && !importing,
+                    IconButton(
                         onClick = {
-                            haptics.confirm()
-                            onImmediateSend()
-                            viewModel.send(if (generating) SendMode.STEER else SendMode.SEND_NOW)
+                            haptics.tap()
+                            plusMenu = true
                         },
-                        onLongClick = {
-                            haptics.longPress()
-                            sendMenu = true
-                        },
-                    ),
-                ) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        enabled = !importing && providerConfigured && !imageGenerationMode,
+                        modifier = Modifier.size(48.dp),
+                    ) {
                         Icon(
-                            if (generating) Icons.AutoMirrored.Outlined.AltRoute
-                            else if (imageGenerationMode) Icons.Outlined.Image
-                            else Icons.Filled.ArrowUpward,
-                            if (generating) "Steer current response"
-                            else if (imageGenerationMode) "Generate image"
-                            else "Send",
+                            Icons.Outlined.Add,
+                            if (imageGenerationMode) "Attachments are unavailable in image generation mode"
+                            else "Attachments and tools",
                         )
                     }
-                }
+
+                    val promptPlaceholder = when {
+                        generating -> "Add direction…"
+                        imageGenerationBlocked -> "Remove attachments to generate an image"
+                        imageGenerationMode -> "Describe an image to generate…"
+                        conversation?.deepResearchEnabled == true -> "Research request…"
+                        else -> "Message Turp…"
+                    }
+                    BasicTextField(
+                        value = draft,
+                        onValueChange = viewModel::setDraft,
+                        enabled = providerConfigured,
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 48.dp, max = 164.dp)
+                            .padding(horizontal = 8.dp),
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(
+                            color = if (providerConfigured) MaterialTheme.colorScheme.onSurface
+                            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+                        ),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                        minLines = 1,
+                        maxLines = 7,
+                        decorationBox = { innerTextField ->
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 48.dp)
+                                    .padding(vertical = 13.dp),
+                                contentAlignment = Alignment.CenterStart,
+                            ) {
+                                if (draft.isEmpty()) {
+                                    Text(
+                                        promptPlaceholder,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        },
+                    )
+
+                    Surface(
+                        shape = CircleShape,
+                        color = if (providerConfigured && hasPayload && !importing) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.surfaceContainerHighest,
+                        contentColor = if (providerConfigured && hasPayload && !importing) MaterialTheme.colorScheme.onPrimary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(48.dp).combinedClickable(
+                            enabled = providerConfigured && hasPayload && !importing,
+                            onClick = {
+                                haptics.confirm()
+                                onImmediateSend()
+                                viewModel.send(if (generating) SendMode.STEER else SendMode.SEND_NOW)
+                            },
+                            onLongClick = {
+                                haptics.longPress()
+                                sendMenu = true
+                            },
+                        ),
+                    ) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Icon(
+                                if (generating) Icons.AutoMirrored.Outlined.AltRoute
+                                else if (imageGenerationMode) Icons.Outlined.Image
+                                else Icons.Filled.ArrowUpward,
+                                if (generating) "Steer current response"
+                                else if (imageGenerationMode) "Generate image"
+                                else "Send",
+                            )
+                        }
+                    }
                 }
             }
 
