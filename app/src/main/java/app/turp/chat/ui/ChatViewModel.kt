@@ -211,6 +211,8 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
     val chromeBlurStrength: StateFlow<Float> = container.appPreferences.chromeBlurStrength
     val chromeEdgeSoftness: StateFlow<Float> = container.appPreferences.chromeEdgeSoftness
     val chromeOverlayOpacity: StateFlow<Float> = container.appPreferences.chromeOverlayOpacity
+    val promptBarBackgroundStyle = container.appPreferences.promptBarBackgroundStyle
+    val promptBarBackgroundOpacity = container.appPreferences.promptBarBackgroundOpacity
     val lessEmojiEnabled: StateFlow<Boolean> = container.appPreferences.lessEmojiEnabled
     val automaticUpdateChecks: StateFlow<Boolean> = container.appPreferences.automaticUpdateChecks
     val generatedRepairMaxAttempts: StateFlow<Int> = container.appPreferences.generatedRepairMaxAttempts
@@ -1514,6 +1516,10 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
     fun setChromeBlurStrength(value: Float) = container.appPreferences.setChromeBlurStrength(value)
     fun setChromeEdgeSoftness(value: Float) = container.appPreferences.setChromeEdgeSoftness(value)
     fun setChromeOverlayOpacity(value: Float) = container.appPreferences.setChromeOverlayOpacity(value)
+    fun setPromptBarBackgroundStyle(value: app.turp.chat.settings.PromptBarBackgroundStyle) =
+        container.appPreferences.setPromptBarBackgroundStyle(value)
+    fun setPromptBarBackgroundOpacity(value: Float) =
+        container.appPreferences.setPromptBarBackgroundOpacity(value)
     fun setGeneratedRepairMaxAttempts(value: Int) = container.appPreferences.setGeneratedRepairMaxAttempts(value)
     fun updateDeveloperSettings(transform: (app.turp.chat.settings.DeveloperSettings) -> app.turp.chat.settings.DeveloperSettings) =
         container.appPreferences.updateDeveloperSettings(transform)
