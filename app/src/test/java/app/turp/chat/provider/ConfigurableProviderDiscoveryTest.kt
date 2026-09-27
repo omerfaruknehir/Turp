@@ -59,6 +59,7 @@ class ConfigurableProviderDiscoveryTest {
         assertEquals(131072, alpha.contextWindow)
         assertEquals(8192, alpha.maxOutputTokens)
         assertEquals(true, alpha.supportsThinking)
+        assertTrue(alpha.reasoningMetadataAvailable)
         assertEquals(true, alpha.supportsTools)
         assertEquals(true, alpha.supportsVision)
         assertEquals("Alpha detail", alpha.description)
