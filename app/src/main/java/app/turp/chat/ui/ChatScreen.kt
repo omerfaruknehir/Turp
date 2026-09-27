@@ -1915,6 +1915,8 @@ private fun MessageCard(
                             )
                         }
                     }
+                    val showToolDiagnostics =
+                        developerSettings.enabled && developerSettings.toolDiagnosticsEnabled
                     if (timeline.isNotEmpty()) {
                         OrderedMessageTimeline(
                             messageKey = message.nodeId,
@@ -1923,6 +1925,7 @@ private fun MessageCard(
                             working = working,
                             animateStreaming = animateStreaming,
                             visibility = reasoningVisibility,
+                            showDiagnostics = showToolDiagnostics,
                             viewModel = viewModel,
                             workingCardViewport = workingCardViewport,
                         )
@@ -1936,6 +1939,7 @@ private fun MessageCard(
                             messageFinishedAt = message.updatedAt,
                             animateStreaming = animateStreaming,
                             visibility = reasoningVisibility,
+                            showDiagnostics = showToolDiagnostics,
                             viewModel = viewModel,
                             workingCardViewport = workingCardViewport,
                         )
@@ -2107,6 +2111,7 @@ private fun OrderedMessageTimeline(
     working: Boolean,
     animateStreaming: Boolean,
     visibility: ReasoningVisibility,
+    showDiagnostics: Boolean,
     viewModel: ChatViewModel,
     workingCardViewport: WorkingCardViewportController,
 ) {
@@ -2158,6 +2163,7 @@ private fun OrderedMessageTimeline(
                     visibility = visibility,
                     usedSourceUrls = usedSourceUrls,
                     sourceLinks = sourceLinks,
+                    showDiagnostics = showDiagnostics,
                     viewModel = viewModel,
                     workingCardViewport = workingCardViewport,
                 )
@@ -2207,6 +2213,7 @@ private fun TimelineWorkingBlock(
     visibility: ReasoningVisibility,
     usedSourceUrls: Set<String>,
     sourceLinks: List<TimelineSourceLink>,
+    showDiagnostics: Boolean,
     viewModel: ChatViewModel,
     workingCardViewport: WorkingCardViewportController,
 ) {
@@ -2306,6 +2313,7 @@ private fun TimelineWorkingBlock(
                             superseded = superseded,
                             usedSourceUrls = usedSourceUrls,
                             sourceLinks = sourceLinks,
+                            showDiagnostics = showDiagnostics,
                             viewModel = viewModel,
                             workingCardViewport = workingCardViewport,
                         )
@@ -2325,6 +2333,7 @@ private fun TimelineWorkStep(
     superseded: Boolean,
     usedSourceUrls: Set<String>,
     sourceLinks: List<TimelineSourceLink>,
+    showDiagnostics: Boolean,
     viewModel: ChatViewModel,
     workingCardViewport: WorkingCardViewportController,
 ) {
@@ -2416,6 +2425,7 @@ private fun TimelineWorkStep(
                                     event.status,
                                     usedSourceUrls,
                                     sourceLinks,
+                                    showDiagnostics,
                                     viewModel,
                                     workingCardViewport,
                                 )
@@ -2457,11 +2467,10 @@ private fun LegacyWorkingBlock(
     messageFinishedAt: Long,
     animateStreaming: Boolean,
     visibility: ReasoningVisibility,
+    showDiagnostics: Boolean,
     viewModel: ChatViewModel,
     workingCardViewport: WorkingCardViewportController,
 ) {
-    val developerSettings by viewModel.developerSettings.collectAsStateWithLifecycle()
-    val showDiagnostics = developerSettings.enabled && developerSettings.toolDiagnosticsEnabled
     val traces = remember(messageKey, toolTraceJson) {
         ToolTraceDecodeCache.decode(messageKey, toolTraceJson)
     }
@@ -2602,11 +2611,10 @@ private fun ToolStepDetails(
     status: String,
     usedSourceUrls: Set<String>,
     sourceLinks: List<TimelineSourceLink>,
+    showDiagnostics: Boolean,
     viewModel: ChatViewModel,
     workingCardViewport: WorkingCardViewportController,
 ) {
-    val developerSettings by viewModel.developerSettings.collectAsStateWithLifecycle()
-    val showDiagnostics = developerSettings.enabled && developerSettings.toolDiagnosticsEnabled
     val language = if (kind == "python") "python" else if (kind == "ubuntu") "bash" else "text"
     when (kind) {
         "search", "native_search" -> CompactSearchToolCard(
@@ -2649,7 +2657,12 @@ private fun ToolStepDetails(
                         val patch = runCatching { json.decodeFromString<AppliedPatchResult>(output) }.getOrNull()
                         val read = runCatching { json.decodeFromString<WorkspaceReadResult>(output) }.getOrNull()
                         when {
-                            run != null -> ScriptRunActivityCard(run, viewModel, workingCardViewport)
+                            run != null -> ScriptRunActivityCard(
+                                run,
+                                viewModel,
+                                workingCardViewport,
+                                showDiagnostics,
+                            )
                             patch != null -> GenericToolOutputCard(
                                 if (showDiagnostics) {
                                     "${patch.summary}\nRevision ${patch.revision ?: "workspace"} · ${patch.sourceSha256}"
@@ -2704,11 +2717,14 @@ private fun ToolStepDetails(
 }
 
 @Composable
-private fun ScriptRunActivityCard(initial: ScriptRunResult, viewModel: ChatViewModel, workingCardViewport: WorkingCardViewportController) {
+private fun ScriptRunActivityCard(
+    initial: ScriptRunResult,
+    viewModel: ChatViewModel,
+    workingCardViewport: WorkingCardViewportController,
+    showDiagnostics: Boolean,
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val developerSettings by viewModel.developerSettings.collectAsStateWithLifecycle()
-    val showDiagnostics = developerSettings.enabled && developerSettings.toolDiagnosticsEnabled
     var results by remember(initial.runId) { mutableStateOf(listOf(initial)) }
     var source by remember(initial.runId) { mutableStateOf<String?>(null) }
     var error by remember(initial.runId) { mutableStateOf("") }
