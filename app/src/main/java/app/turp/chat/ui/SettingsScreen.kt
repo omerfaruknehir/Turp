@@ -2749,7 +2749,7 @@ private fun DeveloperSettingsPage(
     HorizontalDivider()
     SectionTitle(
         "Blur boundary diagnostics",
-        "Draws explicit debug guides at the top and bottom panel boundaries. Normal UI no longer draws a boundary highlight.",
+        "Visualize the real blur feather geometry and adjust the top blur region for diagnostics.",
     )
     SettingsSwitch(
         label = "Show blur boundary guides",
@@ -2765,8 +2765,19 @@ private fun DeveloperSettingsPage(
         valueRange = 1f..8f,
         enabled = settings.enabled && settings.blurBoundaryDebugEnabled,
     )
+    SettingSlider(
+        label = "Top blur vertical offset",
+        valueLabel = "${settings.topBlurOffsetDp.roundToInt()} dp",
+        value = settings.topBlurOffsetDp,
+        onValueChange = { value ->
+            viewModel.updateDeveloperSettings { it.copy(topBlurOffsetDp = value) }
+        },
+        valueRange = -120f..120f,
+        enabled = settings.enabled,
+        supportingText = "Negative moves the complete top blur area upward; positive moves it downward. 0 dp keeps the normal geometry.",
+    )
     Text(
-        "Guides are bright red and diagnostic-only. They are never shown unless both Developer settings and this toggle are enabled.",
+        "Boundary guides are diagnostic-only: yellow marks the feather/gradient start and red marks its end. With zero edge softness they collapse to one red boundary. They are never shown unless both Developer settings and this toggle are enabled.",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
