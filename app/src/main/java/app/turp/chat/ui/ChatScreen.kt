@@ -173,6 +173,7 @@ import app.turp.chat.sandbox.UbuntuExecutionResult
 import app.turp.chat.sandbox.AppliedPatchResult
 import app.turp.chat.sandbox.ScriptRunResult
 import app.turp.chat.sandbox.WorkspaceReadResult
+import app.turp.chat.settings.PromptBarBackgroundStyle
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.coroutines.CancellationException
@@ -3054,6 +3055,8 @@ private fun Composer(
     val chromeBlurStrength by viewModel.chromeBlurStrength.collectAsStateWithLifecycle()
     val chromeEdgeSoftness by viewModel.chromeEdgeSoftness.collectAsStateWithLifecycle()
     val chromeOverlayOpacity by viewModel.chromeOverlayOpacity.collectAsStateWithLifecycle()
+    val promptBarBackgroundStyle by viewModel.promptBarBackgroundStyle.collectAsStateWithLifecycle()
+    val promptBarBackgroundOpacity by viewModel.promptBarBackgroundOpacity.collectAsStateWithLifecycle()
     val developerSettings by viewModel.developerSettings.collectAsStateWithLifecycle()
     val toolFallbackSettings by viewModel.toolCallFallbackSettings.collectAsStateWithLifecycle()
     val draft by viewModel.draft.collectAsState()
@@ -3093,20 +3096,7 @@ private fun Composer(
     }
 
     Box(Modifier.fillMaxWidth().imePadding()) {
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .turpBackdropBlur(
-                    state = blurState,
-                    strength = chromeBlurStrength,
-                    edgeSoftness = chromeEdgeSoftness,
-                    overlayOpacity = chromeOverlayOpacity,
-                    tint = MaterialTheme.colorScheme.surface.copy(alpha = 0.46f),
-                    edge = TurpBlurEdge.BOTTOM,
-                    panelHeight = CHAT_COMPOSER_MIN_PANEL_HEIGHT_DP.dp,
-                    expandToMeasuredHeight = true,
-                ),
-        ) {
+        Box(Modifier.fillMaxWidth()) {
             Column(Modifier.navigationBarsPadding().padding(horizontal = 10.dp, vertical = 8.dp)) {
             if (generating || pending.isNotEmpty()) {
                 Surface(
@@ -3291,7 +3281,36 @@ private fun Composer(
                 }
             }
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            val promptShellShape = RoundedCornerShape(30.dp)
+            val promptShellModifier = when (promptBarBackgroundStyle) {
+                PromptBarBackgroundStyle.BLURRED -> Modifier
+                    .fillMaxWidth()
+                    .turpBackdropBlur(
+                        state = blurState,
+                        strength = chromeBlurStrength,
+                        edgeSoftness = chromeEdgeSoftness,
+                        overlayOpacity = promptBarBackgroundOpacity,
+                        tint = MaterialTheme.colorScheme.surface,
+                        edge = TurpBlurEdge.BOTTOM,
+                        panelHeight = 64.dp,
+                        cornerRadius = 30.dp,
+                        expandToMeasuredHeight = true,
+                    )
+                    .clip(promptShellShape)
+                PromptBarBackgroundStyle.SOLID -> Modifier
+                    .fillMaxWidth()
+                    .clip(promptShellShape)
+                    .background(
+                        MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = promptBarBackgroundOpacity),
+                    )
+                PromptBarBackgroundStyle.TRANSPARENT -> Modifier.fillMaxWidth()
+            }
+
+            Box(promptShellModifier) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                 IconButton(onClick = {
                     haptics.tap()
                     plusMenu = true
@@ -3351,6 +3370,7 @@ private fun Composer(
                             else "Send",
                         )
                     }
+                }
                 }
             }
 
