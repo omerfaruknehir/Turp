@@ -3054,7 +3054,6 @@ private fun Composer(
     val conversation by viewModel.conversation.collectAsStateWithLifecycle()
     val chromeBlurStrength by viewModel.chromeBlurStrength.collectAsStateWithLifecycle()
     val chromeEdgeSoftness by viewModel.chromeEdgeSoftness.collectAsStateWithLifecycle()
-    val chromeOverlayOpacity by viewModel.chromeOverlayOpacity.collectAsStateWithLifecycle()
     val promptBarBackgroundStyle by viewModel.promptBarBackgroundStyle.collectAsStateWithLifecycle()
     val promptBarBackgroundOpacity by viewModel.promptBarBackgroundOpacity.collectAsStateWithLifecycle()
     val developerSettings by viewModel.developerSettings.collectAsStateWithLifecycle()
