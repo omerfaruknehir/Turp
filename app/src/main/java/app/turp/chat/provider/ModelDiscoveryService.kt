@@ -522,7 +522,27 @@ class ModelDiscoveryService(
         val supportedParameters = model.stringSet("supported_parameters")
         val topProvider = model["top_provider"] as? JsonObject
         val pricing = model["pricing"] as? JsonObject
-        val reasoning = model["reasoning"] as? JsonObject
+        val reasoningValue = model["reasoning"]
+        val reasoning = reasoningValue as? JsonObject
+        val scalarReasoning = (reasoningValue as? JsonPrimitive)?.let { primitive ->
+            primitive.booleanOrNull ?: primitive.contentOrNull
+                ?.trim()
+                ?.lowercase()
+                ?.let { value ->
+                    when (value) {
+                        "true", "enabled", "on", "yes", "reasoning", "thinking" -> true
+                        "false", "disabled", "off", "no", "none" -> false
+                        else -> null
+                    }
+                }
+        }
+        val advertisedReasoning = model.booleanCapability(
+            "supports_reasoning",
+            "supportsReasoning",
+            "supports_thinking",
+            "supportsThinking",
+            "thinking",
+        )
         val efforts = reasoning?.stringSet("supported_efforts").orEmpty().mapNotNull(::parseThinkingEffort)
         DiscoveredModel(
             id = id,
@@ -556,8 +576,13 @@ class ModelDiscoveryService(
                 "max_completion_tokens",
             ) ?: topProvider?.int("max_completion_tokens", "max_output_tokens"),
             supportsThinking = when {
-                reasoning != null || "reasoning" in supportedParameters -> true
-                else -> model["thinking"]?.jsonPrimitive?.booleanOrNull
+                reasoning != null -> true
+                scalarReasoning != null -> scalarReasoning
+                advertisedReasoning != null -> advertisedReasoning
+                "reasoning" in supportedParameters ||
+                    "reasoning_effort" in supportedParameters ||
+                    "thinking" in supportedParameters -> true
+                else -> null
             },
             supportsVision = if (openRouter) {
                 "image" in inputModalities
@@ -600,7 +625,7 @@ class ModelDiscoveryService(
             inputCacheHitUsdPerMillion = pricing.pricePerMillion("input_cache_read"),
             inputCacheMissUsdPerMillion = pricing.pricePerMillion("prompt"),
             outputUsdPerMillion = pricing.pricePerMillion("completion"),
-            reasoningMetadataAvailable = reasoning != null,
+            reasoningMetadataAvailable = reasoningValue != null || advertisedReasoning != null,
             reasoningEfforts = efforts,
             reasoningDefaultEffort = reasoning?.get("default_effort")?.jsonPrimitive?.contentOrNull?.let(::parseThinkingEffort),
             reasoningDefaultEnabled = reasoning?.get("default_enabled")?.jsonPrimitive?.booleanOrNull ?: false,
