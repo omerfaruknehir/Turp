@@ -3298,6 +3298,7 @@ private fun Composer(
                         panelHeight = 64.dp,
                         cornerRadius = 30.dp,
                         expandToMeasuredHeight = true,
+                        floating = true,
                     )
                     .clip(promptShellShape)
                     .border(1.dp, promptShellOutline, promptShellShape)
