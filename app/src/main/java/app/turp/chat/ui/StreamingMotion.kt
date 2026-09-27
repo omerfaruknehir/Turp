@@ -73,14 +73,19 @@ internal fun StreamingFade(
     val alpha = remember(transitionKey) {
         Animatable(if (enabled) StreamingFadeStartAlpha else 1f)
     }
+    var hasAnimated by remember(transitionKey) { mutableStateOf(false) }
     LaunchedEffect(transitionKey, enabled) {
-        if (enabled) {
+        if (enabled && !hasAnimated) {
+            hasAnimated = true
             alpha.snapTo(StreamingFadeStartAlpha)
             alpha.animateTo(
                 targetValue = 1f,
                 animationSpec = tween(StreamingFadeDurationMillis, easing = FastOutSlowInEasing),
             )
         } else {
+            // A live block can move between active/inactive states several times
+            // while tool or reasoning metadata catches up. Never restart the fade
+            // for the same stable block: repeated alpha resets read as text flashing.
             alpha.snapTo(1f)
         }
     }
