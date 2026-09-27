@@ -1,6 +1,7 @@
 package app.turp.chat.ui
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -150,6 +151,25 @@ class ChatScrollMathTest {
                 viewportBottomPx = 800f,
             ),
         )
+    }
+
+    @Test
+    fun messageBoundaryScrollAvoidsCompositionChurn() {
+        val chat = java.io.File("src/main/java/app/turp/chat/ui/ChatScreen.kt").readText()
+        val viewModel = java.io.File("src/main/java/app/turp/chat/ui/ChatViewModel.kt").readText()
+        val messageRendering = chat
+            .substringAfter("private fun MessageCard(")
+            .substringBefore("private fun Composer(")
+
+        assertFalse(chat.contains("cardBounds by remember"))
+        assertFalse(chat.contains("cardBounds = it.boundsInRoot()"))
+        assertFalse(messageRendering.contains("developerSettings.collectAsStateWithLifecycle()"))
+        assertFalse(messageRendering.contains("toolCallFallbackSettings.collectAsStateWithLifecycle()"))
+        assertTrue(messageRendering.contains("MessageTimelineDecodeCache.decode"))
+        assertTrue(messageRendering.contains("ToolTraceDecodeCache.decode"))
+        assertTrue(messageRendering.contains("remember(message.nodeId) { viewModel.observeAttachments(message.nodeId) }"))
+        assertTrue(viewModel.contains("attachmentFlowCache"))
+        assertTrue(chat.contains("if (cardCoordinates !== coordinates) cardCoordinates = coordinates"))
     }
 
     @Test
