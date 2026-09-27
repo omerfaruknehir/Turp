@@ -186,6 +186,19 @@ internal fun prewarmRichMessageBlocks(scope: String, source: String) {
     CompletedRichBlockCache.getOrParse(scope, source)
 }
 
+internal fun prewarmRichMessageRendering(context: Context, scope: String, source: String) {
+    if (source.isBlank()) return
+    val blocks = CompletedRichBlockCache.getOrParse(scope, source)
+    val markwon = TurpMarkwonCache.get(context.applicationContext)
+    blocks.forEach { stable ->
+        val block = stable.block
+        if (block is RichBlock.Markdown) {
+            val rendered = renderMarkdownLinksLiterally(block.text)
+            RenderedMarkdownCache.getOrRender(markwon, rendered)
+        }
+    }
+}
+
 /**
  * Append-only parser state for a single streamed response. Completed Markdown
  * regions are parsed once and retained; only the unfinished tail is reparsed.
@@ -1475,6 +1488,36 @@ private data class ParsedMarkdownSource(
     val spanned: Spanned,
 )
 
+private object RenderedMarkdownCache {
+    private data class CacheKey(
+        val hash: Int,
+        val length: Int,
+    )
+
+    private val entries = object : LinkedHashMap<CacheKey, ParsedMarkdownSource>(64, 0.75f, true) {
+        override fun removeEldestEntry(
+            eldest: MutableMap.MutableEntry<CacheKey, ParsedMarkdownSource>?,
+        ): Boolean = size > 64
+    }
+
+    @Synchronized
+    fun get(source: String): ParsedMarkdownSource? {
+        val key = CacheKey(source.hashCode(), source.length)
+        return entries[key]?.takeIf { it.source == source }
+    }
+
+    @Synchronized
+    fun getOrRender(markwon: Markwon, source: String): ParsedMarkdownSource {
+        get(source)?.let { return it }
+        val parsed = ParsedMarkdownSource(
+            source = source,
+            spanned = renderMarkdownSafely(markwon, source),
+        )
+        entries[CacheKey(source.hashCode(), source.length)] = parsed
+        return parsed
+    }
+}
+
 /**
  * Last-resort text for a renderer failure. Tables remain visually tabular rather
  * than degrading to pipe-delimited source; ordinary Markdown remains selectable.
@@ -1516,12 +1559,13 @@ private fun MarkdownAndroidView(
     // Keep the last successfully parsed frame visible while a newer streaming
     // snapshot is parsed. Resetting this state for every token briefly replaced
     // formatted Markdown with raw source, producing a visible flash on each update.
-    var parsedMarkdown by remember(markwon) { mutableStateOf<ParsedMarkdownSource?>(null) }
+    var parsedMarkdown by remember(markwon) {
+        mutableStateOf(RenderedMarkdownCache.get(markdown))
+    }
     LaunchedEffect(markwon, markdown) {
-        val spanned = withContext(Dispatchers.Default) {
-            renderMarkdownSafely(markwon, markdown)
+        parsedMarkdown = withContext(Dispatchers.Default) {
+            RenderedMarkdownCache.getOrRender(markwon, markdown)
         }
-        parsedMarkdown = ParsedMarkdownSource(markdown, spanned)
     }
     AndroidView(
         factory = { context ->
