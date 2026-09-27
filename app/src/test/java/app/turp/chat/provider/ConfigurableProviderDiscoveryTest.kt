@@ -184,7 +184,11 @@ class ConfigurableProviderDiscoveryTest {
             } else {
                 val id = chain.request().url.pathSegments.last()
                 val task = tasks.getValue(id)
-                """{"id":"$id","task":"$task","modalities":["text","image"]}"""
+                if (id == "evren-chat") {
+                    """{"id":"$id","task":"$task","modalities":["text","image"],"reasoning":true,"capabilities":{"supports_tools":true}}"""
+                } else {
+                    """{"id":"$id","task":"$task","modalities":["text","image"]}"""
+                }
             }
             Response.Builder()
                 .request(chain.request())
@@ -209,6 +213,8 @@ class ConfigurableProviderDiscoveryTest {
         assertEquals(listOf("evren-chat"), models.map { it.id })
         assertEquals("chat", models.single().task)
         assertEquals(true, models.single().supportsVision)
+        assertEquals(true, models.single().supportsThinking)
+        assertEquals(true, models.single().supportsTools)
         assertTrue(seen.contains("/v1/models/evren-chat"))
         assertTrue(seen.contains("/v1/models/evren-ocr"))
         assertTrue(seen.contains("/v1/models/evren-asr"))
