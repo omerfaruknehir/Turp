@@ -1298,7 +1298,7 @@ private fun AppearanceSettingsPage(
             PromptBarBackgroundStyle.SOLID ->
                 "Use a Material surface behind the prompt shell without backdrop blur."
             PromptBarBackgroundStyle.TRANSPARENT ->
-                "Remove the prompt-shell fill and leave only the controls themselves."
+                "Keep the unified prompt-shell outline, but remove its fill and backdrop blur."
         },
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
