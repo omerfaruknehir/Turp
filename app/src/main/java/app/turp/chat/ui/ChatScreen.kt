@@ -177,7 +177,9 @@ import app.turp.chat.sandbox.UbuntuExecutionResult
 import app.turp.chat.sandbox.AppliedPatchResult
 import app.turp.chat.sandbox.ScriptRunResult
 import app.turp.chat.sandbox.WorkspaceReadResult
+import app.turp.chat.settings.DeveloperSettings
 import app.turp.chat.settings.PromptBarBackgroundStyle
+import app.turp.chat.settings.ToolCallFallbackSettings
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.coroutines.CancellationException
@@ -712,6 +714,8 @@ fun ChatScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
     val favoriteModels by viewModel.favoriteModels.collectAsStateWithLifecycle()
     val recentModels by viewModel.recentModels.collectAsStateWithLifecycle()
     val toolFallbackSettings by viewModel.toolCallFallbackSettings.collectAsStateWithLifecycle()
+    val developerSettings by viewModel.developerSettings.collectAsStateWithLifecycle()
+    val developerHttpTraces by viewModel.developerHttpTraces.collectAsStateWithLifecycle()
     val credentialRevision by viewModel.credentialRevision.collectAsStateWithLifecycle()
     val usableProviders = remember(allProviders, credentialRevision) { viewModel.configuredProviders(allProviders) }
     val linuxStatus by viewModel.ubuntuStatus.collectAsStateWithLifecycle()
@@ -1364,6 +1368,18 @@ fun ChatScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
                                 reasoningVisibility = conversation?.reasoningVisibility ?: ReasoningVisibility.SHOW_WHILE_WORKING,
                                 activeModel = selectedActiveModel,
                                 branchOptions = branchOptions,
+                                developerSettings = developerSettings,
+                                toolFallbackSettings = toolFallbackSettings,
+                                developerHttpTraceText = if (
+                                    developerSettings.enabled &&
+                                    developerSettings.showHttpRequestEnabled
+                                ) {
+                                    developerHttpTraces[message.nodeId]
+                                        .orEmpty()
+                                        .joinToString("\n\n") { it.formatted() }
+                                } else {
+                                    ""
+                                },
                                 workingCardViewport = viewportController,
                             )
                         }
@@ -1695,6 +1711,9 @@ private fun MessageCard(
     reasoningVisibility: ReasoningVisibility,
     activeModel: ModelEntity?,
     branchOptions: List<MessageEntity>,
+    developerSettings: DeveloperSettings,
+    toolFallbackSettings: ToolCallFallbackSettings,
+    developerHttpTraceText: String,
     modifier: Modifier = Modifier,
     workingCardViewport: WorkingCardViewportController,
 ) {
@@ -1744,9 +1763,6 @@ private fun MessageCard(
         attachments.isEmpty() &&
         !showRecoveryState
     ) return
-    val developerSettings by viewModel.developerSettings.collectAsStateWithLifecycle()
-    val toolFallbackSettings by viewModel.toolCallFallbackSettings.collectAsStateWithLifecycle()
-    val developerHttpTraces by viewModel.developerHttpTraces.collectAsStateWithLifecycle()
     val sourceControlsEnabled =
         developerSettings.enabled && developerSettings.showMessageSourceEnabled
     var sourceVisible by rememberSaveable("message-source-${message.nodeId}") {
@@ -1880,9 +1896,7 @@ private fun MessageCard(
                             providerCalls = developerProviderCallSource(developerUsage),
                             error = message.error,
                             httpRequest = if (developerSettings.showHttpRequestEnabled) {
-                                developerHttpTraces[message.nodeId]
-                                    .orEmpty()
-                                    .joinToString("\n\n") { it.formatted() }
+                                developerHttpTraceText
                             } else "",
                         ),
                         title = "MESSAGE SOURCE",
