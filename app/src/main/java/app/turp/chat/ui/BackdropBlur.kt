@@ -98,7 +98,11 @@ class TurpBackdropBlurState internal constructor() {
         val radius = quantizeBlurRadiusDp(radiusDp)
         val height = panelHeightDp.coerceAtLeast(1f)
         val normalizedSoftness = snapChromeEdgeSoftness(softness)
-        val corner = cornerRadiusDp.coerceAtLeast(0f) * (1f - chromeEdgeCornerTransition(normalizedSoftness))
+        val corner = if (floating) {
+            cornerRadiusDp.coerceAtLeast(0f)
+        } else {
+            cornerRadiusDp.coerceAtLeast(0f) * (1f - chromeEdgeCornerTransition(normalizedSoftness))
+        }
         val merge = mergeDp.coerceIn(0f, height * 2f)
         val normalizedHighlight = edgeHighlight.coerceIn(0f, 0.12f)
         when (edge) {
