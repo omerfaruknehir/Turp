@@ -4597,6 +4597,7 @@ private fun providerProfilesForProtocol(protocol: ProviderProtocol): List<Provid
         ProviderProfile.GENERIC,
         ProviderProfile.OPENAI,
         ProviderProfile.OPENROUTER,
+        ProviderProfile.EVREN,
         ProviderProfile.OPENCODE_GO,
         ProviderProfile.OPENCODE_ZEN,
         ProviderProfile.DEEPSEEK,
