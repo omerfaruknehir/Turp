@@ -3320,7 +3320,7 @@ private fun Composer(
                     Modifier
                         .fillMaxWidth()
                         .padding(start = 4.dp, top = 4.dp, end = 5.dp, bottom = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                    verticalAlignment = Alignment.Bottom,
                 ) {
                     IconButton(
                         onClick = {
