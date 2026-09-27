@@ -190,6 +190,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlin.math.abs
 import kotlin.math.exp
@@ -648,6 +649,8 @@ private const val ChatFollowSeekMaxSpeedPxPerSecond = 12_000f
 private const val ChatFollowMaxFrameStepPx = 128f
 private const val ChatFollowSeekMaxFrameStepPx = 176f
 private const val STREAM_HAPTIC_CHARACTER_INTERVAL = 32
+private const val MESSAGE_RENDER_AHEAD_COUNT = 3
+private const val MESSAGE_RENDER_BEHIND_COUNT = 2
 
 @Composable
 private fun liveWorkDurationLabel(
@@ -1167,6 +1170,65 @@ fun ChatScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
                 if (step > 0f) messageListState.scrollBy(step)
             }
         }
+    }
+
+    LaunchedEffect(messageListState, paging, conversation?.id) {
+        snapshotFlow {
+            val visible = messageListState.layoutInfo.visibleItemsInfo
+            val first = visible.firstOrNull()?.index ?: messageListState.firstVisibleItemIndex
+            val last = visible.lastOrNull()?.index ?: first
+            val itemCount = paging.itemCount
+            if (itemCount <= 0) {
+                emptyList()
+            } else {
+                val start = (first - MESSAGE_RENDER_BEHIND_COUNT).coerceAtLeast(0)
+                val end = (last + MESSAGE_RENDER_AHEAD_COUNT).coerceAtMost(itemCount - 1)
+                (start..end).mapNotNull { uiIndex ->
+                    val sourceIndex = chronologicalSourceIndex(uiIndex, itemCount)
+                    paging.peek(sourceIndex)
+                        ?.takeIf { it.status != MessageStatus.STREAMING }
+                }
+            }
+        }
+            .distinctUntilChanged { old, new ->
+                old.size == new.size &&
+                    old.zip(new).all { (a, b) ->
+                        a.nodeId == b.nodeId &&
+                            a.updatedAt == b.updatedAt &&
+                            a.content.length == b.content.length &&
+                            a.reasoning.length == b.reasoning.length
+                    }
+            }
+            .collectLatest { candidates ->
+                withContext(Dispatchers.Default) {
+                    candidates.forEach { message ->
+                        currentCoroutineContext().ensureActive()
+                        MessageTimelineDecodeCache.decode(message.nodeId, message.timelineJson)
+                        prewarmRichMessageBlocks(message.nodeId, message.content)
+                        if (message.reasoning.isNotBlank()) {
+                            prewarmRichMessageBlocks("legacy-reasoning:${message.nodeId}", message.reasoning)
+                        }
+                        val timeline = MessageTimelineDecodeCache.decode(message.nodeId, message.timelineJson)
+                        if (timeline.isNotEmpty()) {
+                            materializeTimelineContent(
+                                timeline,
+                                message.content,
+                                message.reasoning,
+                            ).forEach { event ->
+                                if (
+                                    event.content.isNotBlank() &&
+                                    event.kind in setOf("text", "reasoning")
+                                ) {
+                                    prewarmRichMessageBlocks(
+                                        "${message.nodeId}:${event.id}",
+                                        event.content,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
     }
 
     LaunchedEffect(messageListState, conversation?.id) {
