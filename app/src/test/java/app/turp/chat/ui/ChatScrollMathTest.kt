@@ -170,6 +170,10 @@ class ChatScrollMathTest {
         assertTrue(messageRendering.contains("remember(message.nodeId) { viewModel.observeAttachments(message.nodeId) }"))
         assertTrue(viewModel.contains("attachmentFlowCache"))
         assertTrue(chat.contains("if (cardCoordinates !== coordinates) cardCoordinates = coordinates"))
+        assertTrue(chat.contains("MESSAGE_RENDER_AHEAD_COUNT = 3"))
+        assertTrue(chat.contains("MESSAGE_RENDER_BEHIND_COUNT = 2"))
+        assertTrue(chat.contains("prewarmRichMessageRendering("))
+        assertTrue(chat.contains(".collectLatest { candidates ->"))
     }
 
     @Test
