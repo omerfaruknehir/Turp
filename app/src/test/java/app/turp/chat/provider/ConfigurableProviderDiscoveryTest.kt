@@ -108,6 +108,62 @@ class ConfigurableProviderDiscoveryTest {
     }
 
     @Test
+    fun `generic discovery honors top level modalities and hides non chat tasks`() = runBlocking {
+        val seen = Collections.synchronizedList(mutableListOf<String>())
+        val tasks = mapOf(
+            "evren-chat" to "chat",
+            "evren-embedding" to "embedding",
+            "evren-reranker" to "rerank",
+            "evren-ocr" to "ocr",
+            "evren-asr" to "asr",
+            "evren-guard" to "guard",
+        )
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            val path = chain.request().url.encodedPath
+            seen += path
+            val json = if (path == "/v1/models") {
+                """{"data":[
+                    {"id":"evren-chat","name":"EVREN Chat","task":"chat","modalities":["text","image"]},
+                    {"id":"evren-embedding","task":"embedding","modalities":["text"]},
+                    {"id":"evren-reranker","task":"rerank","modalities":["text","image"]},
+                    {"id":"evren-ocr","task":"ocr","modalities":["text","image"]},
+                    {"id":"evren-asr","task":"asr","modalities":["audio","text"]},
+                    {"id":"evren-guard","task":"guard","modalities":["text"]}
+                ]}"""
+            } else {
+                val id = chain.request().url.pathSegments.last()
+                val task = tasks.getValue(id)
+                """{"id":"$id","task":"$task","modalities":["text","image"]}"""
+            }
+            Response.Builder()
+                .request(chain.request())
+                .protocol(Protocol.HTTP_1_1)
+                .code(200)
+                .message("OK")
+                .body(json.toResponseBody("application/json".toMediaType()))
+                .build()
+        }.build()
+        val provider = ProviderEntity(
+            id = "evren-compatible",
+            displayName = "EVREN",
+            kind = ProviderKind.OPENAI_COMPATIBLE,
+            baseUrl = "https://evren.example.test/v1",
+            protocol = ProviderProtocol.OPENAI_COMPATIBLE,
+            profile = ProviderProfile.GENERIC,
+            apiKeyRequired = false,
+        )
+
+        val models = ModelDiscoveryService(oauth = null, client = client).discover(provider, "")
+
+        assertEquals(listOf("evren-chat"), models.map { it.id })
+        assertEquals("chat", models.single().task)
+        assertEquals(true, models.single().supportsVision)
+        assertTrue(seen.contains("/v1/models/evren-chat"))
+        assertTrue(seen.contains("/v1/models/evren-ocr"))
+        assertTrue(seen.contains("/v1/models/evren-asr"))
+    }
+
+    @Test
     fun `proxied OpenRouter discovery uses configured profile and endpoint paths`() = runBlocking {
         val seen = mutableListOf<String>()
         val client = OkHttpClient.Builder().addInterceptor { chain ->
