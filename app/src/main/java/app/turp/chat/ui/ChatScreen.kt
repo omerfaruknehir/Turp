@@ -181,6 +181,7 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -506,26 +507,43 @@ internal fun workEventStateLabel(event: MessageTimelineEvent): String = when (ev
     else -> event.status.replace('_', ' ').replaceFirstChar(Char::uppercase)
 }
 
-internal fun workingBlockHeadline(events: List<MessageTimelineEvent>, active: Boolean): String {
-    val latest = events.lastOrNull()
+internal fun formatWorkDuration(elapsedMs: Long): String {
+    val totalSeconds = elapsedMs.coerceAtLeast(0L) / 1_000L
+    val seconds = totalSeconds % 60L
+    val totalMinutes = totalSeconds / 60L
+    val minutes = totalMinutes % 60L
+    val hours = totalMinutes / 60L
+
+    fun unit(value: Long, singular: String): String =
+        "$value $singular${if (value == 1L) "" else "s"}"
+
     return when {
-        latest == null -> if (active) "Working" else "Activity"
-        active -> workEventTitle(latest)
-        events.any { it.status == "error" } -> "Finished with an error"
-        events.size == 1 && latest.kind == "reasoning" -> "Reasoning"
-        else -> "Work complete"
+        hours > 0L -> buildString {
+            append(unit(hours, "hour"))
+            if (minutes > 0L) append(" ").append(unit(minutes, "minute"))
+            if (seconds > 0L) append(" ").append(unit(seconds, "second"))
+        }
+        totalMinutes > 0L -> buildString {
+            append(unit(totalMinutes, "minute"))
+            if (seconds > 0L) append(" ").append(unit(seconds, "second"))
+        }
+        else -> unit(totalSeconds, "second")
     }
 }
+
+internal fun workingBlockHeadline(active: Boolean, elapsedMs: Long): String =
+    "${if (active) "Working" else "Worked"} for ${formatWorkDuration(elapsedMs)}"
 
 internal fun workingBlockSummary(events: List<MessageTimelineEvent>, active: Boolean): String {
     val latest = events.lastOrNull()
     if (active && latest != null) {
-        return when {
-            latest.status in setOf("preparing", "prepared", "running", "error") -> workEventStateLabel(latest)
+        val title = workEventTitle(latest)
+        val state = when {
             latest.finishedAt == null && latest.kind == "reasoning" -> "Thinking"
-            latest.finishedAt == null -> "Working"
+            latest.finishedAt == null && latest.status !in setOf("preparing", "prepared", "running", "error") -> "Working"
             else -> workEventStateLabel(latest)
         }
+        return if (state.equals(title, ignoreCase = true)) state else "$title • $state"
     }
     val errors = events.count { it.status == "error" }
     return buildString {
@@ -579,6 +597,28 @@ private const val ChatFollowSeekMaxSpeedPxPerSecond = 12_000f
 private const val ChatFollowMaxFrameStepPx = 128f
 private const val ChatFollowSeekMaxFrameStepPx = 176f
 private const val STREAM_HAPTIC_CHARACTER_INTERVAL = 32
+
+@Composable
+private fun liveWorkDurationLabel(
+    startedAt: Long,
+    active: Boolean,
+    finishedAt: Long? = null,
+): String {
+    var now by remember(startedAt) { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(active, startedAt) {
+        if (active) {
+            while (true) {
+                now = System.currentTimeMillis()
+                delay(1_000)
+            }
+        }
+    }
+    val end = if (active) now else (finishedAt ?: now)
+    return workingBlockHeadline(
+        active = active,
+        elapsedMs = (end - startedAt).coerceAtLeast(0L),
+    )
+}
 
 private suspend fun snapChatToBottom(
     state: androidx.compose.foundation.lazy.LazyListState,
@@ -1829,6 +1869,8 @@ private fun MessageCard(
                             text = displayReasoning,
                             toolTraceJson = message.toolTraceJson,
                             working = working,
+                            messageStartedAt = message.createdAt,
+                            messageFinishedAt = message.updatedAt,
                             animateStreaming = animateStreaming,
                             visibility = reasoningVisibility,
                             viewModel = viewModel,
@@ -1859,7 +1901,13 @@ private fun MessageCard(
                         displayReasoning.isBlank() &&
                         message.toolTraceJson.isBlank()
                     ) {
-                        StreamingTokenPulse(visible = true, label = "Working")
+                        StreamingTokenPulse(
+                            visible = true,
+                            label = liveWorkDurationLabel(
+                                startedAt = message.createdAt,
+                                active = true,
+                            ),
+                        )
                     }
                 }
                 Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
@@ -2149,8 +2197,15 @@ private fun TimelineWorkingBlock(
                     Icon(Icons.Outlined.Check, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
                 }
                 Column(Modifier.padding(start = 9.dp).weight(1f)) {
+                    val startedAt = events.minOfOrNull(MessageTimelineEvent::startedAt) ?: 0L
+                    val finishedAt = events.mapNotNull(MessageTimelineEvent::finishedAt).maxOrNull()
+                        ?: events.maxOfOrNull(MessageTimelineEvent::startedAt)
                     Text(
-                        workingBlockHeadline(events, active),
+                        liveWorkDurationLabel(
+                            startedAt = startedAt,
+                            active = active,
+                            finishedAt = finishedAt,
+                        ),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
                     )
@@ -2332,6 +2387,8 @@ private fun LegacyWorkingBlock(
     text: String,
     toolTraceJson: String,
     working: Boolean,
+    messageStartedAt: Long,
+    messageFinishedAt: Long,
     animateStreaming: Boolean,
     visibility: ReasoningVisibility,
     viewModel: ChatViewModel,
@@ -2393,17 +2450,29 @@ private fun LegacyWorkingBlock(
                     Icon(Icons.Outlined.Check, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
                 }
                 Column(Modifier.padding(start = 9.dp).weight(1f)) {
+                    val legacyStartedAt = traces.minOfOrNull(ToolTraceEvent::startedAt)
+                        ?: messageStartedAt
+                    val legacyFinishedAt = traces.mapNotNull(ToolTraceEvent::finishedAt).maxOrNull()
+                        ?: messageFinishedAt
                     Text(
-                        when {
-                            working -> traces.lastOrNull()?.label?.takeIf(String::isNotBlank) ?: "Reasoning"
-                            traces.any { it.status == "error" } -> "Finished with an error"
-                            else -> "Work complete"
-                        },
+                        liveWorkDurationLabel(
+                            startedAt = legacyStartedAt,
+                            active = working,
+                            finishedAt = legacyFinishedAt,
+                        ),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
-                        if (working) "Running" else "${traces.size + if (text.isNotBlank()) 1 else 0} steps",
+                        if (working) {
+                            traces.lastOrNull()?.label?.takeIf(String::isNotBlank) ?: "Reasoning"
+                        } else {
+                            buildString {
+                                append(traces.size + if (text.isNotBlank()) 1 else 0).append(" steps")
+                                val errors = traces.count { it.status == "error" }
+                                if (errors > 0) append(" • ").append(errors).append(if (errors == 1) " error" else " errors")
+                            }
+                        },
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -3074,6 +3143,19 @@ private fun Composer(
     val imageGenerationMode = model?.supportsImageGeneration == true
     val imageGenerationBlocked = imageGenerationMode && staged.isNotEmpty()
     val hasPayload = draft.isNotBlank() && !imageGenerationBlocked || (!imageGenerationMode && staged.isNotEmpty())
+    var generationStartedAt by remember(conversation?.id) {
+        mutableStateOf<Long?>(if (generating) System.currentTimeMillis() else null)
+    }
+    LaunchedEffect(generating, conversation?.id) {
+        if (generating) {
+            if (generationStartedAt == null) generationStartedAt = System.currentTimeMillis()
+        } else {
+            generationStartedAt = null
+        }
+    }
+    val composerWorkingLabel = generationStartedAt?.let { startedAt ->
+        liveWorkDurationLabel(startedAt = startedAt, active = generating)
+    } ?: "Working for 0 seconds"
 
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         uris.forEach(viewModel::import)
@@ -3117,8 +3199,8 @@ private fun Composer(
                         }
                         Text(
                             when {
-                                generating && pending.isNotEmpty() -> "Working · ${pending.size} queued"
-                                generating -> "Working"
+                                generating && pending.isNotEmpty() -> "$composerWorkingLabel · ${pending.size} queued"
+                                generating -> composerWorkingLabel
                                 else -> "${pending.size} queued"
                             },
                             modifier = Modifier.padding(start = 9.dp).weight(1f),
