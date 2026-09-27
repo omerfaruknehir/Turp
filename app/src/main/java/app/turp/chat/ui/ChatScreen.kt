@@ -1203,10 +1203,14 @@ fun ChatScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
                 withContext(Dispatchers.Default) {
                     candidates.forEach { message ->
                         currentCoroutineContext().ensureActive()
-                        MessageTimelineDecodeCache.decode(message.nodeId, message.timelineJson)
-                        prewarmRichMessageBlocks(message.nodeId, message.content)
+                        val appContext = context.applicationContext
+                        prewarmRichMessageRendering(appContext, message.nodeId, message.content)
                         if (message.reasoning.isNotBlank()) {
-                            prewarmRichMessageBlocks("legacy-reasoning:${message.nodeId}", message.reasoning)
+                            prewarmRichMessageRendering(
+                                appContext,
+                                "legacy-reasoning:${message.nodeId}",
+                                message.reasoning,
+                            )
                         }
                         val timeline = MessageTimelineDecodeCache.decode(message.nodeId, message.timelineJson)
                         if (timeline.isNotEmpty()) {
@@ -1219,7 +1223,8 @@ fun ChatScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
                                     event.content.isNotBlank() &&
                                     event.kind in setOf("text", "reasoning")
                                 ) {
-                                    prewarmRichMessageBlocks(
+                                    prewarmRichMessageRendering(
+                                        appContext,
                                         "${message.nodeId}:${event.id}",
                                         event.content,
                                     )
