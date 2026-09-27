@@ -108,6 +108,57 @@ class ConfigurableProviderDiscoveryTest {
     }
 
     @Test
+    fun `transient model detail failure is retried before falling back`() = runBlocking {
+        var detailAttempts = 0
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            val path = chain.request().url.encodedPath
+            val code: Int
+            val json: String
+            when (path) {
+                "/v1/models" -> {
+                    code = 200
+                    json = """{"data":[{"id":"retry-me","name":"Retry Me","task":"chat"}]}"""
+                }
+                "/v1/models/retry-me" -> {
+                    detailAttempts += 1
+                    if (detailAttempts == 1) {
+                        code = 503
+                        json = """{"error":{"message":"temporarily busy"}}"""
+                    } else {
+                        code = 200
+                        json = """{"id":"retry-me","task":"chat","context_window":262144,"max_output_tokens":16384,"modalities":["text","image"]}"""
+                    }
+                }
+                else -> error("Unexpected path: $path")
+            }
+            Response.Builder()
+                .request(chain.request())
+                .protocol(Protocol.HTTP_1_1)
+                .code(code)
+                .message(if (code == 200) "OK" else "Service Unavailable")
+                .body(json.toResponseBody("application/json".toMediaType()))
+                .build()
+        }.build()
+        val provider = ProviderEntity(
+            id = "retry-compatible",
+            displayName = "Retry Compatible",
+            kind = ProviderKind.OPENAI_COMPATIBLE,
+            baseUrl = "https://retry.example.test/v1",
+            protocol = ProviderProtocol.OPENAI_COMPATIBLE,
+            profile = ProviderProfile.GENERIC,
+            apiKeyRequired = false,
+        )
+
+        val model = ModelDiscoveryService(oauth = null, client = client).discover(provider, "").single()
+
+        assertEquals(2, detailAttempts)
+        assertEquals(262144, model.contextWindow)
+        assertEquals(16384, model.maxOutputTokens)
+        assertEquals(true, model.supportsVision)
+        assertEquals("Provider model detail", model.metadataSource)
+    }
+
+    @Test
     fun `generic discovery honors top level modalities and hides non chat tasks`() = runBlocking {
         val seen = Collections.synchronizedList(mutableListOf<String>())
         val tasks = mapOf(
