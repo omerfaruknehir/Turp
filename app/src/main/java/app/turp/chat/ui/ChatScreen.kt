@@ -125,6 +125,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
@@ -2155,15 +2156,16 @@ private fun TimelineWorkingBlock(
     var previousDefaultExpanded by rememberSaveable("working-default-$stateKey") {
         mutableStateOf(defaultExpanded)
     }
-    var cardBounds by remember(stateKey) { mutableStateOf<Rect?>(null) }
+    var cardCoordinates by remember(stateKey) { mutableStateOf<LayoutCoordinates?>(null) }
+    fun currentCardBounds(): Rect? = cardCoordinates?.boundsInRoot()
     var animateVisibility by remember(stateKey) { mutableStateOf(true) }
-    val cardVisible = workingCardViewport.isVisible(cardBounds)
+    val cardVisible = workingCardViewport.isVisible(currentCardBounds())
     LaunchedEffect(defaultExpanded, cardVisible, workingCardViewport.listScrolling) {
         if (previousDefaultExpanded != defaultExpanded) {
             animateVisibility = cardVisible && !workingCardViewport.listScrolling
             workingCardViewport.applyMutation(
                 if (defaultExpanded) WorkingCardMutation.AUTO_EXPAND else WorkingCardMutation.AUTO_COLLAPSE,
-                { cardBounds },
+                { currentCardBounds() },
             ) {
                 expanded = defaultExpanded
             }
@@ -2179,14 +2181,16 @@ private fun TimelineWorkingBlock(
             animateVisibility = true
             workingCardViewport.applyMutation(
                 if (expanded) WorkingCardMutation.MANUAL_COLLAPSE else WorkingCardMutation.MANUAL_EXPAND,
-                { cardBounds },
+                { currentCardBounds() },
             ) {
                 expanded = !expanded
             }
         },
         color = MaterialTheme.colorScheme.surfaceContainer,
         shape = MaterialTheme.shapes.medium,
-        modifier = Modifier.fillMaxWidth().onGloballyPositioned { cardBounds = it.boundsInRoot() },
+        modifier = Modifier.fillMaxWidth().onGloballyPositioned { coordinates ->
+            if (cardCoordinates !== coordinates) cardCoordinates = coordinates
+        },
     ) {
         Column(Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -2408,15 +2412,16 @@ private fun LegacyWorkingBlock(
     var previousDefaultExpanded by rememberSaveable("legacy-working-default-$messageKey") {
         mutableStateOf(defaultExpanded)
     }
-    var cardBounds by remember(messageKey) { mutableStateOf<Rect?>(null) }
+    var cardCoordinates by remember(messageKey) { mutableStateOf<LayoutCoordinates?>(null) }
+    fun currentCardBounds(): Rect? = cardCoordinates?.boundsInRoot()
     var animateVisibility by remember(messageKey) { mutableStateOf(true) }
-    val cardVisible = workingCardViewport.isVisible(cardBounds)
+    val cardVisible = workingCardViewport.isVisible(currentCardBounds())
     LaunchedEffect(defaultExpanded, cardVisible, workingCardViewport.listScrolling) {
         if (previousDefaultExpanded != defaultExpanded) {
             animateVisibility = cardVisible && !workingCardViewport.listScrolling
             workingCardViewport.applyMutation(
                 if (defaultExpanded) WorkingCardMutation.AUTO_EXPAND else WorkingCardMutation.AUTO_COLLAPSE,
-                { cardBounds },
+                { currentCardBounds() },
             ) {
                 expanded = defaultExpanded
             }
@@ -2432,14 +2437,16 @@ private fun LegacyWorkingBlock(
             animateVisibility = true
             workingCardViewport.applyMutation(
                 if (expanded) WorkingCardMutation.MANUAL_COLLAPSE else WorkingCardMutation.MANUAL_EXPAND,
-                { cardBounds },
+                { currentCardBounds() },
             ) {
                 expanded = !expanded
             }
         },
         color = MaterialTheme.colorScheme.surfaceContainer,
         shape = MaterialTheme.shapes.medium,
-        modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp).onGloballyPositioned { cardBounds = it.boundsInRoot() },
+        modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp).onGloballyPositioned { coordinates ->
+            if (cardCoordinates !== coordinates) cardCoordinates = coordinates
+        },
     ) {
         Column(Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -2645,7 +2652,8 @@ private fun ScriptRunActivityCard(initial: ScriptRunResult, viewModel: ChatViewM
     var error by remember(initial.runId) { mutableStateOf("") }
     var rerunJob by remember(initial.runId) { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     var detailsOpen by rememberSaveable("script-details-${initial.runId}") { mutableStateOf(false) }
-    var cardBounds by remember(initial.runId) { mutableStateOf<Rect?>(null) }
+    var cardCoordinates by remember(initial.runId) { mutableStateOf<LayoutCoordinates?>(null) }
+    fun currentCardBounds(): Rect? = cardCoordinates?.boundsInRoot()
     val latest = results.last()
     val failed = latest.exitCode != 0 || latest.timedOut || latest.cancelled
     val diagnostics = latest.diagnostic.ifBlank { latest.stderrTail }.takeLast(4_000)
@@ -2653,7 +2661,9 @@ private fun ScriptRunActivityCard(initial: ScriptRunResult, viewModel: ChatViewM
         modifier = Modifier
             .fillMaxWidth()
             .noOpBringIntoView()
-            .onGloballyPositioned { cardBounds = it.boundsInRoot() },
+            .onGloballyPositioned { coordinates ->
+                if (cardCoordinates !== coordinates) cardCoordinates = coordinates
+            },
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Text(
@@ -2683,7 +2693,7 @@ private fun ScriptRunActivityCard(initial: ScriptRunResult, viewModel: ChatViewM
                     rerunJob = scope.launch {
                         runCatching { viewModel.rerunRecordedScript(initial.runId) }
                             .onSuccess { completed ->
-                                workingCardViewport.applyMutation(WorkingCardMutation.AUTO_EXPAND, { cardBounds }) {
+                                workingCardViewport.applyMutation(WorkingCardMutation.AUTO_EXPAND, { currentCardBounds() }) {
                                     results = results + completed
                                 }
                             }
@@ -2691,7 +2701,7 @@ private fun ScriptRunActivityCard(initial: ScriptRunResult, viewModel: ChatViewM
                                 if (failure !is CancellationException) {
                                     workingCardViewport.applyMutation(
                                         WorkingCardMutation.AUTO_EXPAND,
-                                        { cardBounds },
+                                        { currentCardBounds() },
                                     ) {
                                         error = failure.message.orEmpty()
                                     }
