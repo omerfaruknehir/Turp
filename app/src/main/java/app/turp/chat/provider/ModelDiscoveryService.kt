@@ -9,7 +9,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
@@ -384,6 +386,7 @@ class ModelDiscoveryService(
                 val retryable = error.status == 429 || error.status in 500..599
                 if (!retryable || attempt == MODEL_DETAIL_ATTEMPTS - 1) return null
             } catch (_: java.io.IOException) {
+                currentCoroutineContext().ensureActive()
                 if (attempt == MODEL_DETAIL_ATTEMPTS - 1) return null
             }
             delay(MODEL_DETAIL_RETRY_BASE_DELAY_MS * (attempt + 1L))
