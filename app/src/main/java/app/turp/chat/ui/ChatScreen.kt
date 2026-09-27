@@ -183,11 +183,13 @@ import app.turp.chat.settings.ToolCallFallbackSettings
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.collectLatest
@@ -707,6 +709,7 @@ internal fun calculateComposerChromeProgressFromBottom(
 @Composable
 fun ChatScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
     SideEffect { TurpRenderProfiler.recordChatRecomposition() }
+    val context = LocalContext.current
     val conversation by viewModel.conversation.collectAsStateWithLifecycle()
     val chromeBlurStrength by viewModel.chromeBlurStrength.collectAsStateWithLifecycle()
     val chromeEdgeSoftness by viewModel.chromeEdgeSoftness.collectAsStateWithLifecycle()
