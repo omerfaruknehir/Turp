@@ -56,6 +56,17 @@ class ProviderConfigurationTest {
     }
 
     @Test
+    fun `EVREN default preset uses EVREN profile and official base`() {
+        val provider = app.turp.chat.data.DefaultCatalog.providers.single { it.id == "evren" }
+
+        assertEquals("EVREN", provider.displayName)
+        assertEquals("https://evren-llmapi.ssyz.org.tr/v1", provider.baseUrl)
+        assertEquals(ProviderProtocol.OPENAI_COMPATIBLE, provider.effectiveProtocol)
+        assertEquals(ProviderProfile.EVREN, provider.effectiveProfile)
+        assertTrue(ModelRequestPolicy.isEvren(provider))
+    }
+
+    @Test
     fun `EVREN profile keeps OpenAI compatible transport and adds EVREN endpoints through proxies`() {
         val provider = ProviderEntity(
             id = "evren-proxy",
