@@ -83,6 +83,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -105,6 +106,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import java.util.LinkedHashMap
 
 data class PythonRunState(
     val startedAt: Long,
@@ -130,6 +132,11 @@ data class LinuxRunState(
 @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 class ChatViewModel(private val container: AppContainer, savedStateHandle: SavedStateHandle) : ViewModel() {
     private val toolResultJson = Json { ignoreUnknownKeys = true }
+    private val attachmentFlowCache = object : LinkedHashMap<String, Flow<List<AttachmentEntity>>>(128, 0.75f, true) {
+        override fun removeEldestEntry(
+            eldest: MutableMap.MutableEntry<String, Flow<List<AttachmentEntity>>>?,
+        ): Boolean = size > 128
+    }
     private val restoredUiState = container.persistentUiState.restore()
     val conversations = container.repository.conversations.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val archivedConversations = container.repository.archivedConversations.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -1208,7 +1215,13 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
         notices.emit("Removed ${provider.displayName} credentials")
     }
 
-    fun observeAttachments(nodeId: String) = container.repository.observeAttachments(nodeId)
+    fun observeAttachments(nodeId: String): Flow<List<AttachmentEntity>> =
+        synchronized(attachmentFlowCache) {
+            attachmentFlowCache[nodeId]
+                ?: container.repository.observeAttachments(nodeId).also {
+                    attachmentFlowCache[nodeId] = it
+                }
+        }
 
     fun useProvider(providerId: String) = launchAction {
         val firstModel = container.repository.observeModels(providerId).first().firstOrNull() ?: return@launchAction
