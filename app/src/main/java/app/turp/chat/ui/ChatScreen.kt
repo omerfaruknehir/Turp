@@ -194,9 +194,57 @@ import kotlin.math.exp
 import kotlin.math.min
 import kotlin.math.roundToInt
 import java.io.File
+import java.util.LinkedHashMap
 import java.util.UUID
 
 private val ChatMessageJson = Json { ignoreUnknownKeys = true }
+
+private object MessageTimelineDecodeCache {
+    private data class Entry(
+        val source: String,
+        val events: List<MessageTimelineEvent>,
+    )
+
+    private val entries = object : LinkedHashMap<String, Entry>(96, 0.75f, true) {
+        override fun removeEldestEntry(
+            eldest: MutableMap.MutableEntry<String, Entry>?,
+        ): Boolean = size > 96
+    }
+
+    @Synchronized
+    fun decode(nodeId: String, source: String): List<MessageTimelineEvent> {
+        entries[nodeId]?.takeIf { it.source == source }?.let { return it.events }
+        val decoded = runCatching {
+            ChatMessageJson.decodeFromString<List<MessageTimelineEvent>>(source)
+        }.getOrDefault(emptyList())
+        entries[nodeId] = Entry(source, decoded)
+        return decoded
+    }
+}
+
+private object ToolTraceDecodeCache {
+    private data class Entry(
+        val source: String,
+        val events: List<ToolTraceEvent>,
+    )
+
+    private val entries = object : LinkedHashMap<String, Entry>(64, 0.75f, true) {
+        override fun removeEldestEntry(
+            eldest: MutableMap.MutableEntry<String, Entry>?,
+        ): Boolean = size > 64
+    }
+
+    @Synchronized
+    fun decode(messageKey: String, source: String): List<ToolTraceEvent> {
+        entries[messageKey]?.takeIf { it.source == source }?.let { return it.events }
+        val decoded = runCatching {
+            ChatMessageJson.decodeFromString<List<ToolTraceEvent>>(source)
+        }.getOrDefault(emptyList())
+        entries[messageKey] = Entry(source, decoded)
+        return decoded
+    }
+}
+
 internal fun calculateTopChromeProgress(
     firstVisibleItemIndex: Int,
     firstVisibleItemScrollOffset: Int,
@@ -1650,14 +1698,14 @@ private fun MessageCard(
     modifier: Modifier = Modifier,
     workingCardViewport: WorkingCardViewportController,
 ) {
-    val attachments by viewModel.run { containerAttachments(message.nodeId) }
-        .collectAsStateWithLifecycle(initialValue = emptyList())
+    val attachmentFlow = remember(message.nodeId) { viewModel.observeAttachments(message.nodeId) }
+    val attachments by attachmentFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     val working = message.status == MessageStatus.STREAMING
     val animateStreaming = working
     val user = message.role == MessageRole.USER
     val haptics = rememberTurpHaptics()
-    val encodedTimeline = remember(message.timelineJson) {
-        runCatching { ChatMessageJson.decodeFromString<List<MessageTimelineEvent>>(message.timelineJson) }.getOrDefault(emptyList())
+    val encodedTimeline = remember(message.nodeId, message.timelineJson) {
+        MessageTimelineDecodeCache.decode(message.nodeId, message.timelineJson)
     }
     val rawTimeline = remember(encodedTimeline, message.content, message.reasoning) {
         materializeTimelineContent(encodedTimeline, message.content, message.reasoning)
@@ -2400,8 +2448,8 @@ private fun LegacyWorkingBlock(
 ) {
     val developerSettings by viewModel.developerSettings.collectAsStateWithLifecycle()
     val showDiagnostics = developerSettings.enabled && developerSettings.toolDiagnosticsEnabled
-    val traces = remember(toolTraceJson) {
-        runCatching { ChatMessageJson.decodeFromString<List<ToolTraceEvent>>(toolTraceJson) }.getOrDefault(emptyList())
+    val traces = remember(messageKey, toolTraceJson) {
+        ToolTraceDecodeCache.decode(messageKey, toolTraceJson)
     }
     val hasContent = text.isNotBlank() || traces.isNotEmpty()
     if (!hasContent) return
@@ -4133,4 +4181,3 @@ private fun ComposerToggleRow(
     )
 }
 
-private fun ChatViewModel.containerAttachments(nodeId: String) = observeAttachments(nodeId)
