@@ -526,6 +526,7 @@ class ModelDiscoveryService(
         val supportedParameters = model.stringSet("supported_parameters")
         val topProvider = model["top_provider"] as? JsonObject
         val pricing = model["pricing"] as? JsonObject
+        val capabilities = model["capabilities"] as? JsonObject
         val reasoningValue = model["reasoning"]
         val reasoning = reasoningValue as? JsonObject
         val scalarReasoning = (reasoningValue as? JsonPrimitive)?.let { primitive ->
@@ -547,7 +548,13 @@ class ModelDiscoveryService(
             "supportsThinking",
             "thinking",
         )
-        val efforts = reasoning?.stringSet("supported_efforts").orEmpty().mapNotNull(::parseThinkingEffort)
+        val advertisedReasoningEffort = capabilities?.get("reasoning_effort")
+            ?.jsonPrimitive
+            ?.booleanOrNull
+        val efforts = (
+            reasoning?.stringSet("supported_efforts").orEmpty() +
+                capabilities.stringSet("reasoning_effort_values")
+            ).mapNotNull(::parseThinkingEffort).distinct()
         DiscoveredModel(
             id = id,
             displayName = name,
@@ -562,7 +569,7 @@ class ModelDiscoveryService(
                 "inputTokenLimit",
                 "max_model_len",
                 "max_sequence_length",
-            ) ?: (model["capabilities"] as? JsonObject)?.int(
+            ) ?: capabilities?.int(
                 "context_length",
                 "context_window",
                 "contextWindow",
@@ -573,15 +580,24 @@ class ModelDiscoveryService(
                 "max_output_tokens",
                 "maxOutputTokens",
                 "max_completion_tokens",
-            ) ?: (model["capabilities"] as? JsonObject)?.int(
+                "default_max_output_tokens",
+                "defaultMaxOutputTokens",
+            ) ?: capabilities?.int(
                 "outputTokenLimit",
                 "max_output_tokens",
                 "maxOutputTokens",
                 "max_completion_tokens",
-            ) ?: topProvider?.int("max_completion_tokens", "max_output_tokens"),
+                "default_max_output_tokens",
+                "defaultMaxOutputTokens",
+            ) ?: topProvider?.int(
+                "max_completion_tokens",
+                "max_output_tokens",
+                "default_max_output_tokens",
+            ),
             supportsThinking = when {
                 reasoning != null -> true
                 scalarReasoning != null -> scalarReasoning
+                advertisedReasoning == true || advertisedReasoningEffort == true -> true
                 advertisedReasoning != null -> advertisedReasoning
                 "reasoning" in supportedParameters ||
                     "reasoning_effort" in supportedParameters ||
@@ -629,7 +645,7 @@ class ModelDiscoveryService(
             inputCacheHitUsdPerMillion = pricing.pricePerMillion("input_cache_read"),
             inputCacheMissUsdPerMillion = pricing.pricePerMillion("prompt"),
             outputUsdPerMillion = pricing.pricePerMillion("completion"),
-            reasoningMetadataAvailable = reasoningValue != null || advertisedReasoning != null,
+            reasoningMetadataAvailable = reasoning != null || efforts.isNotEmpty(),
             reasoningEfforts = efforts,
             reasoningDefaultEffort = reasoning?.get("default_effort")?.jsonPrimitive?.contentOrNull?.let(::parseThinkingEffort),
             reasoningDefaultEnabled = reasoning?.get("default_enabled")?.jsonPrimitive?.booleanOrNull ?: false,
