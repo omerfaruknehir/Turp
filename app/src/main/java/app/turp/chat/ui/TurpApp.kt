@@ -163,6 +163,7 @@ fun TurpApp(viewModel: ChatViewModel, activity: Activity) {
         TurpBackdropDebugOverlay.update(
             enabled = developerSettings.enabled && developerSettings.blurBoundaryDebugEnabled,
             thicknessDp = developerSettings.blurBoundaryDebugThicknessDp,
+            topOffsetDp = if (developerSettings.enabled) developerSettings.topBlurOffsetDp else 0f,
         )
         if (developerSettings.diagnosticProfilerEnabled) TurpRenderProfiler.recordAppRecomposition()
     }
