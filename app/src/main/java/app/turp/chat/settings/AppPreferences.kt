@@ -105,6 +105,7 @@ data class DeveloperSettings(
     val performanceOverlayScale: Float = 1f,
     val blurBoundaryDebugEnabled: Boolean = false,
     val blurBoundaryDebugThicknessDp: Float = 3f,
+    val topBlurOffsetDp: Float = 0f,
 ) {
     fun normalized() = copy(
         demoModeEnabled = BuildConfig.DEBUG && demoModeEnabled,
@@ -113,6 +114,7 @@ data class DeveloperSettings(
         performanceOverlayTextOpacity = performanceOverlayTextOpacity.coerceIn(0f, 1f),
         performanceOverlayScale = performanceOverlayScale.coerceIn(0.60f, 2.00f),
         blurBoundaryDebugThicknessDp = blurBoundaryDebugThicknessDp.coerceIn(1f, 8f),
+        topBlurOffsetDp = topBlurOffsetDp.coerceIn(-120f, 120f),
     )
 }
 
@@ -445,6 +447,7 @@ class AppPreferences(context: Context) {
             putFloat(KEY_PERFORMANCE_OVERLAY_SCALE, normalized.performanceOverlayScale)
             putBoolean(KEY_BLUR_BOUNDARY_DEBUG_ENABLED, normalized.blurBoundaryDebugEnabled)
             putFloat(KEY_BLUR_BOUNDARY_DEBUG_THICKNESS_DP, normalized.blurBoundaryDebugThicknessDp)
+            putFloat(KEY_TOP_BLUR_OFFSET_DP, normalized.topBlurOffsetDp)
         }
     }
 
@@ -617,6 +620,7 @@ class AppPreferences(context: Context) {
         performanceOverlayScale = preferences.getFloat(KEY_PERFORMANCE_OVERLAY_SCALE, 1f),
         blurBoundaryDebugEnabled = preferences.getBoolean(KEY_BLUR_BOUNDARY_DEBUG_ENABLED, false),
         blurBoundaryDebugThicknessDp = preferences.getFloat(KEY_BLUR_BOUNDARY_DEBUG_THICKNESS_DP, 3f),
+        topBlurOffsetDp = preferences.getFloat(KEY_TOP_BLUR_OFFSET_DP, 0f),
     ).normalized()
 
     private fun readNewChatDefaults() = NewChatDefaults(
@@ -704,6 +708,7 @@ class AppPreferences(context: Context) {
         const val KEY_PERFORMANCE_OVERLAY_SCALE = "performance_overlay_scale"
         const val KEY_BLUR_BOUNDARY_DEBUG_ENABLED = "blur_boundary_debug_enabled"
         const val KEY_BLUR_BOUNDARY_DEBUG_THICKNESS_DP = "blur_boundary_debug_thickness_dp"
+        const val KEY_TOP_BLUR_OFFSET_DP = "top_blur_offset_dp"
         const val KEY_FAVORITE_MODELS = "favorite_models"
         const val KEY_RECENT_MODELS = "recent_models"
         const val MAX_RECENT_MODELS = 12
