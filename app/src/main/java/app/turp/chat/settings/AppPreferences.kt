@@ -57,6 +57,8 @@ internal fun chromeEdgeCornerTransition(value: Float): Float {
 
 enum class ColorPalette { TURP, ARBOR, SYSTEM, GRAPHITE, OCEAN, VIOLET, SUNSET }
 
+enum class PromptBarBackgroundStyle { BLURRED, SOLID, TRANSPARENT }
+
 enum class PerformanceOverlayPosition { TOP_START, TOP_END, BOTTOM_START, BOTTOM_END }
 
 enum class ModelToolFallbackOverride { INHERIT, ENABLED, DISABLED }
@@ -202,6 +204,12 @@ class AppPreferences(context: Context) {
     private val _chromeBlurStrength = MutableStateFlow(readChromeBlurStrength())
     private val _chromeEdgeSoftness = MutableStateFlow(readChromeEdgeSoftness())
     private val _chromeOverlayOpacity = MutableStateFlow(preferences.getFloat(KEY_CHROME_OVERLAY_OPACITY, 1f).coerceIn(0f, 1f))
+    private val _promptBarBackgroundStyle = MutableStateFlow(
+        enumValue(KEY_PROMPT_BAR_BACKGROUND_STYLE, PromptBarBackgroundStyle.BLURRED),
+    )
+    private val _promptBarBackgroundOpacity = MutableStateFlow(
+        preferences.getFloat(KEY_PROMPT_BAR_BACKGROUND_OPACITY, DEFAULT_PROMPT_BAR_BACKGROUND_OPACITY).coerceIn(0f, 1f),
+    )
     private val _lessEmojiEnabled = MutableStateFlow(preferences.getBoolean(KEY_LESS_EMOJI_ENABLED, true))
     private val _automaticUpdateChecks = MutableStateFlow(preferences.getBoolean(KEY_AUTOMATIC_UPDATE_CHECKS, true))
     private val _webSearchSettings = MutableStateFlow(readWebSearchSettings())
@@ -225,6 +233,8 @@ class AppPreferences(context: Context) {
     val chromeBlurStrength: StateFlow<Float> = _chromeBlurStrength.asStateFlow()
     val chromeEdgeSoftness: StateFlow<Float> = _chromeEdgeSoftness.asStateFlow()
     val chromeOverlayOpacity: StateFlow<Float> = _chromeOverlayOpacity.asStateFlow()
+    val promptBarBackgroundStyle: StateFlow<PromptBarBackgroundStyle> = _promptBarBackgroundStyle.asStateFlow()
+    val promptBarBackgroundOpacity: StateFlow<Float> = _promptBarBackgroundOpacity.asStateFlow()
     val lessEmojiEnabled: StateFlow<Boolean> = _lessEmojiEnabled.asStateFlow()
     val automaticUpdateChecks: StateFlow<Boolean> = _automaticUpdateChecks.asStateFlow()
     val webSearchSettings: StateFlow<WebSearchSettings> = _webSearchSettings.asStateFlow()
@@ -321,6 +331,17 @@ class AppPreferences(context: Context) {
         val normalized = value.coerceIn(0f, 1f)
         _chromeOverlayOpacity.value = normalized
         preferences.edit { putFloat(KEY_CHROME_OVERLAY_OPACITY, normalized) }
+    }
+
+    fun setPromptBarBackgroundStyle(value: PromptBarBackgroundStyle) {
+        _promptBarBackgroundStyle.value = value
+        preferences.edit { putString(KEY_PROMPT_BAR_BACKGROUND_STYLE, value.name) }
+    }
+
+    fun setPromptBarBackgroundOpacity(value: Float) {
+        val normalized = value.coerceIn(0f, 1f)
+        _promptBarBackgroundOpacity.value = normalized
+        preferences.edit { putFloat(KEY_PROMPT_BAR_BACKGROUND_OPACITY, normalized) }
     }
 
     fun setLessEmojiEnabled(enabled: Boolean) {
@@ -631,6 +652,9 @@ class AppPreferences(context: Context) {
         const val KEY_CHROME_EDGE_SOFTNESS = "chrome_edge_softness"
         const val KEY_CHROME_EDGE_CONTROL_REVISION = "chrome_edge_control_revision"
         const val KEY_CHROME_OVERLAY_OPACITY = "chrome_overlay_opacity"
+        const val KEY_PROMPT_BAR_BACKGROUND_STYLE = "prompt_bar_background_style"
+        const val KEY_PROMPT_BAR_BACKGROUND_OPACITY = "prompt_bar_background_opacity"
+        const val DEFAULT_PROMPT_BAR_BACKGROUND_OPACITY = 0.76f
         const val KEY_LESS_EMOJI_ENABLED = "less_emoji_enabled"
         const val KEY_AUTOMATIC_UPDATE_CHECKS = "automatic_update_checks"
         const val KEY_WEB_SEARCH_ROUTE = "web_search_route"
