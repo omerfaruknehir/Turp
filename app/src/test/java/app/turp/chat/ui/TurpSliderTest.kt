@@ -137,6 +137,7 @@ class TurpSliderTest {
         assertTrue(promptShell.contains("IconButton("))
         assertTrue(promptShell.contains("Surface("))
         assertTrue(composer.contains("overlayOpacity = promptBarBackgroundOpacity"))
+        assertTrue(composer.contains("floating = true"))
         assertTrue(settings.contains(""Prompt bar""))
         assertTrue(settings.contains(""Blurred""))
         assertTrue(settings.contains(""Solid""))
