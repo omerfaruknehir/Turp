@@ -112,6 +112,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.net.URLEncoder
+import java.util.LinkedHashMap
 import kotlin.math.roundToInt
 
 private val MarkdownTableStreamHint = Regex(
@@ -147,6 +148,43 @@ internal data class StableRichBlock(
     val block: RichBlock,
     val liveTail: Boolean,
 )
+
+private object CompletedRichBlockCache {
+    private data class Entry(
+        val source: String,
+        val blocks: List<StableRichBlock>,
+    )
+
+    private val entries = object : LinkedHashMap<String, Entry>(48, 0.75f, true) {
+        override fun removeEldestEntry(
+            eldest: MutableMap.MutableEntry<String, Entry>?,
+        ): Boolean = size > 48
+    }
+
+    @Synchronized
+    fun get(scope: String, source: String): List<StableRichBlock>? =
+        entries[scope]?.takeIf { it.source == source }?.blocks
+
+    fun getOrParse(scope: String, source: String): List<StableRichBlock> {
+        get(scope, source)?.let { return it }
+        val parsed = parseBlocks(source, streaming = false).mapIndexed { index, block ->
+            StableRichBlock(
+                key = "complete-$index",
+                block = block,
+                liveTail = false,
+            )
+        }
+        synchronized(this) {
+            entries[scope] = Entry(source, parsed)
+        }
+        return parsed
+    }
+}
+
+internal fun prewarmRichMessageBlocks(scope: String, source: String) {
+    if (source.isBlank()) return
+    CompletedRichBlockCache.getOrParse(scope, source)
+}
 
 /**
  * Append-only parser state for a single streamed response. Completed Markdown
@@ -288,7 +326,15 @@ internal fun RichMessage(
     }
 
     val incrementalParser = remember(operationScope) { IncrementalRichTextParser() }
-    var blocks by remember(operationScope) { mutableStateOf<List<StableRichBlock>>(emptyList()) }
+    var blocks by remember(operationScope) {
+        mutableStateOf(
+            if (!streaming && !staticContent) {
+                CompletedRichBlockCache.get(operationScope, text).orEmpty()
+            } else {
+                emptyList()
+            },
+        )
+    }
     // LaunchedEffect itself is intentionally keyed only by the message scope so
     // one serial parser survives the entire response. The values consumed by
     // snapshotFlow must be State objects, though: closing over the plain String
@@ -305,14 +351,19 @@ internal fun RichMessage(
                 // obsolete token snapshots while guaranteeing that the newest
                 // table state and any Markdown after it are eventually applied.
                 blocks = withContext(Dispatchers.Default) {
-                    incrementalParser.update(source, active)
+                    if (active) {
+                        incrementalParser.update(source, streaming = true)
+                    } else {
+                        CompletedRichBlockCache.getOrParse(operationScope, source)
+                    }
                 }
             }
     }
     val staticBlocks = remember(operationScope, renderedText, staticContent) {
-        if (!staticContent) emptyList()
-        else parseBlocks(renderedText, streaming = false).mapIndexed { index, block ->
-            StableRichBlock("static-$index", block, liveTail = false)
+        if (!staticContent) {
+            emptyList()
+        } else {
+            CompletedRichBlockCache.getOrParse(operationScope, renderedText)
         }
     }
     val visibleBlocks = if (staticContent) staticBlocks else blocks
