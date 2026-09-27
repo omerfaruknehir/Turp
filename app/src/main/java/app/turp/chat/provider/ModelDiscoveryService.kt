@@ -645,7 +645,8 @@ class ModelDiscoveryService(
             inputCacheHitUsdPerMillion = pricing.pricePerMillion("input_cache_read"),
             inputCacheMissUsdPerMillion = pricing.pricePerMillion("prompt"),
             outputUsdPerMillion = pricing.pricePerMillion("completion"),
-            reasoningMetadataAvailable = reasoning != null || efforts.isNotEmpty(),
+            reasoningMetadataAvailable = reasoningValue != null || advertisedReasoning != null ||
+                advertisedReasoningEffort != null || efforts.isNotEmpty(),
             reasoningEfforts = efforts,
             reasoningDefaultEffort = reasoning?.get("default_effort")?.jsonPrimitive?.contentOrNull?.let(::parseThinkingEffort),
             reasoningDefaultEnabled = reasoning?.get("default_enabled")?.jsonPrimitive?.booleanOrNull ?: false,
