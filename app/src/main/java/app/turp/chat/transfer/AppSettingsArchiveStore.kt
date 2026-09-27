@@ -94,6 +94,7 @@ data class PortableDeveloperSettings(
     val performanceOverlayScale: Float,
     val blurBoundaryDebugEnabled: Boolean,
     val blurBoundaryDebugThicknessDp: Float,
+    val topBlurOffsetDp: Float = 0f,
 )
 
 @Serializable
@@ -246,6 +247,7 @@ class AppSettingsArchiveStore(
                     performanceOverlayScale = developer.performanceOverlayScale,
                     blurBoundaryDebugEnabled = developer.blurBoundaryDebugEnabled,
                     blurBoundaryDebugThicknessDp = developer.blurBoundaryDebugThicknessDp,
+                    topBlurOffsetDp = developer.topBlurOffsetDp,
                 ),
                 selectedLinuxDistribution = context.getSharedPreferences(LINUX_PREFERENCES, Context.MODE_PRIVATE)
                     .getString(KEY_DISTRIBUTION, "UBUNTU").orEmpty(),
@@ -574,6 +576,7 @@ class AppSettingsArchiveStore(
                 performanceOverlayScale = developer.performanceOverlayScale,
                 blurBoundaryDebugEnabled = developer.blurBoundaryDebugEnabled,
                 blurBoundaryDebugThicknessDp = developer.blurBoundaryDebugThicknessDp,
+                topBlurOffsetDp = developer.topBlurOffsetDp,
             ),
         )
         val distribution = value.selectedLinuxDistribution.uppercase().takeIf { it in SUPPORTED_DISTRIBUTIONS }
