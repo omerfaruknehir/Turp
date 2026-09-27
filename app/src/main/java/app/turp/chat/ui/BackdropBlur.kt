@@ -46,10 +46,12 @@ enum class TurpBlurEdge { TOP, BOTTOM }
 internal object TurpBackdropDebugOverlay {
     var enabled by mutableStateOf(false)
     var thicknessDp by mutableFloatStateOf(3f)
+    var topOffsetDp by mutableFloatStateOf(0f)
 
-    fun update(enabled: Boolean, thicknessDp: Float) {
+    fun update(enabled: Boolean, thicknessDp: Float, topOffsetDp: Float = 0f) {
         this.enabled = enabled
         this.thicknessDp = thicknessDp.coerceIn(1f, 8f)
+        this.topOffsetDp = topOffsetDp.coerceIn(-120f, 120f)
     }
 }
 
@@ -450,7 +452,13 @@ fun Modifier.turpBackdropBlur(
         maximumMergeDp = maximumMergeDistance.value,
     )
     val exactTint = applyOverlayOpacity(tint, overlayOpacity)
-    val panelHeightPx = with(LocalDensity.current) { panelHeight.toPx() }.coerceAtLeast(1f)
+    val density = LocalDensity.current.density
+    val panelHeightPx = panelHeight.value * density
+    val topOffsetPx = if (edge == TurpBlurEdge.TOP) {
+        TurpBackdropDebugOverlay.topOffsetDp * density
+    } else {
+        0f
+    }
 
     SideEffect {
         state.update(
@@ -476,7 +484,11 @@ fun Modifier.turpBackdropBlur(
             else -> panelHeightPx
         }
         when (edge) {
-            TurpBlurEdge.TOP -> state.updatePanelBounds(edge, bounds.top, bounds.top + effectiveHeightPx)
+            TurpBlurEdge.TOP -> state.updatePanelBounds(
+                edge,
+                bounds.top + topOffsetPx,
+                bounds.top + effectiveHeightPx + topOffsetPx,
+            )
             TurpBlurEdge.BOTTOM -> state.updatePanelBounds(
                 edge = edge,
                 startInRootPx = bounds.bottom - effectiveHeightPx,
@@ -615,11 +627,22 @@ private fun DrawScope.drawPanelOverlay(
         )
     }
     if (debugBoundary) {
-        val y = if (edge == TurpBlurEdge.TOP) end else start
+        val boundary = if (edge == TurpBlurEdge.TOP) end else start
+        val halfFeather = if (softnessActive) mergeDistance * 0.5f else 0f
+        val gradientStart = boundary - halfFeather
+        val gradientEnd = boundary + halfFeather
+        if (halfFeather > 0f) {
+            drawLine(
+                color = Color.Yellow,
+                start = Offset(0f, gradientStart),
+                end = Offset(size.width, gradientStart),
+                strokeWidth = debugThickness.coerceAtLeast(1f),
+            )
+        }
         drawLine(
             color = Color.Red,
-            start = Offset(0f, y),
-            end = Offset(size.width, y),
+            start = Offset(0f, gradientEnd),
+            end = Offset(size.width, gradientEnd),
             strokeWidth = debugThickness.coerceAtLeast(1f),
         )
     }
@@ -634,7 +657,7 @@ internal fun quantizeBlurRadiusDp(radiusDp: Float): Float = radiusDp.coerceAtLea
 private const val MIN_VISIBLE_RADIUS_PX = 0.0001f
 private const val DEFAULT_MAX_RADIUS_DP = 56f
 private const val DEFAULT_PANEL_CORNER_RADIUS_DP = 28f
-private const val MAXIMUM_MERGE_DISTANCE_DP = 68f
+private const val MAXIMUM_MERGE_DISTANCE_DP = 136f
 internal const val CHAT_TOP_PANEL_HEIGHT_DP = 120f
 internal const val STANDARD_TOP_PANEL_HEIGHT_DP = 100f
 internal const val CHAT_COMPOSER_MIN_PANEL_HEIGHT_DP = 120f
