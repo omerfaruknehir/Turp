@@ -3432,6 +3432,7 @@ private fun ProviderSettings(
             "anthropic" to "Anthropic",
             "gemini" to "Gemini",
             "openrouter" to "OpenRouter",
+            "evren" to "EVREN",
             "opencode-v2" to "OpenCode V2",
             "opencode-go" to "OpenCode Go",
             "opencode-zen" to "OpenCode Zen",
