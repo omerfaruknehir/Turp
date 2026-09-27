@@ -4,6 +4,7 @@ import app.turp.chat.data.ProviderEntity
 import app.turp.chat.data.ProviderKind
 import app.turp.chat.data.ProviderProfile
 import app.turp.chat.data.ProviderProtocol
+import app.turp.chat.data.ThinkingEffort
 import java.util.Collections
 import kotlinx.coroutines.runBlocking
 import okhttp3.MediaType.Companion.toMediaType
@@ -159,42 +160,32 @@ class ConfigurableProviderDiscoveryTest {
     }
 
     @Test
-    fun `generic discovery honors top level modalities and hides non chat tasks`() = runBlocking {
+    fun `generic discovery parses live EVREN list metadata and tolerates missing detail routes`() = runBlocking {
         val seen = Collections.synchronizedList(mutableListOf<String>())
-        val tasks = mapOf(
-            "evren-chat" to "chat",
-            "evren-embedding" to "embedding",
-            "evren-reranker" to "rerank",
-            "evren-ocr" to "ocr",
-            "evren-asr" to "asr",
-            "evren-guard" to "guard",
-        )
         val client = OkHttpClient.Builder().addInterceptor { chain ->
             val path = chain.request().url.encodedPath
             seen += path
-            val json = if (path == "/v1/models") {
-                """{"data":[
-                    {"id":"evren-chat","name":"EVREN Chat","task":"chat","modalities":["text","image"]},
-                    {"id":"evren-embedding","task":"embedding","modalities":["text"]},
-                    {"id":"evren-reranker","task":"rerank","modalities":["text","image"]},
-                    {"id":"evren-ocr","task":"ocr","modalities":["text","image"]},
-                    {"id":"evren-asr","task":"asr","modalities":["audio","text"]},
-                    {"id":"evren-guard","task":"guard","modalities":["text"]}
+            val code: Int
+            val json: String
+            if (path == "/v1/models") {
+                code = 200
+                json = """{"data":[
+                    {"id":"evren-chat","task":"chat","context_length":1048576,"default_max_output_tokens":16384,"modalities":["text","image"],"capabilities":{"thinking":true,"reasoning_effort":true,"reasoning_effort_values":["none","minimal","low","medium","high","xhigh"],"tools":true,"vision":true}},
+                    {"id":"evren-embedding","task":"embedding","context_length":40960,"modalities":["text"],"capabilities":{"thinking":false,"reasoning_effort":false,"tools":false,"vision":false}},
+                    {"id":"evren-reranker","task":"rerank","context_length":4096,"modalities":["text"],"capabilities":{"thinking":false,"reasoning_effort":false,"tools":false,"vision":false}},
+                    {"id":"evren-ocr","task":"ocr","context_length":131072,"modalities":["text","image"],"capabilities":{"thinking":false,"reasoning_effort":false,"tools":false,"vision":false}},
+                    {"id":"evren-asr","task":"audio_transcription","context_length":32768,"modalities":["audio","text"],"capabilities":{"thinking":false,"reasoning_effort":false,"tools":false,"vision":false}},
+                    {"id":"evren-guard","task":"guard","context_length":32768,"modalities":["text"],"capabilities":{"thinking":false,"reasoning_effort":false,"tools":false,"vision":false}}
                 ]}"""
             } else {
-                val id = chain.request().url.pathSegments.last()
-                val task = tasks.getValue(id)
-                if (id == "evren-chat") {
-                    """{"id":"$id","task":"$task","modalities":["text","image"],"reasoning":true,"capabilities":{"supports_tools":true}}"""
-                } else {
-                    """{"id":"$id","task":"$task","modalities":["text","image"]}"""
-                }
+                code = 404
+                json = """{"error":{"message":"Not Found","code":"not_found"}}"""
             }
             Response.Builder()
                 .request(chain.request())
                 .protocol(Protocol.HTTP_1_1)
-                .code(200)
-                .message("OK")
+                .code(code)
+                .message(if (code == 200) "OK" else "Not Found")
                 .body(json.toResponseBody("application/json".toMediaType()))
                 .build()
         }.build()
@@ -211,10 +202,24 @@ class ConfigurableProviderDiscoveryTest {
         val models = ModelDiscoveryService(oauth = null, client = client).discover(provider, "")
 
         assertEquals(listOf("evren-chat"), models.map { it.id })
-        assertEquals("chat", models.single().task)
-        assertEquals(true, models.single().supportsVision)
-        assertEquals(true, models.single().supportsThinking)
-        assertEquals(true, models.single().supportsTools)
+        val model = models.single()
+        assertEquals("chat", model.task)
+        assertEquals(1_048_576, model.contextWindow)
+        assertEquals(16_384, model.maxOutputTokens)
+        assertEquals(true, model.supportsVision)
+        assertEquals(true, model.supportsThinking)
+        assertEquals(true, model.supportsTools)
+        assertTrue(model.reasoningMetadataAvailable)
+        assertEquals(
+            listOf(
+                ThinkingEffort.MINIMAL,
+                ThinkingEffort.LOW,
+                ThinkingEffort.MEDIUM,
+                ThinkingEffort.HIGH,
+                ThinkingEffort.XHIGH,
+            ),
+            model.reasoningEfforts,
+        )
         assertTrue(seen.contains("/v1/models/evren-chat"))
         assertTrue(seen.contains("/v1/models/evren-ocr"))
         assertTrue(seen.contains("/v1/models/evren-asr"))
