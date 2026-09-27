@@ -6,6 +6,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RichMessageReferenceTest {
+    @Test
+    fun completedMarkdownRenderingIsCachedAcrossScroll() {
+        val rich = java.io.File("src/main/java/app/turp/chat/ui/RichMessage.kt").readText()
+
+        assertTrue(rich.contains("private object CompletedRichBlockCache"))
+        assertTrue(rich.contains("private object RenderedMarkdownCache"))
+        assertTrue(rich.contains("prewarmRichMessageRendering"))
+        assertTrue(rich.contains("RenderedMarkdownCache.getOrRender(markwon, rendered)"))
+        assertTrue(rich.contains("mutableStateOf(RenderedMarkdownCache.get(markdown))"))
+    }
+
     @Test fun sourceNotationBecomesAnTurpSourceLink() {
         val rendered = prepareReferenceMarkdown(
             "Claim [[source|Android docs|https://developer.android.com/guide]]",
