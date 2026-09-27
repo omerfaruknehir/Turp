@@ -56,6 +56,70 @@ class ProviderConfigurationTest {
     }
 
     @Test
+    fun `EVREN profile keeps OpenAI compatible transport and adds EVREN endpoints through proxies`() {
+        val provider = ProviderEntity(
+            id = "evren-proxy",
+            displayName = "EVREN via proxy",
+            kind = ProviderKind.OPENAI_COMPATIBLE,
+            baseUrl = "https://proxy.example.test/evren/v1",
+            protocol = ProviderProtocol.OPENAI_COMPATIBLE,
+            profile = ProviderProfile.EVREN,
+        )
+
+        assertTrue(ModelRequestPolicy.isEvren(provider))
+        assertEquals(ProviderProtocol.OPENAI_COMPATIBLE, provider.effectiveProtocol)
+        assertEquals("EVREN", providerProfileLabel(provider.effectiveProfile))
+        assertEquals(
+            "https://proxy.example.test/evren/v1/chat/completions",
+            ProviderEndpointResolver.resolve(provider, ProviderEndpointKey.CHAT),
+        )
+        assertEquals(
+            "https://proxy.example.test/evren/v1/ocr",
+            ProviderEndpointResolver.resolve(provider, ProviderEndpointKey.OCR),
+        )
+        assertEquals(
+            "https://proxy.example.test/evren/v1/audio/transcriptions",
+            ProviderEndpointResolver.resolve(provider, ProviderEndpointKey.AUDIO_TRANSCRIPTIONS),
+        )
+        assertEquals(
+            "https://proxy.example.test/evren/v1/embeddings",
+            ProviderEndpointResolver.resolve(provider, ProviderEndpointKey.EMBEDDINGS),
+        )
+        assertEquals(
+            "https://proxy.example.test/evren/v1/rerank",
+            ProviderEndpointResolver.resolve(provider, ProviderEndpointKey.RERANK),
+        )
+        assertEquals(
+            "https://proxy.example.test/evren/v1/terms/status",
+            ProviderEndpointResolver.resolve(provider, ProviderEndpointKey.TERMS_STATUS),
+        )
+        assertEquals(
+            "https://proxy.example.test/evren/v1/terms/text",
+            ProviderEndpointResolver.resolve(provider, ProviderEndpointKey.TERMS_TEXT),
+        )
+        assertEquals(
+            "https://proxy.example.test/evren/v1/terms/accept",
+            ProviderEndpointResolver.resolve(provider, ProviderEndpointKey.TERMS_ACCEPT),
+        )
+    }
+
+    @Test
+    fun `EVREN official base URL is inferred for legacy automatic profile`() {
+        val provider = ProviderEntity(
+            id = "legacy-evren",
+            displayName = "EVREN",
+            kind = ProviderKind.OPENAI_COMPATIBLE,
+            baseUrl = "https://evren-llmapi.ssyz.org.tr/v1",
+            protocol = ProviderProtocol.OPENAI_COMPATIBLE,
+            profile = ProviderProfile.AUTO,
+        )
+
+        assertTrue(ModelRequestPolicy.isEvrenBaseUrl(provider.baseUrl))
+        assertEquals(ProviderProfile.EVREN, provider.effectiveProfile)
+        assertTrue(ModelRequestPolicy.isEvren(provider))
+    }
+
+    @Test
     fun `relative and absolute endpoint overrides are both supported`() {
         val provider = ProviderEntity(
             id = "proxy",
