@@ -30,7 +30,6 @@ import java.util.concurrent.TimeUnit
 data class DiscoveredModel(
     val id: String,
     val displayName: String,
-    val task: String? = null,
     val contextWindow: Int? = null,
     val maxOutputTokens: Int? = null,
     val supportsThinking: Boolean? = null,
@@ -50,6 +49,7 @@ data class DiscoveredModel(
     val reasoningMandatory: Boolean = false,
     val reasoningSupportsMaxTokens: Boolean = false,
     val metadataSource: String = "",
+    val task: String? = null,
 )
 
 class ModelDiscoveryService(
