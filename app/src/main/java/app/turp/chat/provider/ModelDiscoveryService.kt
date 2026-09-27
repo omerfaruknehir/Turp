@@ -30,6 +30,7 @@ import java.util.concurrent.TimeUnit
 data class DiscoveredModel(
     val id: String,
     val displayName: String,
+    val task: String? = null,
     val contextWindow: Int? = null,
     val maxOutputTokens: Int? = null,
     val supportsThinking: Boolean? = null,
@@ -193,10 +194,15 @@ class ModelDiscoveryService(
         } else {
             distinct
         }
+        val chatEligible = if (kind == ProviderKind.OPENAI_COMPATIBLE) {
+            detailed.filter(::isChatSelectableModel)
+        } else {
+            detailed
+        }
         val merged = if (kind == ProviderKind.OPENAI_COMPATIBLE) {
             val withOfficialOpenAi = ModelRequestPolicy.mergeOfficialOpenAiCatalog(
                 baseUrl,
-                detailed,
+                chatEligible,
                 force = officialOpenAi,
             )
             val withOpenCodeMetadata = if (openCodeGo || openCodeZen) {
@@ -215,8 +221,8 @@ class ModelDiscoveryService(
             } else {
                 withOpenCodeMetadata
             }
-        } else distinct
-        merged.ifEmpty { throw IllegalStateException("The provider returned no usable models") }
+        } else chatEligible
+        merged.ifEmpty { throw IllegalStateException("The provider returned no usable chat models") }
     }
 
     private suspend fun discoverOpenCodeV2(
@@ -368,6 +374,7 @@ class ModelDiscoveryService(
         detail: DiscoveredModel,
     ): DiscoveredModel = base.copy(
         displayName = base.displayName.ifBlank { detail.displayName },
+        task = detail.task ?: base.task,
         contextWindow = detail.contextWindow ?: base.contextWindow,
         maxOutputTokens = detail.maxOutputTokens ?: base.maxOutputTokens,
         supportsThinking = detail.supportsThinking ?: base.supportsThinking,
@@ -412,6 +419,7 @@ class ModelDiscoveryService(
             val base = merged[candidate.id]
             merged[candidate.id] = if (base == null) candidate else base.copy(
                 displayName = base.displayName.ifBlank { candidate.displayName },
+                task = base.task ?: candidate.task,
                 contextWindow = base.contextWindow ?: candidate.contextWindow,
                 maxOutputTokens = base.maxOutputTokens ?: candidate.maxOutputTokens,
                 supportsThinking = mergeCapability(base.supportsThinking, candidate.supportsThinking),
@@ -485,6 +493,7 @@ class ModelDiscoveryService(
             ?: humanize(id)
         val openRouter = openRouterOverride ?: ModelRequestPolicy.isOpenRouterBaseUrl(baseUrlForParsing)
         val architecture = model["architecture"] as? JsonObject
+        val advertisedModalities = model.stringSet("modalities")
         val inputModalities = architecture.stringSet("input_modalities")
         val outputModalities = architecture.stringSet("output_modalities")
         if (openRouter && outputModalities.isNotEmpty() && outputModalities.none { it == "text" || it == "image" }) return@mapNotNull null
@@ -496,6 +505,10 @@ class ModelDiscoveryService(
         DiscoveredModel(
             id = id,
             displayName = name,
+            task = model["task"]?.jsonPrimitive?.contentOrNull
+                ?.trim()
+                ?.lowercase()
+                ?.takeIf { it.isNotBlank() },
             contextWindow = model.int(
                 "context_length",
                 "context_window",
@@ -528,13 +541,15 @@ class ModelDiscoveryService(
                 "image" in inputModalities
             } else {
                 model.booleanCapability("supports_vision", "supportsVision", "vision", "vision_enabled")
-                    ?: ("image" in inputModalities).takeIf { inputModalities.isNotEmpty() }
+                    ?: ("image" in inputModalities || "image" in advertisedModalities)
+                        .takeIf { inputModalities.isNotEmpty() || advertisedModalities.isNotEmpty() }
             },
             supportsFiles = if (openRouter) {
                 "file" in inputModalities
             } else {
                 model.booleanCapability("supports_files", "supportsFiles", "files", "file_uploads")
-                    ?: ("file" in inputModalities).takeIf { inputModalities.isNotEmpty() }
+                    ?: ("file" in inputModalities || "file" in advertisedModalities)
+                        .takeIf { inputModalities.isNotEmpty() || advertisedModalities.isNotEmpty() }
             },
             supportsTools = if (openRouter) {
                 "tools" in supportedParameters
@@ -571,6 +586,23 @@ class ModelDiscoveryService(
             reasoningSupportsMaxTokens = reasoning?.get("supports_max_tokens")?.jsonPrimitive?.booleanOrNull ?: false,
             metadataSource = if (openRouter) "OpenRouter" else "",
         )
+    }
+
+    private fun isChatSelectableModel(model: DiscoveredModel): Boolean {
+        val task = model.task
+            ?.trim()
+            ?.lowercase()
+            ?.replace('_', '-')
+            ?.takeIf { it.isNotBlank() }
+            ?: return true
+        return when {
+            task in NON_CHAT_MODEL_TASKS -> false
+            task.contains("embedding") -> false
+            task.contains("rerank") -> false
+            task.contains("ocr") -> false
+            task.contains("transcription") -> false
+            else -> true
+        }
     }
 
     internal fun parseGeminiModels(values: JsonArray?): List<DiscoveredModel> = values.orEmpty().mapNotNull { element ->
@@ -652,6 +684,21 @@ class ModelDiscoveryService(
     }
 
     private companion object {
+        val NON_CHAT_MODEL_TASKS = setOf(
+            "embedding",
+            "embeddings",
+            "rerank",
+            "reranker",
+            "ocr",
+            "asr",
+            "speech",
+            "transcription",
+            "audio-transcription",
+            "moderation",
+            "guard",
+            "safety",
+            "classification",
+        )
         const val TOKENS_PER_MILLION = 1_000_000.0
         const val MAX_MODELS = 1_000
         const val MAX_PAGES = 10
