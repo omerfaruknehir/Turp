@@ -9,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
@@ -340,14 +341,11 @@ class ModelDiscoveryService(
                         val endpoint = listEndpoint.newBuilder()
                             .addPathSegment(base.id)
                             .build()
-                        val root = runCatching {
-                            fetchPage(
-                                kind = ProviderKind.OPENAI_COMPATIBLE,
-                                endpoint = endpoint,
-                                apiKey = apiKey,
-                                customHeaders = customHeaders,
-                            )
-                        }.getOrNull() ?: return@withPermit base
+                        val root = fetchModelDetailWithRetry(
+                            endpoint = endpoint,
+                            apiKey = apiKey,
+                            customHeaders = customHeaders,
+                        ) ?: return@withPermit base
                         val detailObjects = when (val data = root["data"]) {
                             is JsonObject -> listOf(data)
                             is JsonArray -> data.mapNotNull { it as? JsonObject }
@@ -367,6 +365,30 @@ class ModelDiscoveryService(
                 }
             }.awaitAll()
         }
+    }
+
+    private suspend fun fetchModelDetailWithRetry(
+        endpoint: HttpUrl,
+        apiKey: String,
+        customHeaders: Map<String, String>,
+    ): JsonObject? {
+        repeat(MODEL_DETAIL_ATTEMPTS) { attempt ->
+            try {
+                return fetchPage(
+                    kind = ProviderKind.OPENAI_COMPATIBLE,
+                    endpoint = endpoint,
+                    apiKey = apiKey,
+                    customHeaders = customHeaders,
+                )
+            } catch (error: ProviderHttpException) {
+                val retryable = error.status == 429 || error.status in 500..599
+                if (!retryable || attempt == MODEL_DETAIL_ATTEMPTS - 1) return null
+            } catch (_: java.io.IOException) {
+                if (attempt == MODEL_DETAIL_ATTEMPTS - 1) return null
+            }
+            delay(MODEL_DETAIL_RETRY_BASE_DELAY_MS * (attempt + 1L))
+        }
+        return null
     }
 
     private fun mergeAuthoritativeModelDetail(
@@ -702,7 +724,9 @@ class ModelDiscoveryService(
         const val TOKENS_PER_MILLION = 1_000_000.0
         const val MAX_MODELS = 1_000
         const val MAX_PAGES = 10
-        const val MODEL_DETAIL_CONCURRENCY = 8
+        const val MODEL_DETAIL_CONCURRENCY = 4
+        const val MODEL_DETAIL_ATTEMPTS = 3
+        const val MODEL_DETAIL_RETRY_BASE_DELAY_MS = 150L
         const val MAX_DISCOVERY_BYTES = 2L * 1024 * 1024
         const val MAX_OPENROUTER_DISCOVERY_BYTES = 12L * 1024 * 1024
     }
