@@ -3153,9 +3153,11 @@ private fun Composer(
             generationStartedAt = null
         }
     }
-    val composerWorkingLabel = generationStartedAt?.let { startedAt ->
-        liveWorkDurationLabel(startedAt = startedAt, active = generating)
-    } ?: "Working for 0 seconds"
+    val composerWorkingLabel = if (generationStartedAt != null) {
+        liveWorkDurationLabel(startedAt = generationStartedAt!!, active = generating)
+    } else {
+        "Working for 0 seconds"
+    }
 
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         uris.forEach(viewModel::import)
