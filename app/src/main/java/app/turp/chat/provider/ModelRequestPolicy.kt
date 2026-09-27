@@ -28,7 +28,7 @@ object ModelRequestPolicy {
         "gpt-image-1-mini",
     )
     private val automaticOpenAiCompatiblePresetIds = setOf(
-        "openai", "deepseek", "openrouter", "opencode-go", "opencode-zen",
+        "openai", "deepseek", "openrouter", "evren", "opencode-go", "opencode-zen",
         "groq", "mistral", "xai", "qwen-cloud", "ollama",
     )
     /**
@@ -71,6 +71,16 @@ object ModelRequestPolicy {
         provider.effectiveProtocol == ProviderProtocol.OPENAI_COMPATIBLE &&
             provider.effectiveProfile == ProviderProfile.OPENROUTER
 
+    fun isEvrenBaseUrl(rawBaseUrl: String): Boolean {
+        val uri = runCatching { URI(rawBaseUrl.trim()) }.getOrNull() ?: return false
+        return uri.scheme.equals("https", ignoreCase = true) &&
+            uri.host.equals("evren-llmapi.ssyz.org.tr", ignoreCase = true) &&
+            (uri.path.isNullOrBlank() || uri.path.trimEnd('/') == "/v1")
+    }
+
+    fun isEvren(provider: ProviderEntity): Boolean =
+        provider.effectiveProtocol == ProviderProtocol.OPENAI_COMPATIBLE &&
+            provider.effectiveProfile == ProviderProfile.EVREN
 
     fun isOpenCodeZenBaseUrl(rawBaseUrl: String): Boolean {
         val uri = runCatching { URI(rawBaseUrl.trim()) }.getOrNull() ?: return false
