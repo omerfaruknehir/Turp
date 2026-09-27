@@ -356,7 +356,14 @@ internal fun RichMessage(
                     ) {
                         val operationKey = "$operationScope:${parsed.key}"
                         if (!shouldExecuteRichCodeBlock(displayOnly, block.complete)) {
-                            CodeBlock(block.language, block.code, onRunPython, onRunUbuntu, executable = false)
+                            CodeBlock(
+                                block.language,
+                                block.code,
+                                onRunPython,
+                                onRunUbuntu,
+                                executable = false,
+                                streaming = live,
+                            )
                         } else when (block.language.lowercase()) {
                             "mermaid", "graph", "diagram", "dot", "graphviz",
                             "chart", "turp-chart", "bar-chart", "barchart", "line-chart", "pie-chart",
@@ -418,7 +425,13 @@ internal fun RichMessage(
                                     )
                                 },
                             )
-                            else -> CodeBlock(block.language, block.code, onRunPython, onRunUbuntu)
+                            else -> CodeBlock(
+                                block.language,
+                                block.code,
+                                onRunPython,
+                                onRunUbuntu,
+                                streaming = live,
+                            )
                         }
                     }
                 }
@@ -1449,7 +1462,10 @@ private fun MarkdownAndroidView(
     onReference: (LinkReferencePreview) -> Unit,
     modifier: Modifier,
 ) {
-    var parsedMarkdown by remember(markwon, markdown) { mutableStateOf<ParsedMarkdownSource?>(null) }
+    // Keep the last successfully parsed frame visible while a newer streaming
+    // snapshot is parsed. Resetting this state for every token briefly replaced
+    // formatted Markdown with raw source, producing a visible flash on each update.
+    var parsedMarkdown by remember(markwon) { mutableStateOf<ParsedMarkdownSource?>(null) }
     LaunchedEffect(markwon, markdown) {
         val spanned = withContext(Dispatchers.Default) {
             renderMarkdownSafely(markwon, markdown)
@@ -1785,6 +1801,7 @@ private fun CodeBlock(
     onRunPython: suspend (String, suspend (ExecutionProgress) -> Unit) -> ExecutionResult,
     onRunUbuntu: suspend (String, suspend (ExecutionProgress) -> Unit) -> UbuntuExecutionResult,
     executable: Boolean = true,
+    streaming: Boolean = false,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -1846,13 +1863,28 @@ private fun CodeBlock(
                         .width(codeContentWidthDp.dp)
                         .padding(horizontal = 14.dp, vertical = 10.dp),
                 ) {
-                    HighlightedCodeText(
-                        language = language,
-                        code = code,
-                        modifier = Modifier.fillMaxWidth(),
-                        style = MaterialTheme.typography.bodyMedium,
-                        softWrap = false,
-                    )
+                    if (streaming) {
+                        // Syntax spans can change across the entire unfinished token
+                        // stream (for example while a quote/comment is still open).
+                        // Keep live code visually stable and highlight it once complete.
+                        SelectionContainer {
+                            MaterialText(
+                                code,
+                                modifier = Modifier.fillMaxWidth(),
+                                fontFamily = FontFamily.Monospace,
+                                style = MaterialTheme.typography.bodyMedium,
+                                softWrap = false,
+                            )
+                        }
+                    } else {
+                        HighlightedCodeText(
+                            language = language,
+                            code = code,
+                            modifier = Modifier.fillMaxWidth(),
+                            style = MaterialTheme.typography.bodyMedium,
+                            softWrap = false,
+                        )
+                    }
                 }
             }
             AnimatedVisibility(running, enter = streamingFadeIn(), exit = streamingFadeOut()) {
