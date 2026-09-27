@@ -172,6 +172,7 @@ import app.turp.chat.settings.DeveloperPromptTemplateCatalog
 import app.turp.chat.settings.DeveloperPromptVariables
 import app.turp.chat.settings.ModelToolFallbackOverride
 import app.turp.chat.settings.PerformanceOverlayPosition
+import app.turp.chat.settings.PromptBarBackgroundStyle
 import app.turp.chat.settings.NewChatDefaults
 import app.turp.chat.settings.DEFAULT_TURP_SYSTEM_PROMPT
 import app.turp.chat.settings.TURP_CORE_PROMPT_REVISION
@@ -222,6 +223,8 @@ fun SettingsScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
     val chromeBlurStrength by viewModel.chromeBlurStrength.collectAsState()
     val chromeEdgeSoftness by viewModel.chromeEdgeSoftness.collectAsState()
     val chromeOverlayOpacity by viewModel.chromeOverlayOpacity.collectAsState()
+    val promptBarBackgroundStyle by viewModel.promptBarBackgroundStyle.collectAsState()
+    val promptBarBackgroundOpacity by viewModel.promptBarBackgroundOpacity.collectAsState()
     val renderSafeMode by viewModel.renderSafeMode.collectAsState()
     val lessEmojiEnabled by viewModel.lessEmojiEnabled.collectAsState()
     val automaticUpdateChecks by viewModel.automaticUpdateChecks.collectAsState()
@@ -355,6 +358,8 @@ fun SettingsScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
                             chromeBlurStrength = chromeBlurStrength,
                             chromeEdgeSoftness = chromeEdgeSoftness,
                             chromeOverlayOpacity = chromeOverlayOpacity,
+                            promptBarBackgroundStyle = promptBarBackgroundStyle,
+                            promptBarBackgroundOpacity = promptBarBackgroundOpacity,
                             viewModel = viewModel,
                         )
                         SettingsRoute.PRIVACY -> PrivacySettingsPage(
@@ -501,7 +506,7 @@ private fun SettingsHome(
         SettingsDestination(
             icon = Icons.Outlined.Palette,
             title = "Appearance",
-            subtitle = "Theme, palette, launcher icon, and AMOLED black",
+            subtitle = "Theme, palette, panels, prompt bar, launcher icon, and AMOLED black",
             onClick = { onOpen(SettingsRoute.APPEARANCE) },
         )
     }
@@ -1078,6 +1083,8 @@ private fun AppearanceSettingsPage(
     chromeBlurStrength: Float,
     chromeEdgeSoftness: Float,
     chromeOverlayOpacity: Float,
+    promptBarBackgroundStyle: PromptBarBackgroundStyle,
+    promptBarBackgroundOpacity: Float,
     viewModel: ChatViewModel,
 ) = SettingsPage {
     val context = LocalContext.current
@@ -1257,6 +1264,63 @@ private fun AppearanceSettingsPage(
             "100% is fully opaque and hides background blur."
         } else {
             "0% is transparent. 100% is a fully opaque panel tint."
+        },
+    )
+
+    HorizontalDivider()
+    SectionTitle(
+        "Prompt bar",
+        "Choose the background around +, the message field, and the send button.",
+    )
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        listOf(
+            PromptBarBackgroundStyle.BLURRED to "Blurred",
+            PromptBarBackgroundStyle.SOLID to "Solid",
+            PromptBarBackgroundStyle.TRANSPARENT to "Transparent",
+        ).forEach { (style, label) ->
+            FilterChip(
+                selected = promptBarBackgroundStyle == style,
+                onClick = { viewModel.setPromptBarBackgroundStyle(style) },
+                label = { Text(label) },
+                leadingIcon = if (promptBarBackgroundStyle == style) {
+                    { Icon(Icons.Outlined.CheckCircle, null, Modifier.size(18.dp)) }
+                } else null,
+            )
+        }
+    }
+    Text(
+        when (promptBarBackgroundStyle) {
+            PromptBarBackgroundStyle.BLURRED ->
+                "Blur only the rounded prompt shell. The global Blur control above sets its blur strength."
+            PromptBarBackgroundStyle.SOLID ->
+                "Use a Material surface behind the prompt shell without backdrop blur."
+            PromptBarBackgroundStyle.TRANSPARENT ->
+                "Remove the prompt-shell fill and leave only the controls themselves."
+        },
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    SettingSlider(
+        label = "Prompt shell opacity",
+        valueLabel = if (promptBarBackgroundStyle == PromptBarBackgroundStyle.TRANSPARENT) {
+            "Off"
+        } else {
+            "${(promptBarBackgroundOpacity * 100).roundToInt()}%"
+        },
+        value = promptBarBackgroundOpacity,
+        onValueChange = viewModel::setPromptBarBackgroundOpacity,
+        valueRange = 0f..1f,
+        enabled = promptBarBackgroundStyle != PromptBarBackgroundStyle.TRANSPARENT,
+        supportingText = when (promptBarBackgroundStyle) {
+            PromptBarBackgroundStyle.BLURRED ->
+                "Controls the tint over the blurred content. Lower values reveal more of the background."
+            PromptBarBackgroundStyle.SOLID ->
+                "Controls the Material surface opacity. 100% is fully opaque."
+            PromptBarBackgroundStyle.TRANSPARENT ->
+                "Opacity is unused while the prompt shell is transparent."
         },
     )
 
