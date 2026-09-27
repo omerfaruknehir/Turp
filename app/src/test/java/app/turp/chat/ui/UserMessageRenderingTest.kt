@@ -32,10 +32,12 @@ class UserMessageRenderingTest {
     }
 
     @Test
-    fun `markdown view displays the complete fallback until parsing finishes`() {
+    fun `markdown view retains the parsed frame while the next snapshot parses`() {
         val rich = File("src/main/java/app/turp/chat/ui/RichMessage.kt").readText()
-        assertTrue(rich.contains("remember(markwon, markdown)"))
+        assertTrue(rich.contains("remember(markwon) { mutableStateOf<ParsedMarkdownSource?>(null) }"))
+        assertTrue(!rich.contains("remember(markwon, markdown) { mutableStateOf<ParsedMarkdownSource?>(null) }"))
+        assertTrue(rich.contains("val ready = parsedMarkdown"))
+        assertTrue(rich.contains("if (ready == null)"))
         assertTrue(rich.contains("markdownRenderFallbackText(markdown)"))
-        assertTrue(rich.contains("renderedAsFallback"))
     }
 }
