@@ -470,10 +470,10 @@ fun Modifier.turpBackdropBlur(
     this.onGloballyPositioned { coordinates ->
         val bounds = coordinates.boundsInRoot()
         val measuredHeightPx = (bounds.bottom - bounds.top).coerceAtLeast(1f)
-        val effectiveHeightPx = if (expandToMeasuredHeight) {
-            max(panelHeightPx, measuredHeightPx)
-        } else {
-            panelHeightPx
+        val effectiveHeightPx = when {
+            floating -> measuredHeightPx
+            expandToMeasuredHeight -> max(panelHeightPx, measuredHeightPx)
+            else -> panelHeightPx
         }
         when (edge) {
             TurpBlurEdge.TOP -> state.updatePanelBounds(edge, bounds.top, bounds.top + effectiveHeightPx)
