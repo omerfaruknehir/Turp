@@ -170,10 +170,23 @@ class ChatScrollMathTest {
         assertTrue(messageRendering.contains("remember(message.nodeId) { viewModel.observeAttachments(message.nodeId) }"))
         assertTrue(viewModel.contains("attachmentFlowCache"))
         assertTrue(chat.contains("if (cardCoordinates !== coordinates) cardCoordinates = coordinates"))
-        assertTrue(chat.contains("MESSAGE_RENDER_AHEAD_COUNT = 3"))
+        assertTrue(chat.contains("MESSAGE_RENDER_AHEAD_COUNT = 5"))
         assertTrue(chat.contains("MESSAGE_RENDER_BEHIND_COUNT = 2"))
+        assertTrue(chat.contains("ChatFollowSeekMinSpeedPxPerSecond = 9_000f"))
+        assertTrue(chat.contains("ChatFollowSeekMaxSpeedPxPerSecond = 36_000f"))
+        assertTrue(chat.contains("ChatFollowSeekMaxFrameStepPx = 320f"))
         assertTrue(chat.contains("prewarmRichMessageRendering("))
-        assertTrue(chat.contains(".collectLatest { candidates ->"))
+        assertTrue(chat.contains(".conflate()"))
+        assertTrue(chat.contains(".collect { candidates ->"))
+        assertFalse(
+            chat.substringBefore("private fun MessageCard(")
+                .contains("developerHttpTraces by viewModel.developerHttpTraces.collectAsStateWithLifecycle()"),
+        )
+        assertTrue(
+            messageRendering.contains(
+                "developerHttpTraces by viewModel.developerHttpTraces.collectAsStateWithLifecycle()",
+            ),
+        )
     }
 
     @Test
