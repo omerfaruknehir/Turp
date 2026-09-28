@@ -196,10 +196,29 @@ internal fun prewarmRichMessageRendering(context: Context, scope: String, source
     val blocks = CompletedRichBlockCache.getOrParse(scope, source)
     val markwon = TurpMarkwonCache.get(context.applicationContext)
     blocks.forEach { stable ->
-        val block = stable.block
-        if (block is RichBlock.Markdown) {
-            val rendered = renderMarkdownLinksLiterally(block.text)
-            RenderedMarkdownCache.getOrRender(markwon, rendered)
+        when (val block = stable.block) {
+            is RichBlock.Markdown -> {
+                val rendered = renderMarkdownLinksLiterally(block.text)
+                RenderedMarkdownCache.getOrRender(markwon, rendered)
+            }
+            is RichBlock.Table -> {
+                // Native tables otherwise parse rows/cells as they cross into view.
+                // Do that work in the existing background message-prewarm pass.
+                if (block.text.length <= CompletedTablePreviewMaxChars) {
+                    val rows = MarkdownTableRowsCache.getOrParse(block.text)
+                    rows.asSequence()
+                        .flatten()
+                        .take(256)
+                        .forEach { cell ->
+                            RenderedMarkdownCache.getOrRender(markwon, cell)
+                        }
+                }
+            }
+            is RichBlock.Code -> {
+                if (block.complete && block.code.length <= 256_000) {
+                    prewarmSyntaxHighlight(block.language, block.code)
+                }
+            }
         }
     }
 }
@@ -1124,6 +1143,28 @@ internal fun parseMarkdownTableRows(markdown: String): List<List<String>> =
         .filter { it.isNotEmpty() }
         .toList()
 
+private object MarkdownTableRowsCache {
+    private data class Entry(
+        val source: String,
+        val rows: List<List<String>>,
+    )
+
+    private val entries = object : LinkedHashMap<Int, Entry>(48, 0.75f, true) {
+        override fun removeEldestEntry(
+            eldest: MutableMap.MutableEntry<Int, Entry>?,
+        ): Boolean = size > 48
+    }
+
+    @Synchronized
+    fun getOrParse(markdown: String): List<List<String>> {
+        val key = (markdown.hashCode() * 31) + markdown.length
+        entries[key]?.takeIf { it.source == markdown }?.let { return it.rows }
+        val rows = parseMarkdownTableRows(markdown)
+        entries[key] = Entry(markdown, rows)
+        return rows
+    }
+}
+
 internal fun markdownTableColumnWidthsDp(
     rows: List<List<String>>,
     viewportDp: Int,
@@ -1167,7 +1208,7 @@ private fun NativeMarkdownTable(
     markdown: String,
     onReference: (LinkReferencePreview) -> Unit,
 ) {
-    val rows = remember(markdown) { parseMarkdownTableRows(markdown) }
+    val rows = remember(markdown) { MarkdownTableRowsCache.getOrParse(markdown) }
     if (rows.isEmpty()) {
         LightweightTableText(markdown = markdown, streaming = false)
         return
