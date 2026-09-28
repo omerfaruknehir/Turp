@@ -353,6 +353,26 @@ internal fun chatDataPrewarmIndices(
     behindCount = behindCount,
 )
 
+internal fun chatGesturePrefetchIndices(
+    delta: Float,
+    firstVisibleIndex: Int,
+    lastVisibleIndex: Int,
+    itemCount: Int,
+): List<Int> {
+    if (delta == 0f || itemCount <= 0 || firstVisibleIndex < 0 || lastVisibleIndex < firstVisibleIndex) {
+        return emptyList()
+    }
+    return if (delta < 0f) {
+        (1..6).mapNotNull { distance ->
+            (lastVisibleIndex + distance).takeIf { it in 0 until itemCount }
+        }
+    } else {
+        (1..4).mapNotNull { distance ->
+            (firstVisibleIndex - distance).takeIf { it in 0 until itemCount }
+        }
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 private class ChatMessagePrefetchStrategy : LazyListPrefetchStrategy {
     private val scrollPrefetchHandles =
@@ -368,20 +388,12 @@ private class ChatMessagePrefetchStrategy : LazyListPrefetchStrategy {
         val visible = layoutInfo.visibleItemsInfo
         val first = visible.firstOrNull()?.index ?: return
         val last = visible.lastOrNull()?.index ?: first
-        val itemCount = layoutInfo.totalItemsCount
-        val targets = if (delta < 0f) {
-            // Downward scroll: start composing/measuring future rows before they
-            // touch the viewport boundary.
-            (1..6).mapNotNull { distance ->
-                (last + distance).takeIf { it in 0 until itemCount }
-            }
-        } else {
-            // Upward scroll needs fewer retained rows because prior messages have
-            // normally already been composed once.
-            (1..4).mapNotNull { distance ->
-                (first - distance).takeIf { it in 0 until itemCount }
-            }
-        }
+        val targets = chatGesturePrefetchIndices(
+            delta = delta,
+            firstVisibleIndex = first,
+            lastVisibleIndex = last,
+            itemCount = layoutInfo.totalItemsCount,
+        )
         val targetSet = targets.toSet()
         val stale = scrollPrefetchHandles.keys.filterNot(targetSet::contains)
         stale.forEach { index ->
