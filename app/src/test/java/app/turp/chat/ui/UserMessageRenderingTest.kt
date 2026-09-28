@@ -1,5 +1,6 @@
 package app.turp.chat.ui
 
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -40,6 +41,13 @@ class UserMessageRenderingTest {
         assertTrue(rich.contains("precompute = !streaming"))
         assertTrue(rich.contains("withContext(Dispatchers.Default)"))
         assertTrue(rich.contains("decorateReferenceSpans("))
+        assertTrue(rich.contains("private object PreparedMarkdownCache"))
+        assertTrue(rich.contains("PreparedMarkdownCache.get("))
+        val preparedBranch = rich
+            .substringAfter("if (ready.precomputed != null)")
+            .substringBefore("} else {")
+        assertTrue(preparedBranch.contains("TextViewCompat.setPrecomputedText(view, ready.precomputed)"))
+        assertFalse(preparedBranch.contains("markwon.setParsedMarkdown"))
     }
 
     @Test
