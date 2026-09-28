@@ -258,6 +258,33 @@ class ChatScrollMathTest {
     }
 
     @Test
+    fun prefetchRetentionKeepsRowsAsTheyEnterViewport() {
+        val retained = chatPrefetchRetentionIndices(
+            firstVisibleIndex = 10,
+            lastVisibleIndex = 14,
+            itemCount = 40,
+            aheadCount = 10,
+            behindCount = 8,
+        )
+        assertTrue(14 in retained)
+        assertTrue(15 in retained)
+        assertTrue(24 in retained)
+        assertTrue(2 in retained)
+        assertFalse(1 in retained)
+        assertFalse(25 in retained)
+
+        val afterBoundaryCross = chatPrefetchRetentionIndices(
+            firstVisibleIndex = 11,
+            lastVisibleIndex = 15,
+            itemCount = 40,
+            aheadCount = 10,
+            behindCount = 8,
+        )
+        assertTrue(15 in afterBoundaryCross)
+        assertTrue(14 in afterBoundaryCross)
+    }
+
+    @Test
     fun dataPrewarmDoesNotRepeatVisibleRows() {
         val indices = chatDataPrewarmIndices(
             firstVisibleIndex = 4,
