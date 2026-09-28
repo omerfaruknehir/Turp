@@ -43,6 +43,7 @@ import androidx.compose.foundation.lazy.LazyListLayoutInfo
 import androidx.compose.foundation.lazy.LazyListPrefetchScope
 import androidx.compose.foundation.lazy.LazyListPrefetchStrategy
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.layout.LazyLayoutPrefetchState
 import androidx.compose.foundation.lazy.layout.NestedPrefetchScope
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -354,12 +355,44 @@ internal fun chatDataPrewarmIndices(
 
 @OptIn(ExperimentalFoundationApi::class)
 private class ChatMessagePrefetchStrategy : LazyListPrefetchStrategy {
+    private val scrollPrefetchHandles =
+        LinkedHashMap<Int, LazyLayoutPrefetchState.PrefetchHandle>()
+
     override fun NestedPrefetchScope.onNestedPrefetch(firstVisibleItemIndex: Int) = Unit
 
     override fun LazyListPrefetchScope.onScroll(
         delta: Float,
         layoutInfo: LazyListLayoutInfo,
-    ) = Unit
+    ) {
+        if (delta == 0f) return
+        val visible = layoutInfo.visibleItemsInfo
+        val first = visible.firstOrNull()?.index ?: return
+        val last = visible.lastOrNull()?.index ?: first
+        val itemCount = layoutInfo.totalItemsCount
+        val targets = if (delta < 0f) {
+            // Downward scroll: start composing/measuring future rows before they
+            // touch the viewport boundary.
+            (1..6).mapNotNull { distance ->
+                (last + distance).takeIf { it in 0 until itemCount }
+            }
+        } else {
+            // Upward scroll needs fewer retained rows because prior messages have
+            // normally already been composed once.
+            (1..4).mapNotNull { distance ->
+                (first - distance).takeIf { it in 0 until itemCount }
+            }
+        }
+        val targetSet = targets.toSet()
+        val stale = scrollPrefetchHandles.keys.filterNot(targetSet::contains)
+        stale.forEach { index ->
+            scrollPrefetchHandles.remove(index)?.cancel()
+        }
+        targets.forEach { index ->
+            if (index !in scrollPrefetchHandles) {
+                scrollPrefetchHandles[index] = schedulePrefetch(index)
+            }
+        }
+    }
 
     override fun LazyListPrefetchScope.onVisibleItemsUpdated(layoutInfo: LazyListLayoutInfo) {
         val visible = layoutInfo.visibleItemsInfo
