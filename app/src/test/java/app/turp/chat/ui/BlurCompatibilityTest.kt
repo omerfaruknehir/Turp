@@ -44,7 +44,7 @@ class BlurCompatibilityTest {
         assertFalse(settings.contains("Bottom panel height"))
         assertFalse(settings.contains("BottomPanelHeightPreview"))
         assertTrue(chat.contains("topPanelHeight = CHAT_TOP_PANEL_HEIGHT_DP.dp"))
-        assertTrue(chat.contains("panelHeight = CHAT_COMPOSER_MIN_PANEL_HEIGHT_DP.dp"))
+        assertTrue(chat.contains("panelHeight = 64.dp"))
         assertTrue(chat.contains("expandToMeasuredHeight = true"))
         assertTrue(settings.contains("blurArea = STANDARD_TOP_PANEL_HEIGHT_DP.dp"))
         assertTrue(search.contains("TopAppBar("))
