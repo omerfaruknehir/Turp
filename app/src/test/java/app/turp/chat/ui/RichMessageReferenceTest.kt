@@ -14,7 +14,7 @@ class RichMessageReferenceTest {
         assertTrue(rich.contains("private object RenderedMarkdownCache"))
         assertTrue(rich.contains("prewarmRichMessageRendering"))
         assertTrue(rich.contains("RenderedMarkdownCache.getOrRender(markwon, rendered)"))
-        assertTrue(rich.contains("mutableStateOf(RenderedMarkdownCache.get(markdown))"))
+        assertTrue(rich.contains("mutableStateOf<PreparedMarkdownSource?>("))
     }
 
     @Test fun sourceNotationBecomesAnTurpSourceLink() {
