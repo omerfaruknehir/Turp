@@ -373,10 +373,47 @@ internal fun chatGesturePrefetchIndices(
     }
 }
 
+internal fun chatPrefetchRetentionIndices(
+    firstVisibleIndex: Int,
+    lastVisibleIndex: Int,
+    itemCount: Int,
+    aheadCount: Int = 10,
+    behindCount: Int = 8,
+): Set<Int> {
+    if (itemCount <= 0 || firstVisibleIndex < 0 || lastVisibleIndex < firstVisibleIndex) {
+        return emptySet()
+    }
+    val start = (firstVisibleIndex - behindCount.coerceAtLeast(0)).coerceAtLeast(0)
+    val end = (lastVisibleIndex + aheadCount.coerceAtLeast(0)).coerceAtMost(itemCount - 1)
+    return (start..end).toSet()
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 private class ChatMessagePrefetchStrategy : LazyListPrefetchStrategy {
-    private val scrollPrefetchHandles =
+    private val prefetchHandles =
         LinkedHashMap<Int, LazyLayoutPrefetchState.PrefetchHandle>()
+
+    private fun LazyListPrefetchScope.retainAndSchedule(
+        targets: List<Int>,
+        firstVisibleIndex: Int,
+        lastVisibleIndex: Int,
+        itemCount: Int,
+    ) {
+        val retained = chatPrefetchRetentionIndices(
+            firstVisibleIndex = firstVisibleIndex,
+            lastVisibleIndex = lastVisibleIndex,
+            itemCount = itemCount,
+        )
+        val stale = prefetchHandles.keys.filterNot(retained::contains)
+        stale.forEach { index ->
+            prefetchHandles.remove(index)?.cancel()
+        }
+        targets.forEach { index ->
+            if (index in retained && index !in prefetchHandles) {
+                prefetchHandles[index] = schedulePrefetch(index)
+            }
+        }
+    }
 
     override fun NestedPrefetchScope.onNestedPrefetch(firstVisibleItemIndex: Int) = Unit
 
@@ -388,35 +425,33 @@ private class ChatMessagePrefetchStrategy : LazyListPrefetchStrategy {
         val visible = layoutInfo.visibleItemsInfo
         val first = visible.firstOrNull()?.index ?: return
         val last = visible.lastOrNull()?.index ?: first
-        val targets = chatGesturePrefetchIndices(
-            delta = delta,
+        retainAndSchedule(
+            targets = chatGesturePrefetchIndices(
+                delta = delta,
+                firstVisibleIndex = first,
+                lastVisibleIndex = last,
+                itemCount = layoutInfo.totalItemsCount,
+            ),
             firstVisibleIndex = first,
             lastVisibleIndex = last,
             itemCount = layoutInfo.totalItemsCount,
         )
-        val targetSet = targets.toSet()
-        val stale = scrollPrefetchHandles.keys.filterNot(targetSet::contains)
-        stale.forEach { index ->
-            scrollPrefetchHandles.remove(index)?.cancel()
-        }
-        targets.forEach { index ->
-            if (index !in scrollPrefetchHandles) {
-                scrollPrefetchHandles[index] = schedulePrefetch(index)
-            }
-        }
     }
 
     override fun LazyListPrefetchScope.onVisibleItemsUpdated(layoutInfo: LazyListLayoutInfo) {
         val visible = layoutInfo.visibleItemsInfo
         val first = visible.firstOrNull()?.index ?: return
         val last = visible.lastOrNull()?.index ?: first
-        chatComposePrefetchIndices(
+        retainAndSchedule(
+            targets = chatComposePrefetchIndices(
+                firstVisibleIndex = first,
+                lastVisibleIndex = last,
+                itemCount = layoutInfo.totalItemsCount,
+            ),
             firstVisibleIndex = first,
             lastVisibleIndex = last,
             itemCount = layoutInfo.totalItemsCount,
-        ).forEach { index ->
-            schedulePrefetch(index)
-        }
+        )
     }
 }
 
