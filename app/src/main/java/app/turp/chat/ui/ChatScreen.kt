@@ -1279,6 +1279,7 @@ fun ChatScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
                     candidates.forEach { message ->
                         currentCoroutineContext().ensureActive()
                         val appContext = context.applicationContext
+                        viewModel.prewarmAttachments(message.nodeId)
                         prewarmRichMessageRendering(appContext, message.nodeId, message.content)
                         if (message.reasoning.isNotBlank()) {
                             prewarmRichMessageRendering(
@@ -1852,7 +1853,9 @@ private fun MessageCard(
     workingCardViewport: WorkingCardViewportController,
 ) {
     val attachmentFlow = remember(message.nodeId) { viewModel.observeAttachments(message.nodeId) }
-    val attachments by attachmentFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val attachments by attachmentFlow.collectAsStateWithLifecycle(
+        initialValue = viewModel.attachmentSnapshot(message.nodeId),
+    )
     val working = message.status == MessageStatus.STREAMING
     val animateStreaming = working
     val user = message.role == MessageRole.USER
