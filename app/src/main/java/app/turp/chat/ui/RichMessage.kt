@@ -1500,6 +1500,61 @@ private data class PreparedMarkdownSource(
     val precomputed: PrecomputedTextCompat?,
 )
 
+private object PreparedMarkdownCache {
+    private data class CacheKey(
+        val hash: Int,
+        val length: Int,
+        val metricsKey: Int,
+        val linkColor: Int,
+        val pillBackground: Int,
+        val pillForeground: Int,
+    )
+
+    private val entries = object : LinkedHashMap<CacheKey, PreparedMarkdownSource>(64, 0.75f, true) {
+        override fun removeEldestEntry(
+            eldest: MutableMap.MutableEntry<CacheKey, PreparedMarkdownSource>?,
+        ): Boolean = size > 64
+    }
+
+    private fun key(
+        source: String,
+        metricsKey: Int,
+        linkColor: Int,
+        pillBackground: Int,
+        pillForeground: Int,
+    ) = CacheKey(
+        hash = source.hashCode(),
+        length = source.length,
+        metricsKey = metricsKey,
+        linkColor = linkColor,
+        pillBackground = pillBackground,
+        pillForeground = pillForeground,
+    )
+
+    @Synchronized
+    fun get(
+        source: String,
+        metricsKey: Int,
+        linkColor: Int,
+        pillBackground: Int,
+        pillForeground: Int,
+    ): PreparedMarkdownSource? =
+        entries[key(source, metricsKey, linkColor, pillBackground, pillForeground)]
+            ?.takeIf { it.source == source }
+
+    @Synchronized
+    fun put(
+        source: String,
+        metricsKey: Int,
+        linkColor: Int,
+        pillBackground: Int,
+        pillForeground: Int,
+        prepared: PreparedMarkdownSource,
+    ) {
+        entries[key(source, metricsKey, linkColor, pillBackground, pillForeground)] = prepared
+    }
+}
+
 private fun markdownTextMetricsParams(context: Context): PrecomputedTextCompat.Params {
     val metrics = context.resources.displayMetrics
     val paint = TextPaint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
@@ -1595,14 +1650,28 @@ private fun MarkdownAndroidView(
     // Completed Markdown does both Markwon rendering and Android paragraph
     // precomputation off the UI thread. Prefetched LazyColumn rows therefore
     // arrive with their expensive text metrics already prepared.
-    var preparedMarkdown by remember(markwon, metricsKey, precompute) {
+    var preparedMarkdown by remember(
+        markwon,
+        markdown,
+        metricsKey,
+        precompute,
+        linkColor,
+        pillBackground,
+        pillForeground,
+    ) {
         mutableStateOf<PreparedMarkdownSource?>(
             if (!precompute) {
                 RenderedMarkdownCache.get(markdown)?.let {
                     PreparedMarkdownSource(it.source, it.spanned, null)
                 }
             } else {
-                null
+                PreparedMarkdownCache.get(
+                    source = markdown,
+                    metricsKey = metricsKey,
+                    linkColor = linkColor,
+                    pillBackground = pillBackground,
+                    pillForeground = pillForeground,
+                )
             },
         )
     }
@@ -1616,6 +1685,15 @@ private fun MarkdownAndroidView(
         pillForeground,
     ) {
         preparedMarkdown = withContext(Dispatchers.Default) {
+            if (precompute) {
+                PreparedMarkdownCache.get(
+                    source = markdown,
+                    metricsKey = metricsKey,
+                    linkColor = linkColor,
+                    pillBackground = pillBackground,
+                    pillForeground = pillForeground,
+                )?.let { return@withContext it }
+            }
             val parsed = RenderedMarkdownCache.getOrRender(markwon, markdown)
             if (!precompute) {
                 PreparedMarkdownSource(parsed.source, parsed.spanned, null)
@@ -1629,7 +1707,16 @@ private fun MarkdownAndroidView(
                 val precomputed = runCatching {
                     PrecomputedTextCompat.create(decorated, metricsParams)
                 }.getOrNull()
-                PreparedMarkdownSource(parsed.source, decorated, precomputed)
+                PreparedMarkdownSource(parsed.source, decorated, precomputed).also { prepared ->
+                    PreparedMarkdownCache.put(
+                        source = markdown,
+                        metricsKey = metricsKey,
+                        linkColor = linkColor,
+                        pillBackground = pillBackground,
+                        pillForeground = pillForeground,
+                        prepared = prepared,
+                    )
+                }
             }
         }
     }
@@ -1679,10 +1766,9 @@ private fun MarkdownAndroidView(
             ) {
                 try {
                     if (ready.precomputed != null) {
-                        // Run Markwon's TextView hooks, then replace the pending
-                        // layout with the compatible precomputed paragraph data
-                        // before Android measures the row.
-                        markwon.setParsedMarkdown(view, ready.spanned)
+                        // Completed rows are already Markwon-rendered, reference-decorated,
+                        // and paragraph-measured off the UI thread. Attach that prepared
+                        // text directly so scrolling never performs a second Markwon bind.
                         TextViewCompat.setPrecomputedText(view, ready.precomputed)
                         view.movementMethod = view.selectableLinkMovementMethod
                     } else {
