@@ -54,7 +54,8 @@ class BlurCompatibilityTest {
         assertTrue(blur.contains("internal const val CHAT_TOP_PANEL_HEIGHT_DP = 120f"))
         assertTrue(blur.contains("internal const val STANDARD_TOP_PANEL_HEIGHT_DP = 100f"))
         assertTrue(blur.contains("val measuredHeightPx"))
-        assertTrue(blur.contains("max(panelHeightPx, measuredHeightPx)"))
+        assertTrue(blur.contains("floating -> measuredHeightPx"))
+        assertTrue(blur.contains("expandToMeasuredHeight -> max(panelHeightPx, measuredHeightPx)"))
     }
 
     @Test fun drawerAndNavigationRemainGraphicsLayerIsolated() {
