@@ -228,6 +228,36 @@ class ChatScrollMathTest {
     }
 
     @Test
+    fun gesturePrefetchRunsBeforeTheVisibleSetChanges() {
+        assertEquals(
+            listOf(8, 9, 10, 11, 12, 13),
+            chatGesturePrefetchIndices(
+                delta = -24f,
+                firstVisibleIndex = 4,
+                lastVisibleIndex = 7,
+                itemCount = 20,
+            ),
+        )
+        assertEquals(
+            listOf(3, 2, 1, 0),
+            chatGesturePrefetchIndices(
+                delta = 24f,
+                firstVisibleIndex = 4,
+                lastVisibleIndex = 7,
+                itemCount = 20,
+            ),
+        )
+        assertTrue(
+            chatGesturePrefetchIndices(
+                delta = 0f,
+                firstVisibleIndex = 4,
+                lastVisibleIndex = 7,
+                itemCount = 20,
+            ).isEmpty(),
+        )
+    }
+
+    @Test
     fun dataPrewarmDoesNotRepeatVisibleRows() {
         val indices = chatDataPrewarmIndices(
             firstVisibleIndex = 4,
