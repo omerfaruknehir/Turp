@@ -176,6 +176,10 @@ class ChatScrollMathTest {
         assertTrue(chat.contains("ChatFollowSeekMaxSpeedPxPerSecond = 36_000f"))
         assertTrue(chat.contains("ChatFollowSeekMaxFrameStepPx = 320f"))
         assertTrue(chat.contains("prewarmRichMessageRendering("))
+        assertTrue(chat.contains("ChatMessagePrefetchStrategy"))
+        assertTrue(chat.contains("rememberLazyListState(prefetchStrategy = messagePrefetchStrategy)"))
+        assertTrue(chat.contains("schedulePrefetch(index)"))
+        assertTrue(chat.contains("chatDataPrewarmIndices("))
         assertTrue(chat.contains(".conflate()"))
         assertTrue(chat.contains(".collect { candidates ->"))
         assertFalse(
@@ -187,6 +191,50 @@ class ChatScrollMathTest {
                 "developerHttpTraces by viewModel.developerHttpTraces.collectAsStateWithLifecycle()",
             ),
         )
+    }
+
+    @Test
+    fun messageBoundaryPrefetchTargetsOnlyOffscreenNeighbors() {
+        assertEquals(
+            listOf(6, 1, 7, 0, 8, 9),
+            chatComposePrefetchIndices(
+                firstVisibleIndex = 2,
+                lastVisibleIndex = 5,
+                itemCount = 10,
+                aheadCount = 4,
+                behindCount = 2,
+            ),
+        )
+        assertEquals(
+            listOf(3, 4),
+            chatComposePrefetchIndices(
+                firstVisibleIndex = 0,
+                lastVisibleIndex = 2,
+                itemCount = 5,
+                aheadCount = 4,
+                behindCount = 2,
+            ),
+        )
+        assertTrue(
+            chatComposePrefetchIndices(
+                firstVisibleIndex = 3,
+                lastVisibleIndex = 2,
+                itemCount = 10,
+            ).isEmpty(),
+        )
+    }
+
+    @Test
+    fun dataPrewarmDoesNotRepeatVisibleRows() {
+        val indices = chatDataPrewarmIndices(
+            firstVisibleIndex = 4,
+            lastVisibleIndex = 7,
+            itemCount = 20,
+            aheadCount = 5,
+            behindCount = 2,
+        )
+        assertTrue(indices.none { it in 4..7 })
+        assertEquals(listOf(8, 3, 9, 2, 10, 11, 12), indices)
     }
 
     @Test
