@@ -243,6 +243,7 @@ class ChatRepository(private val database: TurpDatabase) {
     suspend fun generationUsage(assistantId: String) = database.generationUsageDao().forAssistant(assistantId)
 
     fun observeAttachments(nodeId: String) = database.attachmentDao().observeForMessage(nodeId)
+    suspend fun attachments(nodeId: String) = database.attachmentDao().forMessage(nodeId)
 
     fun observeProviders() = database.catalogDao().observeProviders()
     fun observeModels(providerId: String) = database.catalogDao().observeModels(providerId)
