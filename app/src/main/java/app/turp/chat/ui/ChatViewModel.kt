@@ -96,6 +96,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -132,6 +133,11 @@ data class LinuxRunState(
 @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 class ChatViewModel(private val container: AppContainer, savedStateHandle: SavedStateHandle) : ViewModel() {
     private val toolResultJson = Json { ignoreUnknownKeys = true }
+    private val attachmentSnapshotCache = object : LinkedHashMap<String, List<AttachmentEntity>>(128, 0.75f, true) {
+        override fun removeEldestEntry(
+            eldest: MutableMap.MutableEntry<String, List<AttachmentEntity>>?,
+        ): Boolean = size > 128
+    }
     private val attachmentFlowCache = object : LinkedHashMap<String, Flow<List<AttachmentEntity>>>(128, 0.75f, true) {
         override fun removeEldestEntry(
             eldest: MutableMap.MutableEntry<String, Flow<List<AttachmentEntity>>>?,
@@ -1215,12 +1221,29 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
         notices.emit("Removed ${provider.displayName} credentials")
     }
 
+    fun attachmentSnapshot(nodeId: String): List<AttachmentEntity> =
+        synchronized(attachmentSnapshotCache) {
+            attachmentSnapshotCache[nodeId].orEmpty()
+        }
+
+    suspend fun prewarmAttachments(nodeId: String) {
+        if (synchronized(attachmentSnapshotCache) { attachmentSnapshotCache.containsKey(nodeId) }) return
+        val attachments = container.repository.attachments(nodeId)
+        synchronized(attachmentSnapshotCache) {
+            attachmentSnapshotCache[nodeId] = attachments
+        }
+    }
+
     fun observeAttachments(nodeId: String): Flow<List<AttachmentEntity>> =
         synchronized(attachmentFlowCache) {
             attachmentFlowCache[nodeId]
-                ?: container.repository.observeAttachments(nodeId).also {
-                    attachmentFlowCache[nodeId] = it
-                }
+                ?: container.repository.observeAttachments(nodeId)
+                    .onEach { attachments ->
+                        synchronized(attachmentSnapshotCache) {
+                            attachmentSnapshotCache[nodeId] = attachments
+                        }
+                    }
+                    .also { attachmentFlowCache[nodeId] = it }
         }
 
     fun useProvider(providerId: String) = launchAction {
