@@ -40,6 +40,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListLayoutInfo
+import androidx.compose.foundation.lazy.LazyListPrefetchScope
+import androidx.compose.foundation.lazy.LazyListPrefetchStrategy
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -306,6 +308,63 @@ internal fun calculateAutoFollowSeekSpeedPxPerSecond(
     val combined = 1f - ((1f - itemFactor) * (1f - timeFactor))
     val shaped = combined * combined * (3f - (2f * combined))
     return minSpeedPxPerSecond + ((maxSpeedPxPerSecond - minSpeedPxPerSecond) * shaped)
+}
+
+internal fun chatComposePrefetchIndices(
+    firstVisibleIndex: Int,
+    lastVisibleIndex: Int,
+    itemCount: Int,
+    aheadCount: Int = 4,
+    behindCount: Int = 2,
+): List<Int> {
+    if (
+        itemCount <= 0 ||
+        firstVisibleIndex < 0 ||
+        lastVisibleIndex < firstVisibleIndex
+    ) return emptyList()
+
+    val result = ArrayList<Int>(aheadCount.coerceAtLeast(0) + behindCount.coerceAtLeast(0))
+    for (distance in 1..maxOf(aheadCount, behindCount)) {
+        if (distance <= aheadCount) {
+            val index = lastVisibleIndex + distance
+            if (index in 0 until itemCount) result += index
+        }
+        if (distance <= behindCount) {
+            val index = firstVisibleIndex - distance
+            if (index in 0 until itemCount) result += index
+        }
+    }
+    return result
+}
+
+internal fun chatDataPrewarmIndices(
+    firstVisibleIndex: Int,
+    lastVisibleIndex: Int,
+    itemCount: Int,
+    aheadCount: Int,
+    behindCount: Int,
+): List<Int> = chatComposePrefetchIndices(
+    firstVisibleIndex = firstVisibleIndex,
+    lastVisibleIndex = lastVisibleIndex,
+    itemCount = itemCount,
+    aheadCount = aheadCount,
+    behindCount = behindCount,
+)
+
+@OptIn(ExperimentalFoundationApi::class)
+private class ChatMessagePrefetchStrategy : LazyListPrefetchStrategy {
+    override fun LazyListPrefetchScope.onVisibleItemsUpdated(layoutInfo: LazyListLayoutInfo) {
+        val visible = layoutInfo.visibleItemsInfo
+        val first = visible.firstOrNull()?.index ?: return
+        val last = visible.lastOrNull()?.index ?: first
+        chatComposePrefetchIndices(
+            firstVisibleIndex = first,
+            lastVisibleIndex = last,
+            itemCount = layoutInfo.totalItemsCount,
+        ).forEach { index ->
+            schedulePrefetch(index)
+        }
+    }
 }
 
 private data class PersistedChatScrollSample(
@@ -741,7 +800,8 @@ fun ChatScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
     }
     val dismissedRecoveryNoticeKey = conversation?.id?.let { dismissedRecoveryNoticeKeys[it] }
     var recoveryDetailsMessage by remember(conversation?.id) { mutableStateOf<MessageEntity?>(null) }
-    val messageListState = rememberLazyListState()
+    val messagePrefetchStrategy = remember { ChatMessagePrefetchStrategy() }
+    val messageListState = rememberLazyListState(prefetchStrategy = messagePrefetchStrategy)
     val savedScroll = remember(conversation?.id) {
         conversation?.id?.let(viewModel::chatScrollSnapshot)
     }
@@ -1183,9 +1243,13 @@ fun ChatScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
             if (itemCount <= 0) {
                 emptyList()
             } else {
-                val start = (first - MESSAGE_RENDER_BEHIND_COUNT).coerceAtLeast(0)
-                val end = (last + MESSAGE_RENDER_AHEAD_COUNT).coerceAtMost(itemCount - 1)
-                (start..end).mapNotNull { uiIndex ->
+                chatDataPrewarmIndices(
+                    firstVisibleIndex = first,
+                    lastVisibleIndex = last,
+                    itemCount = itemCount,
+                    aheadCount = MESSAGE_RENDER_AHEAD_COUNT,
+                    behindCount = MESSAGE_RENDER_BEHIND_COUNT,
+                ).mapNotNull { uiIndex ->
                     val sourceIndex = chronologicalSourceIndex(uiIndex, itemCount)
                     paging.peek(sourceIndex)
                         ?.takeIf { it.status != MessageStatus.STREAMING }
