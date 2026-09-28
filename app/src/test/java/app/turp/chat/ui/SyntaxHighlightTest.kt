@@ -30,6 +30,15 @@ class SyntaxHighlightTest {
     }
 
     @Test
+    fun cachedSyntaxSpansReuseThePreparedTokenList() {
+        val code = "fun answer(): Int = 42"
+        val first = cachedSyntaxSpans("kotlin", code)
+        val second = cachedSyntaxSpans("kotlin", code)
+        assertTrue(first === second)
+        assertTrue(first.isNotEmpty())
+    }
+
+    @Test
     fun commonLanguagesProduceOrderedNonOverlappingSpans() {
         val samples = mapOf(
             "bash" to "for file in *.txt; do echo \"${'$'}file\"; done # files",
