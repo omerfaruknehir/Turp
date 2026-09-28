@@ -9,10 +9,12 @@ import android.graphics.Paint
 import android.graphics.Typeface
 import android.graphics.RectF
 import android.graphics.Color as AndroidColor
+import android.text.Layout
 import android.text.Selection
 import android.text.Spannable
 import android.text.SpannableString
 import android.text.Spanned
+import android.text.TextDirectionHeuristics
 import android.text.TextPaint
 import android.text.method.ArrowKeyMovementMethod
 import android.text.style.ClickableSpan
@@ -80,6 +82,8 @@ import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.net.toUri
+import androidx.core.text.PrecomputedTextCompat
+import androidx.core.widget.TextViewCompat
 import app.turp.chat.sandbox.ExecutionResult
 import app.turp.chat.sandbox.ExecutionProgress
 import app.turp.chat.sandbox.PackageInstallResult
@@ -868,6 +872,7 @@ internal fun MarkdownBlock(
                 selectionColor = selectionColor,
                 onReference = { pendingReference = it },
                 modifier = Modifier.fillMaxWidth(),
+                precompute = !streaming,
             )
         }
     }
@@ -1489,6 +1494,25 @@ private data class ParsedMarkdownSource(
     val spanned: Spanned,
 )
 
+private data class PreparedMarkdownSource(
+    val source: String,
+    val spanned: Spanned,
+    val precomputed: PrecomputedTextCompat?,
+)
+
+private fun markdownTextMetricsParams(context: Context): PrecomputedTextCompat.Params {
+    val metrics = context.resources.displayMetrics
+    val paint = TextPaint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
+        textSize = 16f * metrics.scaledDensity
+        typeface = Typeface.DEFAULT
+    }
+    return PrecomputedTextCompat.Params.Builder(paint)
+        .setBreakStrategy(Layout.BREAK_STRATEGY_HIGH_QUALITY)
+        .setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NORMAL)
+        .setTextDirection(TextDirectionHeuristics.FIRSTSTRONG_LTR)
+        .build()
+}
+
 private object RenderedMarkdownCache {
     private data class CacheKey(
         val hash: Int,
@@ -1556,35 +1580,83 @@ private fun MarkdownAndroidView(
     selectionColor: Int,
     onReference: (LinkReferencePreview) -> Unit,
     modifier: Modifier,
+    precompute: Boolean = true,
 ) {
-    // Keep the last successfully parsed frame visible while a newer streaming
-    // snapshot is parsed. Resetting this state for every token briefly replaced
-    // formatted Markdown with raw source, producing a visible flash on each update.
-    var parsedMarkdown by remember(markwon) {
-        mutableStateOf(RenderedMarkdownCache.get(markdown))
+    val context = LocalContext.current
+    val localeTags = context.resources.configuration.locales.toLanguageTags()
+    val scaledDensity = context.resources.displayMetrics.scaledDensity
+    val metricsKey = remember(scaledDensity, localeTags) {
+        (scaledDensity.toBits() * 31) + localeTags.hashCode()
     }
-    LaunchedEffect(markwon, markdown) {
-        parsedMarkdown = withContext(Dispatchers.Default) {
-            RenderedMarkdownCache.getOrRender(markwon, markdown)
+    val metricsParams = remember(metricsKey) {
+        markdownTextMetricsParams(context.applicationContext)
+    }
+
+    // Completed Markdown does both Markwon rendering and Android paragraph
+    // precomputation off the UI thread. Prefetched LazyColumn rows therefore
+    // arrive with their expensive text metrics already prepared.
+    var preparedMarkdown by remember(markwon, metricsKey, precompute) {
+        mutableStateOf<PreparedMarkdownSource?>(
+            if (!precompute) {
+                RenderedMarkdownCache.get(markdown)?.let {
+                    PreparedMarkdownSource(it.source, it.spanned, null)
+                }
+            } else {
+                null
+            },
+        )
+    }
+    LaunchedEffect(
+        markwon,
+        markdown,
+        precompute,
+        metricsKey,
+        linkColor,
+        pillBackground,
+        pillForeground,
+    ) {
+        preparedMarkdown = withContext(Dispatchers.Default) {
+            val parsed = RenderedMarkdownCache.getOrRender(markwon, markdown)
+            if (!precompute) {
+                PreparedMarkdownSource(parsed.source, parsed.spanned, null)
+            } else {
+                val decorated = decorateReferenceSpans(
+                    source = parsed.spanned,
+                    linkColor = linkColor,
+                    pillBackground = pillBackground,
+                    pillForeground = pillForeground,
+                )
+                val precomputed = runCatching {
+                    PrecomputedTextCompat.create(decorated, metricsParams)
+                }.getOrNull()
+                PreparedMarkdownSource(parsed.source, decorated, precomputed)
+            }
         }
     }
     AndroidView(
-        factory = { context ->
-            TurpMarkdownTextView(context).apply {
+        factory = { viewContext ->
+            TurpMarkdownTextView(viewContext).apply {
                 setTextIsSelectable(true)
                 setTextClassifier(TextClassifier.NO_OP)
                 setBackgroundColor(AndroidColor.TRANSPARENT)
-                textSize = 16f
                 includeFontPadding = false
                 linksClickable = true
                 movementMethod = selectableLinkMovementMethod
                 setLineSpacing(0f, 1.08f)
+                TextViewCompat.setTextMetricsParams(this, metricsParams)
+                appliedMetricsKey = metricsKey
             }
         },
         onReset = { it.prepareForReuse() },
         onRelease = { it.resetForRelease() },
         update = { view ->
             val styleKey = ((((textColor * 31) + linkColor) * 31 + pillBackground) * 31 + pillForeground) * 31 + selectionColor
+            val renderKey = (styleKey * 31) + metricsKey
+            view.onReference = onReference
+            if (view.appliedMetricsKey != metricsKey) {
+                TextViewCompat.setTextMetricsParams(view, metricsParams)
+                view.appliedMetricsKey = metricsKey
+            }
             if (view.appliedStyleKey != styleKey) {
                 view.setTextColor(textColor)
                 view.setLinkTextColor(linkColor)
@@ -1592,32 +1664,39 @@ private fun MarkdownAndroidView(
                 view.setHorizontallyScrolling(false)
                 view.appliedStyleKey = styleKey
             }
-            val ready = parsedMarkdown
+            val ready = preparedMarkdown
             if (ready == null) {
-                if (view.renderedSource != markdown || !view.renderedAsFallback || view.renderedStyleKey != styleKey) {
+                if (view.renderedSource != markdown || !view.renderedAsFallback || view.renderedStyleKey != renderKey) {
                     view.setText(markdownRenderFallbackText(markdown), TextView.BufferType.SPANNABLE)
                     view.renderedSource = markdown
-                    view.renderedStyleKey = styleKey
+                    view.renderedStyleKey = renderKey
                     view.renderedAsFallback = true
                 }
             } else if (
                 view.renderedSource != ready.source ||
-                view.renderedStyleKey != styleKey ||
+                view.renderedStyleKey != renderKey ||
                 view.renderedAsFallback
             ) {
                 try {
-                    markwon.setParsedMarkdown(view, ready.spanned)
-                    installReferenceSpans(
-                        view = view,
-                        linkColor = linkColor,
-                        pillBackground = pillBackground,
-                        pillForeground = pillForeground,
-                        onClick = onReference,
-                    )
+                    if (ready.precomputed != null) {
+                        // Run Markwon's TextView hooks, then replace the pending
+                        // layout with the compatible precomputed paragraph data
+                        // before Android measures the row.
+                        markwon.setParsedMarkdown(view, ready.spanned)
+                        TextViewCompat.setPrecomputedText(view, ready.precomputed)
+                        view.movementMethod = view.selectableLinkMovementMethod
+                    } else {
+                        markwon.setParsedMarkdown(view, ready.spanned)
+                        installReferenceSpans(
+                            view = view,
+                            linkColor = linkColor,
+                            pillBackground = pillBackground,
+                            pillForeground = pillForeground,
+                            onClick = onReference,
+                        )
+                    }
                     view.renderedAsFallback = false
                 } catch (_: Exception) {
-                    // Rendering can also fail while Android applies/measures spans,
-                    // so guard the UI hand-off as well as parse/render above.
                     view.setText(
                         markdownRenderFallbackText(ready.source),
                         TextView.BufferType.SPANNABLE,
@@ -1625,7 +1704,7 @@ private fun MarkdownAndroidView(
                     view.renderedAsFallback = true
                 }
                 view.renderedSource = ready.source
-                view.renderedStyleKey = styleKey
+                view.renderedStyleKey = renderKey
             }
         },
         modifier = modifier,
@@ -1637,7 +1716,9 @@ private class TurpMarkdownTextView(context: Context) : TextView(context) {
     var renderedSource: String = ""
     var renderedStyleKey: Int = 0
     var appliedStyleKey: Int = 0
+    var appliedMetricsKey: Int = 0
     var renderedAsFallback: Boolean = false
+    var onReference: ((LinkReferencePreview) -> Unit)? = null
     val selectableLinkMovementMethod = SelectableLinkMovementMethod()
 
     fun prepareForReuse() {
@@ -1652,7 +1733,9 @@ private class TurpMarkdownTextView(context: Context) : TextView(context) {
         renderedSource = ""
         renderedStyleKey = 0
         appliedStyleKey = 0
+        appliedMetricsKey = 0
         renderedAsFallback = false
+        onReference = null
     }
 }
 
@@ -1719,14 +1802,12 @@ private class SelectableLinkMovementMethod : ArrowKeyMovementMethod() {
     }
 }
 
-private fun installReferenceSpans(
-    view: TextView,
+private fun decorateReferenceSpans(
+    source: Spanned,
     linkColor: Int,
     pillBackground: Int,
     pillForeground: Int,
-    onClick: (LinkReferencePreview) -> Unit,
-) {
-    val source = view.text as? Spanned ?: return
+): SpannableString {
     val text = SpannableString(source)
     text.getSpans(0, text.length, URLSpan::class.java).forEach { span ->
         val start = text.getSpanStart(span)
@@ -1742,18 +1823,15 @@ private fun installReferenceSpans(
         val target = if (kind == LinkReferenceKind.LINK) raw else parsed.getQueryParameter("target").orEmpty()
         val label = text.subSequence(start, end).toString()
         text.removeSpan(span)
-        val clickableSpan = PreviewClickableSpan(linkColor) { widget ->
-            onClick(
-                LinkReferencePreview(
-                    kind = kind,
-                    label = label,
-                    target = target,
-                    anchorBoundsInWindow = spanBoundsInWindow(widget as? TextView, start, end),
-                ),
-            )
-        }
         text.setSpan(
-            clickableSpan,
+            PreviewClickableSpan(
+                color = linkColor,
+                kind = kind,
+                label = label,
+                target = target,
+                start = start,
+                end = end,
+            ),
             start,
             end,
             Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
@@ -1771,6 +1849,24 @@ private fun installReferenceSpans(
             )
         }
     }
+    return text
+}
+
+private fun installReferenceSpans(
+    view: TextView,
+    linkColor: Int,
+    pillBackground: Int,
+    pillForeground: Int,
+    onClick: (LinkReferencePreview) -> Unit,
+) {
+    val source = view.text as? Spanned ?: return
+    val text = decorateReferenceSpans(
+        source = source,
+        linkColor = linkColor,
+        pillBackground = pillBackground,
+        pillForeground = pillForeground,
+    )
+    (view as? TurpMarkdownTextView)?.onReference = onClick
     view.text = text
     view.movementMethod = (view as? TurpMarkdownTextView)?.selectableLinkMovementMethod
         ?: ArrowKeyMovementMethod.getInstance()
@@ -1778,9 +1874,24 @@ private fun installReferenceSpans(
 
 private class PreviewClickableSpan(
     private val color: Int,
-    private val click: (View) -> Unit,
+    private val kind: LinkReferenceKind,
+    private val label: String,
+    private val target: String,
+    private val start: Int,
+    private val end: Int,
 ) : ClickableSpan() {
-    override fun onClick(widget: View) = click(widget)
+    override fun onClick(widget: View) {
+        val textView = widget as? TurpMarkdownTextView ?: return
+        textView.onReference?.invoke(
+            LinkReferencePreview(
+                kind = kind,
+                label = label,
+                target = target,
+                anchorBoundsInWindow = spanBoundsInWindow(textView, start, end),
+            ),
+        )
+    }
+
     override fun updateDrawState(ds: TextPaint) {
         ds.color = color
         ds.isUnderlineText = false
