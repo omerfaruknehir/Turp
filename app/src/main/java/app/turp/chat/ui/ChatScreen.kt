@@ -43,6 +43,7 @@ import androidx.compose.foundation.lazy.LazyListLayoutInfo
 import androidx.compose.foundation.lazy.LazyListPrefetchScope
 import androidx.compose.foundation.lazy.LazyListPrefetchStrategy
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.layout.NestedPrefetchScope
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -353,6 +354,13 @@ internal fun chatDataPrewarmIndices(
 
 @OptIn(ExperimentalFoundationApi::class)
 private class ChatMessagePrefetchStrategy : LazyListPrefetchStrategy {
+    override fun NestedPrefetchScope.onNestedPrefetch(firstVisibleItemIndex: Int) = Unit
+
+    override fun LazyListPrefetchScope.onScroll(
+        delta: Float,
+        layoutInfo: LazyListLayoutInfo,
+    ) = Unit
+
     override fun LazyListPrefetchScope.onVisibleItemsUpdated(layoutInfo: LazyListLayoutInfo) {
         val visible = layoutInfo.visibleItemsInfo
         val first = visible.firstOrNull()?.index ?: return
