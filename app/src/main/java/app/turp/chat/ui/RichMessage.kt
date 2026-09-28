@@ -9,6 +9,7 @@ import android.graphics.Paint
 import android.graphics.Typeface
 import android.graphics.RectF
 import android.graphics.Color as AndroidColor
+import android.text.Selection
 import android.text.Spannable
 import android.text.SpannableString
 import android.text.Spanned
@@ -1394,8 +1395,8 @@ private fun LightweightTableText(
                 setLineSpacing(0f, 1.04f)
             }
         },
-        onReset = { it.resetForReuse() },
-        onRelease = { it.resetForReuse() },
+        onReset = { it.prepareForReuse() },
+        onRelease = { it.resetForRelease() },
         update = { view ->
             val appearanceKey = ((color * 31) + selectionColor) * 31 + textSizeSp.toBits()
             if (view.appliedStyleKey != appearanceKey) {
@@ -1464,8 +1465,8 @@ internal fun StreamingPlainText(
                 setLineSpacing(0f, 1.08f)
             }
         },
-        onReset = { it.resetForReuse() },
-        onRelease = { it.resetForReuse() },
+        onReset = { it.prepareForReuse() },
+        onRelease = { it.resetForRelease() },
         update = { view ->
             val appearanceKey = ((color * 31) + selectionColor) * 31 + textSizeSp.toBits()
             if (view.appliedStyleKey != appearanceKey) {
@@ -1580,8 +1581,8 @@ private fun MarkdownAndroidView(
                 setLineSpacing(0f, 1.08f)
             }
         },
-        onReset = { it.resetForReuse() },
-        onRelease = { it.resetForReuse() },
+        onReset = { it.prepareForReuse() },
+        onRelease = { it.resetForRelease() },
         update = { view ->
             val styleKey = ((((textColor * 31) + linkColor) * 31 + pillBackground) * 31 + pillForeground) * 31 + selectionColor
             if (view.appliedStyleKey != styleKey) {
@@ -1639,7 +1640,14 @@ private class TurpMarkdownTextView(context: Context) : TextView(context) {
     var renderedAsFallback: Boolean = false
     val selectableLinkMovementMethod = SelectableLinkMovementMethod()
 
-    fun resetForReuse() {
+    fun prepareForReuse() {
+        selectableLinkMovementMethod.resetGestureState()
+        clearFocus()
+        (text as? Spannable)?.let(Selection::removeSelection)
+    }
+
+    fun resetForRelease() {
+        prepareForReuse()
         text = null
         renderedSource = ""
         renderedStyleKey = 0
@@ -1650,6 +1658,10 @@ private class TurpMarkdownTextView(context: Context) : TextView(context) {
 
 private class SelectableLinkMovementMethod : ArrowKeyMovementMethod() {
     private var pressedSpan: ClickableSpan? = null
+
+    fun resetGestureState() {
+        pressedSpan = null
+    }
     private var downX = 0f
     private var downY = 0f
 
