@@ -144,11 +144,11 @@ class TurpSliderTest {
         assertTrue(blur.contains("floating -> measuredHeightPx"))
         assertTrue(blur.contains("val corner = if (floating)"))
         assertTrue(blur.contains("roundedFloatingPanelMask("))
-        assertTrue(settings.contains(""Prompt bar""))
-        assertTrue(settings.contains(""Blurred""))
-        assertTrue(settings.contains(""Solid""))
-        assertTrue(settings.contains(""Transparent""))
-        assertTrue(settings.contains("label = "Prompt shell opacity""))
+        assertTrue(settings.contains("\"Prompt bar\""))
+        assertTrue(settings.contains("\"Blurred\""))
+        assertTrue(settings.contains("\"Solid\""))
+        assertTrue(settings.contains("\"Transparent\""))
+        assertTrue(settings.contains("label = \"Prompt shell opacity\""))
     }
 
     @Test
