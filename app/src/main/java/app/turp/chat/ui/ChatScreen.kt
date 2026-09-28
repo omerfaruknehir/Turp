@@ -192,7 +192,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.first
 import kotlin.math.abs
 import kotlin.math.exp
@@ -646,12 +646,12 @@ internal fun calculateVisibleChatViewportEndPx(viewportEndPx: Int, obscuredBotto
     (viewportEndPx - obscuredBottomPx.coerceAtLeast(0)).coerceAtLeast(0)
 
 private const val ChatFollowMaxSpeedPxPerSecond = 8_000f
-private const val ChatFollowSeekMinSpeedPxPerSecond = 1_800f
-private const val ChatFollowSeekMaxSpeedPxPerSecond = 12_000f
+private const val ChatFollowSeekMinSpeedPxPerSecond = 9_000f
+private const val ChatFollowSeekMaxSpeedPxPerSecond = 36_000f
 private const val ChatFollowMaxFrameStepPx = 128f
-private const val ChatFollowSeekMaxFrameStepPx = 176f
+private const val ChatFollowSeekMaxFrameStepPx = 320f
 private const val STREAM_HAPTIC_CHARACTER_INTERVAL = 32
-private const val MESSAGE_RENDER_AHEAD_COUNT = 3
+private const val MESSAGE_RENDER_AHEAD_COUNT = 5
 private const val MESSAGE_RENDER_BEHIND_COUNT = 2
 
 @Composable
@@ -721,7 +721,6 @@ fun ChatScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
     val recentModels by viewModel.recentModels.collectAsStateWithLifecycle()
     val toolFallbackSettings by viewModel.toolCallFallbackSettings.collectAsStateWithLifecycle()
     val developerSettings by viewModel.developerSettings.collectAsStateWithLifecycle()
-    val developerHttpTraces by viewModel.developerHttpTraces.collectAsStateWithLifecycle()
     val credentialRevision by viewModel.credentialRevision.collectAsStateWithLifecycle()
     val usableProviders = remember(allProviders, credentialRevision) { viewModel.configuredProviders(allProviders) }
     val linuxStatus by viewModel.ubuntuStatus.collectAsStateWithLifecycle()
@@ -1202,7 +1201,8 @@ fun ChatScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
                             a.reasoning.length == b.reasoning.length
                     }
             }
-            .collectLatest { candidates ->
+            .conflate()
+            .collect { candidates ->
                 withContext(Dispatchers.Default) {
                     candidates.forEach { message ->
                         currentCoroutineContext().ensureActive()
@@ -1440,16 +1440,8 @@ fun ChatScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
                                 branchOptions = branchOptions,
                                 developerSettings = developerSettings,
                                 toolFallbackSettings = toolFallbackSettings,
-                                developerHttpTraceText = if (
-                                    developerSettings.enabled &&
-                                    developerSettings.showHttpRequestEnabled
-                                ) {
-                                    developerHttpTraces[message.nodeId]
-                                        .orEmpty()
-                                        .joinToString("\n\n") { it.formatted() }
-                                } else {
-                                    ""
-                                },
+                                showHttpRequestSource =
+                                    developerSettings.enabled && developerSettings.showHttpRequestEnabled,
                                 workingCardViewport = viewportController,
                             )
                         }
@@ -1783,7 +1775,7 @@ private fun MessageCard(
     branchOptions: List<MessageEntity>,
     developerSettings: DeveloperSettings,
     toolFallbackSettings: ToolCallFallbackSettings,
-    developerHttpTraceText: String,
+    showHttpRequestSource: Boolean,
     modifier: Modifier = Modifier,
     workingCardViewport: WorkingCardViewportController,
 ) {
@@ -1951,6 +1943,14 @@ private fun MessageCard(
                     }
                 }
                 if (sourceControlsEnabled && sourceVisible) {
+                    val developerHttpTraceText = if (showHttpRequestSource) {
+                        val developerHttpTraces by viewModel.developerHttpTraces.collectAsStateWithLifecycle()
+                        developerHttpTraces[message.nodeId]
+                            .orEmpty()
+                            .joinToString("\n\n") { it.formatted() }
+                    } else {
+                        ""
+                    }
                     CodeSourcePanel(
                         language = "markdown",
                         code = developerMessageSource(
