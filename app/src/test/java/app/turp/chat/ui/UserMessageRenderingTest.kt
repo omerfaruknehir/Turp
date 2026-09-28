@@ -32,6 +32,17 @@ class UserMessageRenderingTest {
     }
 
     @Test
+    fun `completed markdown precomputes text metrics off main thread`() {
+        val rich = File("src/main/java/app/turp/chat/ui/RichMessage.kt").readText()
+
+        assertTrue(rich.contains("PrecomputedTextCompat.create(decorated, metricsParams)"))
+        assertTrue(rich.contains("TextViewCompat.setPrecomputedText(view, ready.precomputed)"))
+        assertTrue(rich.contains("precompute = !streaming"))
+        assertTrue(rich.contains("withContext(Dispatchers.Default)"))
+        assertTrue(rich.contains("decorateReferenceSpans("))
+    }
+
+    @Test
     fun `markdown view retains the parsed frame while the next snapshot parses`() {
         val rich = File("src/main/java/app/turp/chat/ui/RichMessage.kt").readText()
         assertTrue(rich.contains("mutableStateOf(RenderedMarkdownCache.get(markdown))"))
