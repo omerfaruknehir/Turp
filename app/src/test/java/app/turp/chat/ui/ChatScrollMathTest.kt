@@ -168,6 +168,9 @@ class ChatScrollMathTest {
         assertTrue(messageRendering.contains("MessageTimelineDecodeCache.decode"))
         assertTrue(messageRendering.contains("ToolTraceDecodeCache.decode"))
         assertTrue(messageRendering.contains("remember(message.nodeId) { viewModel.observeAttachments(message.nodeId) }"))
+        assertTrue(messageRendering.contains("initialValue = viewModel.attachmentSnapshot(message.nodeId)"))
+        assertTrue(chat.contains("viewModel.prewarmAttachments(message.nodeId)"))
+        assertTrue(viewModel.contains("attachmentSnapshotCache"))
         assertTrue(viewModel.contains("attachmentFlowCache"))
         assertTrue(chat.contains("if (cardCoordinates !== coordinates) cardCoordinates = coordinates"))
         assertTrue(chat.contains("MESSAGE_RENDER_AHEAD_COUNT = 5"))
@@ -235,6 +238,25 @@ class ChatScrollMathTest {
         )
         assertTrue(indices.none { it in 4..7 })
         assertEquals(listOf(8, 3, 9, 2, 10, 11, 12), indices)
+    }
+
+    @Test
+    fun markdownAndroidViewsPreserveLayoutWhilePooled() {
+        val rich = java.io.File("src/main/java/app/turp/chat/ui/RichMessage.kt").readText()
+        assertTrue(rich.contains("onReset = { it.prepareForReuse() }"))
+        assertTrue(rich.contains("onRelease = { it.resetForRelease() }"))
+        assertTrue(rich.contains("fun prepareForReuse()"))
+        assertTrue(rich.contains("fun resetForRelease()"))
+        assertFalse(
+            rich.substringAfter("fun prepareForReuse()")
+                .substringBefore("fun resetForRelease()")
+                .contains("text = null"),
+        )
+        assertTrue(
+            rich.substringAfter("fun resetForRelease()")
+                .substringBefore("private class SelectableLinkMovementMethod")
+                .contains("text = null"),
+        )
     }
 
     @Test
