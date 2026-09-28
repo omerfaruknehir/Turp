@@ -73,6 +73,7 @@ import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
@@ -1679,7 +1680,8 @@ private fun MarkdownAndroidView(
     precompute: Boolean = true,
 ) {
     val context = LocalContext.current
-    val localeTags = context.resources.configuration.locales.toLanguageTags()
+    val configuration = LocalConfiguration.current
+    val localeTags = configuration.locales.toLanguageTags()
     val scaledDensity = context.resources.displayMetrics.scaledDensity
     val metricsKey = remember(scaledDensity, localeTags) {
         (scaledDensity.toBits() * 31) + localeTags.hashCode()
