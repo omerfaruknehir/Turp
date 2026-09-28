@@ -134,7 +134,7 @@ class WorkingTimelineUiTest {
         assertTrue(step.contains("mutableStateOf(active)"))
         assertTrue(step.contains("expanded = active"))
         assertFalse(step.contains("active || event.status == \"error\""))
-        assertTrue(toolDetails.contains("developerSettings.enabled && developerSettings.toolDiagnosticsEnabled"))
+        assertTrue(chat.contains("developerSettings.enabled && developerSettings.toolDiagnosticsEnabled"))
         assertTrue(toolDetails.contains("if (showDiagnostics && input.isNotBlank())"))
         assertTrue(toolDetails.contains("if (showDiagnostics && detailsOpen)"))
         assertFalse(toolDetails.contains("Text(\"Copy path\")"))
