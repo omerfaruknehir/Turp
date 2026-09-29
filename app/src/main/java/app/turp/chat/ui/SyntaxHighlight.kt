@@ -265,9 +265,10 @@ private fun renderHighlightedCode(
     language: String,
     code: String,
     palette: SyntaxPalette,
+    spans: List<SyntaxSpan> = cachedSyntaxSpans(language, code),
 ): AnnotatedString = buildAnnotatedString {
     append(code)
-    cachedSyntaxSpans(language, code).forEach { span ->
+    spans.forEach { span ->
         val color = when (span.kind) {
             SyntaxKind.KEYWORD -> palette.keyword
             SyntaxKind.STRING -> palette.string
@@ -293,7 +294,15 @@ private fun renderHighlightedCode(
 @Composable
 internal fun highlightedCode(language: String, code: String): AnnotatedString {
     val palette = rememberSyntaxPalette()
-    return remember(language, code, palette) { renderHighlightedCode(language, code, palette) }
+    val deferRichHydration = LocalDeferRichHydration.current
+    return remember(language, code, palette, deferRichHydration) {
+        val cached = SyntaxSpanCache.get(language, code)
+        when {
+            cached != null -> renderHighlightedCode(language, code, palette, cached)
+            deferRichHydration -> AnnotatedString(code)
+            else -> renderHighlightedCode(language, code, palette)
+        }
+    }
 }
 
 @Composable
