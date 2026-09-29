@@ -81,9 +81,9 @@ jobs:
           notes="$(bash ci/resolve-release-notes.sh "$version")"
           test -s "$notes"
       - name: Verify offline license catalog
-        run: ./gradlew --no-daemon --stacktrace --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process :app:generateOfflineLicenseCatalog
+        run: ./gradlew --no-daemon --stacktrace --max-workers=1 -Pkotlin.compiler.execution.strategy=in-process :app:generateOfflineLicenseCatalog
       - name: Test, lint, and build public release
-        run: ./gradlew --no-daemon --stacktrace --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process testReleaseUnitTest lintRelease assembleRelease bundleRelease
+        run: ./gradlew --no-daemon --stacktrace --max-workers=1 -Pkotlin.compiler.execution.strategy=in-process testReleaseUnitTest lintRelease assembleRelease bundleRelease
       - name: Verify release APK signature
         run: "$ANDROID_HOME/build-tools/36.0.0/apksigner verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk"
       - name: Stage verified binaries
@@ -295,7 +295,7 @@ jobs:
           arch: x86_64
           profile: pixel_6
           disable-animations: true
-          script: ./gradlew --no-daemon --stacktrace --max-workers=2 connectedDebugAndroidTest
+          script: ./gradlew --no-daemon --stacktrace --max-workers=1 connectedDebugAndroidTest
 
   signed-release:
     if: github.event_name == 'workflow_dispatch' && inputs.build_release
@@ -319,7 +319,7 @@ jobs:
       - name: Verify third-party licenses
         run: ./ci/verify-third-party-licenses.sh
       - name: Verify offline license catalog
-        run: ./gradlew --no-daemon --stacktrace --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process :app:generateOfflineLicenseCatalog
+        run: ./gradlew --no-daemon --stacktrace --max-workers=1 -Pkotlin.compiler.execution.strategy=in-process :app:generateOfflineLicenseCatalog
       - name: Restore release keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.TURP_KEYSTORE_BASE64 }}
@@ -330,7 +330,7 @@ jobs:
           TURP_KEYSTORE_PASSWORD: ${{ secrets.TURP_KEYSTORE_PASSWORD }}
           TURP_KEY_ALIAS: ${{ secrets.TURP_KEY_ALIAS }}
           TURP_KEY_PASSWORD: ${{ secrets.TURP_KEY_PASSWORD }}
-        run: ./gradlew --no-daemon --stacktrace --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process testReleaseUnitTest lintRelease assembleRelease bundleRelease
+        run: ./gradlew --no-daemon --stacktrace --max-workers=1 -Pkotlin.compiler.execution.strategy=in-process testReleaseUnitTest lintRelease assembleRelease bundleRelease
       - uses: actions/upload-artifact@v7
         with:
           name: turp-protected-signed-release
