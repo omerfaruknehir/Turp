@@ -40,11 +40,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListLayoutInfo
-import androidx.compose.foundation.lazy.LazyListPrefetchScope
-import androidx.compose.foundation.lazy.LazyListPrefetchStrategy
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.layout.LazyLayoutPrefetchState
-import androidx.compose.foundation.lazy.layout.NestedPrefetchScope
+import androidx.compose.foundation.lazy.layout.LazyLayoutCacheWindow
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -135,6 +132,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.geometry.Offset
@@ -388,71 +386,21 @@ internal fun chatPrefetchRetentionIndices(
     return (start..end).toSet()
 }
 
+private const val CHAT_CACHE_AHEAD_VIEWPORTS = 3f
+private const val CHAT_CACHE_BEHIND_VIEWPORTS = 2f
+
+internal fun chatCacheWindowPx(viewportPx: Int, viewportMultiplier: Float): Int {
+    if (viewportPx <= 0 || viewportMultiplier <= 0f) return 0
+    return (viewportPx * viewportMultiplier).roundToInt().coerceAtLeast(viewportPx)
+}
+
 @OptIn(ExperimentalFoundationApi::class)
-private class ChatMessagePrefetchStrategy : LazyListPrefetchStrategy {
-    private val prefetchHandles =
-        LinkedHashMap<Int, LazyLayoutPrefetchState.PrefetchHandle>()
+private object ChatMessageCacheWindow : LazyLayoutCacheWindow {
+    override fun Density.calculateAheadWindow(viewport: Int): Int =
+        chatCacheWindowPx(viewport, CHAT_CACHE_AHEAD_VIEWPORTS)
 
-    private fun LazyListPrefetchScope.retainAndSchedule(
-        targets: List<Int>,
-        firstVisibleIndex: Int,
-        lastVisibleIndex: Int,
-        itemCount: Int,
-    ) {
-        val retained = chatPrefetchRetentionIndices(
-            firstVisibleIndex = firstVisibleIndex,
-            lastVisibleIndex = lastVisibleIndex,
-            itemCount = itemCount,
-        )
-        val stale = prefetchHandles.keys.filterNot(retained::contains)
-        stale.forEach { index ->
-            prefetchHandles.remove(index)?.cancel()
-        }
-        targets.forEach { index ->
-            if (index in retained && index !in prefetchHandles) {
-                prefetchHandles[index] = schedulePrefetch(index)
-            }
-        }
-    }
-
-    override fun NestedPrefetchScope.onNestedPrefetch(firstVisibleItemIndex: Int) = Unit
-
-    override fun LazyListPrefetchScope.onScroll(
-        delta: Float,
-        layoutInfo: LazyListLayoutInfo,
-    ) {
-        if (delta == 0f) return
-        val visible = layoutInfo.visibleItemsInfo
-        val first = visible.firstOrNull()?.index ?: return
-        val last = visible.lastOrNull()?.index ?: first
-        retainAndSchedule(
-            targets = chatGesturePrefetchIndices(
-                delta = delta,
-                firstVisibleIndex = first,
-                lastVisibleIndex = last,
-                itemCount = layoutInfo.totalItemsCount,
-            ),
-            firstVisibleIndex = first,
-            lastVisibleIndex = last,
-            itemCount = layoutInfo.totalItemsCount,
-        )
-    }
-
-    override fun LazyListPrefetchScope.onVisibleItemsUpdated(layoutInfo: LazyListLayoutInfo) {
-        val visible = layoutInfo.visibleItemsInfo
-        val first = visible.firstOrNull()?.index ?: return
-        val last = visible.lastOrNull()?.index ?: first
-        retainAndSchedule(
-            targets = chatComposePrefetchIndices(
-                firstVisibleIndex = first,
-                lastVisibleIndex = last,
-                itemCount = layoutInfo.totalItemsCount,
-            ),
-            firstVisibleIndex = first,
-            lastVisibleIndex = last,
-            itemCount = layoutInfo.totalItemsCount,
-        )
-    }
+    override fun Density.calculateBehindWindow(viewport: Int): Int =
+        chatCacheWindowPx(viewport, CHAT_CACHE_BEHIND_VIEWPORTS)
 }
 
 private data class PersistedChatScrollSample(
@@ -888,8 +836,7 @@ fun ChatScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
     }
     val dismissedRecoveryNoticeKey = conversation?.id?.let { dismissedRecoveryNoticeKeys[it] }
     var recoveryDetailsMessage by remember(conversation?.id) { mutableStateOf<MessageEntity?>(null) }
-    val messagePrefetchStrategy = remember { ChatMessagePrefetchStrategy() }
-    val messageListState = rememberLazyListState(prefetchStrategy = messagePrefetchStrategy)
+    val messageListState = rememberLazyListState(cacheWindow = ChatMessageCacheWindow)
     val savedScroll = remember(conversation?.id) {
         conversation?.id?.let(viewModel::chatScrollSnapshot)
     }
