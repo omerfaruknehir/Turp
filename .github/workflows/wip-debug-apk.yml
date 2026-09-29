@@ -50,7 +50,7 @@ jobs:
 
       - name: Build debug APK
         run: >-
-          ./gradlew --no-daemon --stacktrace --max-workers=2
+          ./gradlew --no-daemon --stacktrace --max-workers=1
           -Pkotlin.compiler.execution.strategy=in-process
           :app:assembleDebug
 
