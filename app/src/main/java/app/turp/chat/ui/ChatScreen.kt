@@ -104,6 +104,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -194,6 +195,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.first
 import kotlin.math.abs
@@ -386,8 +388,9 @@ internal fun chatPrefetchRetentionIndices(
     return (start..end).toSet()
 }
 
-private const val CHAT_CACHE_AHEAD_VIEWPORTS = 3f
-private const val CHAT_CACHE_BEHIND_VIEWPORTS = 2f
+private const val CHAT_CACHE_AHEAD_VIEWPORTS = 5f
+private const val CHAT_CACHE_BEHIND_VIEWPORTS = 3f
+private const val CHAT_SCROLL_RENDER_GRACE_MS = 120L
 
 internal fun chatCacheWindowPx(viewportPx: Int, viewportMultiplier: Float): Int {
     if (viewportPx <= 0 || viewportMultiplier <= 0f) return 0
@@ -837,6 +840,7 @@ fun ChatScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
     val dismissedRecoveryNoticeKey = conversation?.id?.let { dismissedRecoveryNoticeKeys[it] }
     var recoveryDetailsMessage by remember(conversation?.id) { mutableStateOf<MessageEntity?>(null) }
     val messageListState = rememberLazyListState(cacheWindow = ChatMessageCacheWindow)
+    var deferHeavyMessageHydration by remember(conversation?.id) { mutableStateOf(false) }
     val savedScroll = remember(conversation?.id) {
         conversation?.id?.let(viewModel::chatScrollSnapshot)
     }
@@ -867,6 +871,19 @@ fun ChatScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
     val generatingState = rememberUpdatedState(generating)
     val selectedActiveModel = remember(models, conversation?.selectedModelId) {
         models.firstOrNull { it.modelId == conversation?.selectedModelId }
+    }
+
+    LaunchedEffect(messageListState, conversation?.id) {
+        snapshotFlow { messageListState.isScrollInProgress }
+            .distinctUntilChanged()
+            .collectLatest { scrolling ->
+                if (scrolling) {
+                    deferHeavyMessageHydration = true
+                } else {
+                    delay(CHAT_SCROLL_RENDER_GRACE_MS)
+                    deferHeavyMessageHydration = false
+                }
+            }
     }
 
     LaunchedEffect(paging, conversation?.id) {
@@ -1302,7 +1319,7 @@ fun ChatScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
             }
             .conflate()
             .collect { candidates ->
-                withContext(Dispatchers.Default) {
+                withContext(ChatRenderPrewarmDispatcher) {
                     candidates.forEach { message ->
                         currentCoroutineContext().ensureActive()
                         val appContext = context.applicationContext
@@ -1532,18 +1549,22 @@ fun ChatScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
                                     applyMutation = applyWorkingCardMutation,
                                 )
                             }
-                            MessageCard(
-                                message = message,
-                                viewModel = viewModel,
-                                reasoningVisibility = conversation?.reasoningVisibility ?: ReasoningVisibility.SHOW_WHILE_WORKING,
-                                activeModel = selectedActiveModel,
-                                branchOptions = branchOptions,
-                                developerSettings = developerSettings,
-                                toolFallbackSettings = toolFallbackSettings,
-                                showHttpRequestSource =
-                                    developerSettings.enabled && developerSettings.showHttpRequestEnabled,
-                                workingCardViewport = viewportController,
-                            )
+                            CompositionLocalProvider(
+                                LocalDeferRichHydration provides deferHeavyMessageHydration,
+                            ) {
+                                MessageCard(
+                                    message = message,
+                                    viewModel = viewModel,
+                                    reasoningVisibility = conversation?.reasoningVisibility ?: ReasoningVisibility.SHOW_WHILE_WORKING,
+                                    activeModel = selectedActiveModel,
+                                    branchOptions = branchOptions,
+                                    developerSettings = developerSettings,
+                                    toolFallbackSettings = toolFallbackSettings,
+                                    showHttpRequestSource =
+                                        developerSettings.enabled && developerSettings.showHttpRequestEnabled,
+                                    workingCardViewport = viewportController,
+                                )
+                            }
                         }
                     }
                 }
