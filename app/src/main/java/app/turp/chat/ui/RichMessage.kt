@@ -1799,7 +1799,7 @@ private fun MarkdownAndroidView(
                 }
             }
         }
-        if (!deferRichHydration || preparedMarkdown != null) {
+        if (!deferRichHydration) {
             preparedMarkdown = prepared
         }
     }
