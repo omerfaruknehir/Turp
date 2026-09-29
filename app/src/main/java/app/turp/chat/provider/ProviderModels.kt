@@ -39,6 +39,14 @@ data class ChatRequest(
     val tools: List<NativeToolDefinition> = emptyList(),
     /** Names recognized only by the protocol firewall; these are never serialized as callable tools. */
     val toolProtocolNames: Set<String> = emptySet(),
+    /** Developer-only in-memory HTTP trace key. Blank disables HTTP request/response capture. */
+    val developerTraceId: String = "",
+    /** Enables provider-boundary effective system-context tracing without enabling HTTP capture. */
+    val developerPromptTraceEnabled: Boolean = false,
+    /** Resolved developer-editable provider-stage system instructions. Null uses transport defaults. */
+    val deepSeekToolGuardPrompt: String? = null,
+    val deepSeekToolCorrectionPrompt: String? = null,
+    val toolDisabledProtocolCorrectionPrompt: String? = null,
 )
 
 

@@ -53,7 +53,38 @@ class ModelPickerAndReasoningTest {
 
         assertEquals(null, unsupportedToolCallingNotice(modelSupportsTools = true, toolCallingRequested = true))
         assertEquals(null, unsupportedToolCallingNotice(modelSupportsTools = false, toolCallingRequested = false))
-        assertTrue(unsupportedToolCallingNotice(modelSupportsTools = false, toolCallingRequested = true) != null)
+        val ordinaryNotice = unsupportedToolCallingNotice(
+            modelSupportsTools = false,
+            toolCallingRequested = true,
+        ).orEmpty()
+        assertTrue(ordinaryNotice.contains("Provider/catalog metadata reports"))
+        assertFalse(ordinaryNotice.startsWith("This model doesn't support"))
+
+        val sudoNotice = unsupportedToolCallingNotice(
+            modelSupportsTools = false,
+            toolCallingRequested = true,
+            sudoNativeAttempt = true,
+        ).orEmpty()
+        assertTrue(sudoNotice.contains("Sudo will still try real native tool definitions"))
+        assertTrue(sudoNotice.contains("provider/API may reject"))
+        assertFalse(sudoNotice.contains("won't run"))
+
+        assertTrue(
+            shouldOfferToolFallbackForError(
+                "The provider/API endpoint rejected a request that included Turp's native tool definitions.",
+            ),
+        )
+        assertTrue(
+            shouldOfferToolFallbackForError(
+                "Enable Tool-call fallback for this model in Turp.",
+            ),
+        )
+        assertFalse(shouldOfferToolFallbackForError("Ordinary network failure"))
+    }
+
+    @Test
+    fun toolsFilterIsExplicitlyMetadataBased() {
+        assertEquals("Reported tools", ModelPickerFilter.TOOLS.label)
     }
 
     @Test

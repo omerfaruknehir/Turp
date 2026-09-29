@@ -14,7 +14,10 @@ class SystemPromptOverrideRegressionTest {
         assertTrue(assembler.contains("val basePrompt = if (overrideProfile)"))
         assertTrue(assembler.contains("customProfileInstructions"))
         assertTrue(assembler.contains("DEFAULT_TURP_SYSTEM_PROMPT"))
-        assertTrue(assembler.contains("\$basePrompt"))
+        assertTrue(assembler.contains("val resolvedBasePrompt = promptLayer("))
+        assertTrue(assembler.contains("DeveloperPromptKey.CUSTOM_PROFILE_OVERRIDE"))
+        assertTrue(assembler.contains("DeveloperPromptKey.CORE_PROMPT"))
+        assertTrue(assembler.contains("\$resolvedBasePrompt"))
         assertFalse(assembler.contains("This profile may override Turp's default tone/persona preferences only"))
     }
 
@@ -26,5 +29,7 @@ class SystemPromptOverrideRegressionTest {
         assertTrue(settings.contains("prompt = DEFAULT_TURP_SYSTEM_PROMPT"))
         assertTrue(settings.contains("mode = SystemPromptMode.OVERRIDE"))
         assertTrue(settings.contains("Override replaces the built-in prompt text"))
+        assertTrue(settings.contains("Developer Options → System prompts lets you inspect and directly edit"))
+        assertFalse(settings.contains("Those dynamic layers are not editable either"))
     }
 }

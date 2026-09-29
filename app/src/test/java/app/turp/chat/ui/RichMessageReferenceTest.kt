@@ -6,6 +6,28 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RichMessageReferenceTest {
+    @Test
+    fun completedMarkdownRenderingIsCachedAcrossScroll() {
+        val rich = java.io.File("src/main/java/app/turp/chat/ui/RichMessage.kt").readText()
+
+        assertTrue(rich.contains("private object CompletedRichBlockCache"))
+        assertTrue(rich.contains("private object RenderedMarkdownCache"))
+        assertTrue(rich.contains("private object PreparedMarkdownCache"))
+        assertTrue(rich.contains("private object MarkdownTableRowsCache"))
+        assertTrue(rich.contains("prewarmRichMessageRendering"))
+        assertTrue(rich.contains("RenderedMarkdownCache.getOrRender(markwon, rendered)"))
+        assertTrue(rich.contains("mutableStateOf<PreparedMarkdownSource?>("))
+    }
+
+    @Test
+    fun completedTableAndCodeWorkIsIncludedInBackgroundPrewarm() {
+        val rich = java.io.File("src/main/java/app/turp/chat/ui/RichMessage.kt").readText()
+        assertTrue(rich.contains("MarkdownTableRowsCache.getOrParse(block.text)"))
+        assertTrue(rich.contains("RenderedMarkdownCache.getOrRender(markwon, cell)"))
+        assertTrue(rich.contains("prewarmSyntaxHighlight(block.language, block.code)"))
+        assertTrue(rich.contains("MarkdownTableRowsCache.getOrParse(markdown)"))
+    }
+
     @Test fun sourceNotationBecomesAnTurpSourceLink() {
         val rendered = prepareReferenceMarkdown(
             "Claim [[source|Android docs|https://developer.android.com/guide]]",

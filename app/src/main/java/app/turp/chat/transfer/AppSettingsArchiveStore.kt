@@ -23,6 +23,7 @@ import app.turp.chat.settings.ColorPalette
 import app.turp.chat.settings.DeveloperSettings
 import app.turp.chat.settings.NewChatDefaults
 import app.turp.chat.settings.PerformanceOverlayPosition
+import app.turp.chat.settings.PromptBarBackgroundStyle
 import app.turp.chat.settings.ThemeMode
 import java.util.UUID
 import kotlinx.serialization.Serializable
@@ -56,6 +57,8 @@ data class PortablePreferenceSettings(
     val newChatDefaults: PortableNewChatDefaults,
     val developerSettings: PortableDeveloperSettings,
     val selectedLinuxDistribution: String,
+    val promptBarBackgroundStyle: String = PromptBarBackgroundStyle.BLURRED.name,
+    val promptBarBackgroundOpacity: Float = 0.76f,
 )
 
 @Serializable
@@ -91,6 +94,7 @@ data class PortableDeveloperSettings(
     val performanceOverlayScale: Float,
     val blurBoundaryDebugEnabled: Boolean,
     val blurBoundaryDebugThicknessDp: Float,
+    val topBlurOffsetDp: Float = 0f,
 )
 
 @Serializable
@@ -243,9 +247,12 @@ class AppSettingsArchiveStore(
                     performanceOverlayScale = developer.performanceOverlayScale,
                     blurBoundaryDebugEnabled = developer.blurBoundaryDebugEnabled,
                     blurBoundaryDebugThicknessDp = developer.blurBoundaryDebugThicknessDp,
+                    topBlurOffsetDp = developer.topBlurOffsetDp,
                 ),
                 selectedLinuxDistribution = context.getSharedPreferences(LINUX_PREFERENCES, Context.MODE_PRIVATE)
                     .getString(KEY_DISTRIBUTION, "UBUNTU").orEmpty(),
+                promptBarBackgroundStyle = preferences.promptBarBackgroundStyle.value.name,
+                promptBarBackgroundOpacity = preferences.promptBarBackgroundOpacity.value,
             ),
             providers = database.catalogDao().allProviders().map { provider ->
                 PortableProviderSettings(
@@ -527,6 +534,10 @@ class AppSettingsArchiveStore(
         preferences.setChromeBlurStrength(value.chromeBlurStrength)
         preferences.setChromeEdgeSoftness(value.chromeEdgeSoftness)
         preferences.setChromeOverlayOpacity(value.chromeOverlayOpacity)
+        preferences.setPromptBarBackgroundStyle(
+            value.promptBarBackgroundStyle.enumOr(PromptBarBackgroundStyle.BLURRED),
+        )
+        preferences.setPromptBarBackgroundOpacity(value.promptBarBackgroundOpacity)
         preferences.setGeneratedRepairMaxAttempts(value.generatedRepairMaxAttempts)
         preferences.setLessEmojiEnabled(value.lessEmojiEnabled)
         preferences.setAutomaticUpdateChecks(value.automaticUpdateChecks)
@@ -565,6 +576,7 @@ class AppSettingsArchiveStore(
                 performanceOverlayScale = developer.performanceOverlayScale,
                 blurBoundaryDebugEnabled = developer.blurBoundaryDebugEnabled,
                 blurBoundaryDebugThicknessDp = developer.blurBoundaryDebugThicknessDp,
+                topBlurOffsetDp = developer.topBlurOffsetDp,
             ),
         )
         val distribution = value.selectedLinuxDistribution.uppercase().takeIf { it in SUPPORTED_DISTRIBUTIONS }

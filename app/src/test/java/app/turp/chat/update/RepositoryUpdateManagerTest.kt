@@ -24,6 +24,9 @@ class RepositoryUpdateManagerTest {
         assertFalse(isRepositoryVersionNewer("1.0.0-beta", "1.0.0"))
         assertFalse(isRepositoryVersionNewer("0.22.3", "0.22.4"))
         assertTrue(isRepositoryVersionNewer("0.1.0", "99.0.0", candidateVersionCode = 200, currentVersionCode = 199))
+        assertTrue(isInstalledRepositoryVersionAhead("0.25.1", "0.25.0", 221, 220))
+        assertFalse(isInstalledRepositoryVersionAhead("0.25.0", "0.25.0", 220, 220))
+        assertFalse(isInstalledRepositoryVersionAhead("0.24.9", "0.25.0", 219, 220))
     }
 
     @Test

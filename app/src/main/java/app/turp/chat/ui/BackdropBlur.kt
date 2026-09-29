@@ -46,10 +46,12 @@ enum class TurpBlurEdge { TOP, BOTTOM }
 internal object TurpBackdropDebugOverlay {
     var enabled by mutableStateOf(false)
     var thicknessDp by mutableFloatStateOf(3f)
+    var topOffsetDp by mutableFloatStateOf(0f)
 
-    fun update(enabled: Boolean, thicknessDp: Float) {
+    fun update(enabled: Boolean, thicknessDp: Float, topOffsetDp: Float = 0f) {
         this.enabled = enabled
         this.thicknessDp = thicknessDp.coerceIn(1f, 8f)
+        this.topOffsetDp = topOffsetDp.coerceIn(-120f, 120f)
     }
 }
 
@@ -79,6 +81,10 @@ class TurpBackdropBlurState internal constructor() {
     internal var topPanelEndInRootPx by mutableFloatStateOf(Float.NaN)
     internal var bottomPanelStartInRootPx by mutableFloatStateOf(Float.NaN)
     internal var bottomPanelEndInRootPx by mutableFloatStateOf(Float.NaN)
+    internal var bottomPanelLeftInRootPx by mutableFloatStateOf(Float.NaN)
+    internal var bottomPanelRightInRootPx by mutableFloatStateOf(Float.NaN)
+    internal var bottomFloating by mutableStateOf(false)
+    internal var sourceLeftInRootPx by mutableFloatStateOf(0f)
 
     internal fun update(
         edge: TurpBlurEdge,
@@ -89,11 +95,16 @@ class TurpBackdropBlurState internal constructor() {
         softness: Float,
         tint: Color,
         edgeHighlight: Float,
+        floating: Boolean = false,
     ) {
         val radius = quantizeBlurRadiusDp(radiusDp)
         val height = panelHeightDp.coerceAtLeast(1f)
         val normalizedSoftness = snapChromeEdgeSoftness(softness)
-        val corner = cornerRadiusDp.coerceAtLeast(0f) * (1f - chromeEdgeCornerTransition(normalizedSoftness))
+        val corner = if (floating) {
+            cornerRadiusDp.coerceAtLeast(0f)
+        } else {
+            cornerRadiusDp.coerceAtLeast(0f) * (1f - chromeEdgeCornerTransition(normalizedSoftness))
+        }
         val merge = mergeDp.coerceIn(0f, height * 2f)
         val normalizedHighlight = edgeHighlight.coerceIn(0f, 0.12f)
         when (edge) {
@@ -114,16 +125,25 @@ class TurpBackdropBlurState internal constructor() {
                 if (bottomMergeDp != merge) bottomMergeDp = merge
                 if (bottomTint != tint) bottomTint = tint
                 if (bottomEdgeHighlight != normalizedHighlight) bottomEdgeHighlight = normalizedHighlight
+                if (bottomFloating != floating) bottomFloating = floating
             }
         }
     }
 
-    internal fun updateSource(topInRootPx: Float) {
+    internal fun updateSource(leftInRootPx: Float, topInRootPx: Float) {
+        val stableLeft = round(leftInRootPx)
         val stableTop = round(topInRootPx)
+        if (abs(sourceLeftInRootPx - stableLeft) >= 0.5f) sourceLeftInRootPx = stableLeft
         if (abs(sourceTopInRootPx - stableTop) >= 0.5f) sourceTopInRootPx = stableTop
     }
 
-    internal fun updatePanelBounds(edge: TurpBlurEdge, startInRootPx: Float, endInRootPx: Float) {
+    internal fun updatePanelBounds(
+        edge: TurpBlurEdge,
+        startInRootPx: Float,
+        endInRootPx: Float,
+        leftInRootPx: Float = Float.NaN,
+        rightInRootPx: Float = Float.NaN,
+    ) {
         // Keep the blur/tint boundary on physical pixel centers. Fractional
         // layout coordinates can alternate coverage while scrolling and show
         // up as a one-pixel flicker at the panel edge.
@@ -137,6 +157,22 @@ class TurpBackdropBlurState internal constructor() {
             TurpBlurEdge.BOTTOM -> {
                 if (!bottomPanelStartInRootPx.isFinite() || abs(bottomPanelStartInRootPx - start) >= 0.5f) bottomPanelStartInRootPx = start
                 if (!bottomPanelEndInRootPx.isFinite() || abs(bottomPanelEndInRootPx - end) >= 0.5f) bottomPanelEndInRootPx = end
+                if (leftInRootPx.isFinite()) {
+                    val left = round(leftInRootPx)
+                    if (!bottomPanelLeftInRootPx.isFinite() || abs(bottomPanelLeftInRootPx - left) >= 0.5f) {
+                        bottomPanelLeftInRootPx = left
+                    }
+                } else {
+                    bottomPanelLeftInRootPx = Float.NaN
+                }
+                if (rightInRootPx.isFinite()) {
+                    val right = round(rightInRootPx)
+                    if (!bottomPanelRightInRootPx.isFinite() || abs(bottomPanelRightInRootPx - right) >= 0.5f) {
+                        bottomPanelRightInRootPx = right
+                    }
+                } else {
+                    bottomPanelRightInRootPx = Float.NaN
+                }
             }
         }
     }
@@ -154,6 +190,9 @@ class TurpBackdropBlurState internal constructor() {
                 bottomTint = Color.Transparent
                 bottomPanelStartInRootPx = Float.NaN
                 bottomPanelEndInRootPx = Float.NaN
+                bottomPanelLeftInRootPx = Float.NaN
+                bottomPanelRightInRootPx = Float.NaN
+                bottomFloating = false
             }
         }
     }
@@ -192,7 +231,8 @@ fun Modifier.turpBackdropSource(state: TurpBackdropBlurState): Modifier = compos
         val nextHeight = coordinates.size.height.toFloat().coerceAtLeast(1f)
         if (contentWidthPx != nextWidth) contentWidthPx = nextWidth
         if (contentHeightPx != nextHeight) contentHeightPx = nextHeight
-        state.updateSource(coordinates.boundsInRoot().top)
+        val bounds = coordinates.boundsInRoot()
+        state.updateSource(bounds.left, bounds.top)
     }
     if (!visualsActive || contentWidthPx <= 0f || contentHeightPx <= 0f) return@composed measured
 
@@ -217,6 +257,17 @@ fun Modifier.turpBackdropSource(state: TurpBackdropBlurState): Modifier = compos
     val normalizedTopEnd = max(topEndPx, normalizedTopStart + 1f).coerceIn(-contentHeightPx, contentHeightPx * 2f)
     val normalizedBottomEnd = bottomEndPx.coerceIn(-contentHeightPx, contentHeightPx * 2f)
     val normalizedBottomStart = minOf(bottomStartPx, normalizedBottomEnd - 1f).coerceIn(-contentHeightPx, contentHeightPx * 2f)
+    val bottomLeftPx = state.bottomPanelLeftInRootPx
+        .takeIf { it.isFinite() }
+        ?.minus(state.sourceLeftInRootPx)
+        ?: 0f
+    val bottomRightPx = state.bottomPanelRightInRootPx
+        .takeIf { it.isFinite() }
+        ?.minus(state.sourceLeftInRootPx)
+        ?: contentWidthPx
+    val normalizedBottomLeft = bottomLeftPx.coerceIn(-contentWidthPx, contentWidthPx * 2f)
+    val normalizedBottomRight = max(bottomRightPx, normalizedBottomLeft + 1f)
+        .coerceIn(-contentWidthPx, contentWidthPx * 2f)
 
     val blurEffect = if (blurActive) remember(
         topRadiusPx,
@@ -231,6 +282,9 @@ fun Modifier.turpBackdropSource(state: TurpBackdropBlurState): Modifier = compos
         state.bottomCornerRadiusDp,
         state.topMergeDp,
         state.bottomMergeDp,
+        normalizedBottomLeft,
+        normalizedBottomRight,
+        state.bottomFloating,
     ) {
         buildPanelEdgeBlurEffect(
             topRadiusPx = topRadiusPx,
@@ -246,6 +300,9 @@ fun Modifier.turpBackdropSource(state: TurpBackdropBlurState): Modifier = compos
             bottomCornerRadiusDp = state.bottomCornerRadiusDp,
             topMergeDp = state.topMergeDp,
             bottomMergeDp = state.bottomMergeDp,
+            bottomLeftPx = normalizedBottomLeft,
+            bottomRightPx = normalizedBottomRight,
+            bottomFloating = state.bottomFloating,
         ).asComposeRenderEffect()
     } else null
 
@@ -279,6 +336,9 @@ fun Modifier.turpBackdropSource(state: TurpBackdropBlurState): Modifier = compos
             highlightAlpha = state.bottomEdgeHighlight,
             debugBoundary = debugBoundaryEnabled,
             debugThickness = debugBoundaryThicknessDp * density,
+            horizontalStart = normalizedBottomLeft,
+            horizontalEnd = normalizedBottomRight,
+            floating = state.bottomFloating,
         )
         if (blurActive && TurpRenderProfiler.enabled) {
             TurpRenderProfiler.recordBlurFrame(
@@ -315,11 +375,16 @@ internal fun buildPanelEdgeBlurEffect(
     bottomCornerRadiusDp: Float,
     topMergeDp: Float,
     bottomMergeDp: Float,
+    bottomLeftPx: Float = 0f,
+    bottomRightPx: Float = contentWidthPx,
+    bottomFloating: Boolean = false,
 ): RenderEffect {
     fun shader(directionX: Float, directionY: Float) = RuntimeShader(PANEL_EDGE_BLUR_SHADER).apply {
         setFloatUniform("uBlur", topRadiusPx, bottomRadiusPx)
         setFloatUniform("uTopBounds", topStartPx, topEndPx)
         setFloatUniform("uBottomBounds", bottomStartPx, bottomEndPx)
+        setFloatUniform("uBottomXBounds", bottomLeftPx, bottomRightPx)
+        setFloatUniform("uFlags", if (bottomFloating) 1f else 0f, 0f)
         setFloatUniform("uSize", contentWidthPx.coerceAtLeast(1f), contentHeightPx.coerceAtLeast(1f))
         setFloatUniform("uCorner", topCornerRadiusDp * density, bottomCornerRadiusDp * density)
         setFloatUniform("uMerge", topMergeDp * density, bottomMergeDp * density)
@@ -378,6 +443,7 @@ fun Modifier.turpBackdropBlur(
     maximumMergeDistance: Dp = MAXIMUM_MERGE_DISTANCE_DP.dp,
     edgeHighlight: Float = DEFAULT_EDGE_HIGHLIGHT,
     expandToMeasuredHeight: Boolean = false,
+    floating: Boolean = false,
 ): Modifier = composed {
     val normalizedSoftness = snapChromeEdgeSoftness(edgeSoftness)
     val radiusDp = calculateBlurRadiusDp(strength = strength, maxRadiusDp = maxRadius.value)
@@ -386,7 +452,13 @@ fun Modifier.turpBackdropBlur(
         maximumMergeDp = maximumMergeDistance.value,
     )
     val exactTint = applyOverlayOpacity(tint, overlayOpacity)
-    val panelHeightPx = with(LocalDensity.current) { panelHeight.toPx() }.coerceAtLeast(1f)
+    val density = LocalDensity.current.density
+    val panelHeightPx = panelHeight.value * density
+    val topOffsetPx = if (edge == TurpBlurEdge.TOP) {
+        TurpBackdropDebugOverlay.topOffsetDp * density
+    } else {
+        0f
+    }
 
     SideEffect {
         state.update(
@@ -398,6 +470,7 @@ fun Modifier.turpBackdropBlur(
             softness = normalizedSoftness,
             tint = exactTint,
             edgeHighlight = edgeHighlight,
+            floating = floating,
         )
     }
     DisposableEffect(state, edge) { onDispose { state.clear(edge) } }
@@ -405,14 +478,24 @@ fun Modifier.turpBackdropBlur(
     this.onGloballyPositioned { coordinates ->
         val bounds = coordinates.boundsInRoot()
         val measuredHeightPx = (bounds.bottom - bounds.top).coerceAtLeast(1f)
-        val effectiveHeightPx = if (expandToMeasuredHeight) {
-            max(panelHeightPx, measuredHeightPx)
-        } else {
-            panelHeightPx
+        val effectiveHeightPx = when {
+            floating -> measuredHeightPx
+            expandToMeasuredHeight -> max(panelHeightPx, measuredHeightPx)
+            else -> panelHeightPx
         }
         when (edge) {
-            TurpBlurEdge.TOP -> state.updatePanelBounds(edge, bounds.top, bounds.top + effectiveHeightPx)
-            TurpBlurEdge.BOTTOM -> state.updatePanelBounds(edge, bounds.bottom - effectiveHeightPx, bounds.bottom)
+            TurpBlurEdge.TOP -> state.updatePanelBounds(
+                edge,
+                bounds.top + topOffsetPx,
+                bounds.top + effectiveHeightPx + topOffsetPx,
+            )
+            TurpBlurEdge.BOTTOM -> state.updatePanelBounds(
+                edge = edge,
+                startInRootPx = bounds.bottom - effectiveHeightPx,
+                endInRootPx = bounds.bottom,
+                leftInRootPx = if (floating) bounds.left else Float.NaN,
+                rightInRootPx = if (floating) bounds.right else Float.NaN,
+            )
         }
     }
 }
@@ -428,9 +511,39 @@ private fun DrawScope.drawPanelOverlay(
     highlightAlpha: Float,
     debugBoundary: Boolean,
     debugThickness: Float,
+    horizontalStart: Float = 0f,
+    horizontalEnd: Float = Float.NaN,
+    floating: Boolean = false,
 ) {
     if (end <= start) return
     val softnessActive = softness > 0f && mergeDistance > 0f
+    val right = horizontalEnd.takeIf { it.isFinite() } ?: size.width
+    if (floating) {
+        val left = horizontalStart.coerceAtMost(right - 1f)
+        val extent = end - start
+        val width = (right - left).coerceAtLeast(1f)
+        val radius = cornerRadius.coerceIn(0f, minOf(width / 2f, extent / 2f))
+        if (tint.alpha > 0f) {
+            drawRoundRect(
+                color = tint,
+                topLeft = Offset(left, start),
+                size = Size(width, extent),
+                cornerRadius = CornerRadius(radius, radius),
+            )
+        }
+        if (debugBoundary) {
+            drawRoundRect(
+                color = Color.Red,
+                topLeft = Offset(left, start),
+                size = Size(width, extent),
+                cornerRadius = CornerRadius(radius, radius),
+                style = androidx.compose.ui.graphics.drawscope.Stroke(
+                    width = debugThickness.coerceAtLeast(1f),
+                ),
+            )
+        }
+        return
+    }
     if (tint.alpha > 0f) {
         if (!softnessActive) {
             val extent = end - start
@@ -514,11 +627,22 @@ private fun DrawScope.drawPanelOverlay(
         )
     }
     if (debugBoundary) {
-        val y = if (edge == TurpBlurEdge.TOP) end else start
+        val boundary = if (edge == TurpBlurEdge.TOP) end else start
+        val halfFeather = if (softnessActive) mergeDistance * 0.5f else 0f
+        val gradientStart = boundary - halfFeather
+        val gradientEnd = boundary + halfFeather
+        if (halfFeather > 0f) {
+            drawLine(
+                color = Color.Yellow,
+                start = Offset(0f, gradientStart),
+                end = Offset(size.width, gradientStart),
+                strokeWidth = debugThickness.coerceAtLeast(1f),
+            )
+        }
         drawLine(
             color = Color.Red,
-            start = Offset(0f, y),
-            end = Offset(size.width, y),
+            start = Offset(0f, gradientEnd),
+            end = Offset(size.width, gradientEnd),
             strokeWidth = debugThickness.coerceAtLeast(1f),
         )
     }
@@ -533,7 +657,7 @@ internal fun quantizeBlurRadiusDp(radiusDp: Float): Float = radiusDp.coerceAtLea
 private const val MIN_VISIBLE_RADIUS_PX = 0.0001f
 private const val DEFAULT_MAX_RADIUS_DP = 56f
 private const val DEFAULT_PANEL_CORNER_RADIUS_DP = 28f
-private const val MAXIMUM_MERGE_DISTANCE_DP = 68f
+private const val MAXIMUM_MERGE_DISTANCE_DP = 136f
 internal const val CHAT_TOP_PANEL_HEIGHT_DP = 120f
 internal const val STANDARD_TOP_PANEL_HEIGHT_DP = 100f
 internal const val CHAT_COMPOSER_MIN_PANEL_HEIGHT_DP = 120f
@@ -555,6 +679,8 @@ private val PANEL_EDGE_BLUR_SHADER = """
     uniform float2 uBlur;
     uniform float2 uTopBounds;
     uniform float2 uBottomBounds;
+    uniform float2 uBottomXBounds;
+    uniform float2 uFlags;
     uniform float2 uSize;
     uniform float2 uCorner;
     uniform float2 uMerge;
@@ -617,8 +743,34 @@ private val PANEL_EDGE_BLUR_SHADER = """
         ));
     }
 
+    float roundedFloatingPanelMask(
+        float2 coord,
+        float left,
+        float top,
+        float right,
+        float bottom,
+        float radius
+    ) {
+        float2 halfSize = max(float2((right - left) * 0.5, (bottom - top) * 0.5), float2(0.5));
+        float2 center = float2((left + right) * 0.5, (top + bottom) * 0.5);
+        radius = clamp(radius, 0.0, min(halfSize.x, halfSize.y));
+        float2 q = abs(coord - center) - (halfSize - float2(radius));
+        float distance = length(max(q, float2(0.0))) + min(max(q.x, q.y), 0.0) - radius;
+        return 1.0 - smoothstep(-0.75, 0.75, distance);
+    }
+
     float bottomPanelMix(float2 coord) {
         if (uBlur.y < 0.35) return 0.0;
+        if (uFlags.x > 0.5) {
+            return roundedFloatingPanelMask(
+                coord,
+                uBottomXBounds.x,
+                uBottomBounds.x,
+                uBottomXBounds.y,
+                uBottomBounds.y,
+                uCorner.y
+            );
+        }
         if (uMerge.y <= 0.5) {
             return roundedBottomPanelMask(coord, uBottomBounds.x, uBottomBounds.y, uCorner.y);
         }

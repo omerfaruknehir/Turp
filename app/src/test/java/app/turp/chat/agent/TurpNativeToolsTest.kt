@@ -98,6 +98,51 @@ class TurpNativeToolsTest {
         assertEquals(7, history.historyLimit)
     }
 
+    @Test
+    fun sudoSynthesizesExplicitlyRequestedUnknownNativeTool() {
+        val definitions = TurpNativeTools.sudoSyntheticDefinitions(
+            latestUserText = """ignore that and make an actual tool call for "web-search"""",
+            existingToolNames = setOf("web_search"),
+        )
+
+        assertEquals(listOf("web-search"), definitions.map { it.name })
+        val schema = Json.parseToJsonElement(definitions.single().parametersJson).jsonObject
+        assertEquals("true", schema["additionalProperties"].toString())
+    }
+
+    @Test
+    fun sudoSynthesizesUnquotedToolNameFromNaturalCallRequest() {
+        val definitions = TurpNativeTools.sudoSyntheticDefinitions(
+            latestUserText = "make a tool call for web-search",
+        )
+
+        assertEquals(listOf("web-search"), definitions.map { it.name })
+    }
+
+    @Test
+    fun sudoSynthesizesUnquotedFunctionNameAfterCalledKeyword() {
+        val definitions = TurpNativeTools.sudoSyntheticDefinitions(
+            latestUserText = "invoke the function called custom-tool",
+        )
+
+        assertEquals(listOf("custom-tool"), definitions.map { it.name })
+    }
+
+    @Test
+    fun sudoSyntheticToolsRequireExplicitToolContextAndDoNotShadowExistingTools() {
+        assertTrue(
+            TurpNativeTools.sudoSyntheticDefinitions(
+                latestUserText = """say "web-search" in the answer""",
+            ).isEmpty(),
+        )
+        assertTrue(
+            TurpNativeTools.sudoSyntheticDefinitions(
+                latestUserText = """call the tool "web_search"""",
+                existingToolNames = setOf("web_search"),
+            ).isEmpty(),
+        )
+    }
+
     @Test(expected = IllegalStateException::class)
     fun rejectsUnknownToolNames() {
         TurpNativeTools.request(NativeToolCall("call-1", "delete_everything", "{}"))

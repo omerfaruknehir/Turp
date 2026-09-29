@@ -13,7 +13,9 @@ import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.gestures.animateScrollBy
@@ -39,6 +41,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListLayoutInfo
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.layout.LazyLayoutCacheWindow
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -53,6 +56,7 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.AttachFile
 import androidx.compose.material.icons.outlined.AudioFile
+import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.CameraAlt
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Cloud
@@ -100,6 +104,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -120,12 +125,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.geometry.Offset
@@ -143,6 +151,7 @@ import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.compose.collectAsLazyPagingItems
 import app.turp.chat.R
+import app.turp.chat.data.GenerationUsageEntity
 import app.turp.chat.data.MessageEntity
 import app.turp.chat.data.MessageRole
 import app.turp.chat.data.MessageStatus
@@ -171,24 +180,80 @@ import app.turp.chat.sandbox.UbuntuExecutionResult
 import app.turp.chat.sandbox.AppliedPatchResult
 import app.turp.chat.sandbox.ScriptRunResult
 import app.turp.chat.sandbox.WorkspaceReadResult
+import app.turp.chat.settings.DeveloperSettings
+import app.turp.chat.settings.PromptBarBackgroundStyle
+import app.turp.chat.settings.ToolCallFallbackSettings
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.first
 import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.min
 import kotlin.math.roundToInt
 import java.io.File
+import java.util.LinkedHashMap
 import java.util.UUID
 
 private val ChatMessageJson = Json { ignoreUnknownKeys = true }
+
+private object MessageTimelineDecodeCache {
+    private data class Entry(
+        val source: String,
+        val events: List<MessageTimelineEvent>,
+    )
+
+    private val entries = object : LinkedHashMap<String, Entry>(96, 0.75f, true) {
+        override fun removeEldestEntry(
+            eldest: MutableMap.MutableEntry<String, Entry>?,
+        ): Boolean = size > 96
+    }
+
+    @Synchronized
+    fun decode(nodeId: String, source: String): List<MessageTimelineEvent> {
+        entries[nodeId]?.takeIf { it.source == source }?.let { return it.events }
+        val decoded = runCatching {
+            ChatMessageJson.decodeFromString<List<MessageTimelineEvent>>(source)
+        }.getOrDefault(emptyList())
+        entries[nodeId] = Entry(source, decoded)
+        return decoded
+    }
+}
+
+private object ToolTraceDecodeCache {
+    private data class Entry(
+        val source: String,
+        val events: List<ToolTraceEvent>,
+    )
+
+    private val entries = object : LinkedHashMap<String, Entry>(64, 0.75f, true) {
+        override fun removeEldestEntry(
+            eldest: MutableMap.MutableEntry<String, Entry>?,
+        ): Boolean = size > 64
+    }
+
+    @Synchronized
+    fun decode(messageKey: String, source: String): List<ToolTraceEvent> {
+        entries[messageKey]?.takeIf { it.source == source }?.let { return it.events }
+        val decoded = runCatching {
+            ChatMessageJson.decodeFromString<List<ToolTraceEvent>>(source)
+        }.getOrDefault(emptyList())
+        entries[messageKey] = Entry(source, decoded)
+        return decoded
+    }
+}
+
 internal fun calculateTopChromeProgress(
     firstVisibleItemIndex: Int,
     firstVisibleItemScrollOffset: Int,
@@ -245,6 +310,100 @@ internal fun calculateAutoFollowSeekSpeedPxPerSecond(
     val combined = 1f - ((1f - itemFactor) * (1f - timeFactor))
     val shaped = combined * combined * (3f - (2f * combined))
     return minSpeedPxPerSecond + ((maxSpeedPxPerSecond - minSpeedPxPerSecond) * shaped)
+}
+
+internal fun chatComposePrefetchIndices(
+    firstVisibleIndex: Int,
+    lastVisibleIndex: Int,
+    itemCount: Int,
+    aheadCount: Int = 4,
+    behindCount: Int = 2,
+): List<Int> {
+    if (
+        itemCount <= 0 ||
+        firstVisibleIndex < 0 ||
+        lastVisibleIndex < firstVisibleIndex
+    ) return emptyList()
+
+    val result = ArrayList<Int>(aheadCount.coerceAtLeast(0) + behindCount.coerceAtLeast(0))
+    for (distance in 1..maxOf(aheadCount, behindCount)) {
+        if (distance <= aheadCount) {
+            val index = lastVisibleIndex + distance
+            if (index in 0 until itemCount) result += index
+        }
+        if (distance <= behindCount) {
+            val index = firstVisibleIndex - distance
+            if (index in 0 until itemCount) result += index
+        }
+    }
+    return result
+}
+
+internal fun chatDataPrewarmIndices(
+    firstVisibleIndex: Int,
+    lastVisibleIndex: Int,
+    itemCount: Int,
+    aheadCount: Int,
+    behindCount: Int,
+): List<Int> = chatComposePrefetchIndices(
+    firstVisibleIndex = firstVisibleIndex,
+    lastVisibleIndex = lastVisibleIndex,
+    itemCount = itemCount,
+    aheadCount = aheadCount,
+    behindCount = behindCount,
+)
+
+internal fun chatGesturePrefetchIndices(
+    delta: Float,
+    firstVisibleIndex: Int,
+    lastVisibleIndex: Int,
+    itemCount: Int,
+): List<Int> {
+    if (delta == 0f || itemCount <= 0 || firstVisibleIndex < 0 || lastVisibleIndex < firstVisibleIndex) {
+        return emptyList()
+    }
+    return if (delta < 0f) {
+        (1..6).mapNotNull { distance ->
+            (lastVisibleIndex + distance).takeIf { it in 0 until itemCount }
+        }
+    } else {
+        (1..4).mapNotNull { distance ->
+            (firstVisibleIndex - distance).takeIf { it in 0 until itemCount }
+        }
+    }
+}
+
+internal fun chatPrefetchRetentionIndices(
+    firstVisibleIndex: Int,
+    lastVisibleIndex: Int,
+    itemCount: Int,
+    aheadCount: Int = 10,
+    behindCount: Int = 8,
+): Set<Int> {
+    if (itemCount <= 0 || firstVisibleIndex < 0 || lastVisibleIndex < firstVisibleIndex) {
+        return emptySet()
+    }
+    val start = (firstVisibleIndex - behindCount.coerceAtLeast(0)).coerceAtLeast(0)
+    val end = (lastVisibleIndex + aheadCount.coerceAtLeast(0)).coerceAtMost(itemCount - 1)
+    return (start..end).toSet()
+}
+
+private const val CHAT_CACHE_AHEAD_VIEWPORTS = 5f
+private const val CHAT_CACHE_BEHIND_VIEWPORTS = 3f
+private const val CHAT_SCROLL_RENDER_GRACE_MS = 120L
+
+internal fun chatCacheWindowPx(viewportPx: Int, viewportMultiplier: Float): Int {
+    if (viewportPx <= 0 || viewportMultiplier <= 0f) return 0
+    return (viewportPx * viewportMultiplier).roundToInt().coerceAtLeast(viewportPx)
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+private object ChatMessageCacheWindow : LazyLayoutCacheWindow {
+    override fun Density.calculateAheadWindow(viewport: Int): Int =
+        chatCacheWindowPx(viewport, CHAT_CACHE_AHEAD_VIEWPORTS)
+
+    override fun Density.calculateBehindWindow(viewport: Int): Int =
+        chatCacheWindowPx(viewport, CHAT_CACHE_BEHIND_VIEWPORTS)
 }
 
 private data class PersistedChatScrollSample(
@@ -446,6 +605,12 @@ internal fun isActionableRecoveryMessage(message: MessageEntity): Boolean =
         (message.status == MessageStatus.INTERRUPTED &&
             message.error !in setOf("Steered by user", "Replaced by an edited message"))
 
+internal fun shouldOfferToolFallbackForError(error: String?): Boolean {
+    val normalized = error.orEmpty().lowercase()
+    return normalized.contains("rejected a request that included turp's native tool definitions") ||
+        normalized.contains("enable tool-call fallback for this model")
+}
+
 internal fun isRecoveryNoticeCandidate(
     message: MessageEntity,
     activeLeafNodeId: String?,
@@ -456,6 +621,24 @@ internal fun isRecoveryNoticeCandidate(
 
 internal fun shouldRenderAssistantRecoveryState(message: MessageEntity): Boolean =
     message.role == MessageRole.ASSISTANT && isActionableRecoveryMessage(message)
+
+internal fun shouldRenderInlineRecoveryCard(message: MessageEntity): Boolean {
+    val timeline = message.timelineJson.trim()
+    return shouldRenderAssistantRecoveryState(message) &&
+        message.content.isBlank() &&
+        message.reasoning.isBlank() &&
+        (timeline.isBlank() || timeline == "[]")
+}
+
+internal fun shouldShowFloatingRecoveryNotice(
+    message: MessageEntity,
+    activeLeafNodeId: String?,
+    dismissedNoticeKey: String?,
+): Boolean = isRecoveryNoticeCandidate(
+    message = message,
+    activeLeafNodeId = activeLeafNodeId,
+    dismissedNoticeKey = dismissedNoticeKey,
+) && !shouldRenderInlineRecoveryCard(message)
 
 internal fun withDismissedRecoveryNotice(
     current: Map<String, String>,
@@ -476,26 +659,43 @@ internal fun workEventStateLabel(event: MessageTimelineEvent): String = when (ev
     else -> event.status.replace('_', ' ').replaceFirstChar(Char::uppercase)
 }
 
-internal fun workingBlockHeadline(events: List<MessageTimelineEvent>, active: Boolean): String {
-    val latest = events.lastOrNull()
+internal fun formatWorkDuration(elapsedMs: Long): String {
+    val totalSeconds = elapsedMs.coerceAtLeast(0L) / 1_000L
+    val seconds = totalSeconds % 60L
+    val totalMinutes = totalSeconds / 60L
+    val minutes = totalMinutes % 60L
+    val hours = totalMinutes / 60L
+
+    fun unit(value: Long, singular: String): String =
+        "$value $singular${if (value == 1L) "" else "s"}"
+
     return when {
-        latest == null -> if (active) "Working" else "Activity"
-        active -> workEventTitle(latest)
-        events.any { it.status == "error" } -> "Finished with an error"
-        events.size == 1 && latest.kind == "reasoning" -> "Reasoning"
-        else -> "Work complete"
+        hours > 0L -> buildString {
+            append(unit(hours, "hour"))
+            if (minutes > 0L) append(" ").append(unit(minutes, "minute"))
+            if (seconds > 0L) append(" ").append(unit(seconds, "second"))
+        }
+        totalMinutes > 0L -> buildString {
+            append(unit(totalMinutes, "minute"))
+            if (seconds > 0L) append(" ").append(unit(seconds, "second"))
+        }
+        else -> unit(totalSeconds, "second")
     }
 }
+
+internal fun workingBlockHeadline(active: Boolean, elapsedMs: Long): String =
+    "${if (active) "Working" else "Worked"} for ${formatWorkDuration(elapsedMs)}"
 
 internal fun workingBlockSummary(events: List<MessageTimelineEvent>, active: Boolean): String {
     val latest = events.lastOrNull()
     if (active && latest != null) {
-        return when {
-            latest.status in setOf("preparing", "prepared", "running", "error") -> workEventStateLabel(latest)
+        val title = workEventTitle(latest)
+        val state = when {
             latest.finishedAt == null && latest.kind == "reasoning" -> "Thinking"
-            latest.finishedAt == null -> "Working"
+            latest.finishedAt == null && latest.status !in setOf("preparing", "prepared", "running", "error") -> "Working"
             else -> workEventStateLabel(latest)
         }
+        return if (state.equals(title, ignoreCase = true)) state else "$title • $state"
     }
     val errors = events.count { it.status == "error" }
     return buildString {
@@ -544,11 +744,35 @@ internal fun calculateVisibleChatViewportEndPx(viewportEndPx: Int, obscuredBotto
     (viewportEndPx - obscuredBottomPx.coerceAtLeast(0)).coerceAtLeast(0)
 
 private const val ChatFollowMaxSpeedPxPerSecond = 8_000f
-private const val ChatFollowSeekMinSpeedPxPerSecond = 1_800f
-private const val ChatFollowSeekMaxSpeedPxPerSecond = 12_000f
+private const val ChatFollowSeekMinSpeedPxPerSecond = 9_000f
+private const val ChatFollowSeekMaxSpeedPxPerSecond = 36_000f
 private const val ChatFollowMaxFrameStepPx = 128f
-private const val ChatFollowSeekMaxFrameStepPx = 176f
+private const val ChatFollowSeekMaxFrameStepPx = 320f
 private const val STREAM_HAPTIC_CHARACTER_INTERVAL = 32
+private const val MESSAGE_RENDER_AHEAD_COUNT = 5
+private const val MESSAGE_RENDER_BEHIND_COUNT = 2
+
+@Composable
+private fun liveWorkDurationLabel(
+    startedAt: Long,
+    active: Boolean,
+    finishedAt: Long? = null,
+): String {
+    var now by remember(startedAt) { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(active, startedAt) {
+        if (active) {
+            while (true) {
+                now = System.currentTimeMillis()
+                delay(1_000)
+            }
+        }
+    }
+    val end = if (active) now else (finishedAt ?: now)
+    return workingBlockHeadline(
+        active = active,
+        elapsedMs = (end - startedAt).coerceAtLeast(0L),
+    )
+}
 
 private suspend fun snapChatToBottom(
     state: androidx.compose.foundation.lazy.LazyListState,
@@ -583,6 +807,7 @@ internal fun calculateComposerChromeProgressFromBottom(
 @Composable
 fun ChatScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
     SideEffect { TurpRenderProfiler.recordChatRecomposition() }
+    val context = LocalContext.current
     val conversation by viewModel.conversation.collectAsStateWithLifecycle()
     val chromeBlurStrength by viewModel.chromeBlurStrength.collectAsStateWithLifecycle()
     val chromeEdgeSoftness by viewModel.chromeEdgeSoftness.collectAsStateWithLifecycle()
@@ -592,6 +817,8 @@ fun ChatScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
     val allProviders by viewModel.providers.collectAsStateWithLifecycle()
     val favoriteModels by viewModel.favoriteModels.collectAsStateWithLifecycle()
     val recentModels by viewModel.recentModels.collectAsStateWithLifecycle()
+    val toolFallbackSettings by viewModel.toolCallFallbackSettings.collectAsStateWithLifecycle()
+    val developerSettings by viewModel.developerSettings.collectAsStateWithLifecycle()
     val credentialRevision by viewModel.credentialRevision.collectAsStateWithLifecycle()
     val usableProviders = remember(allProviders, credentialRevision) { viewModel.configuredProviders(allProviders) }
     val linuxStatus by viewModel.ubuntuStatus.collectAsStateWithLifecycle()
@@ -612,7 +839,8 @@ fun ChatScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
     }
     val dismissedRecoveryNoticeKey = conversation?.id?.let { dismissedRecoveryNoticeKeys[it] }
     var recoveryDetailsMessage by remember(conversation?.id) { mutableStateOf<MessageEntity?>(null) }
-    val messageListState = rememberLazyListState()
+    val messageListState = rememberLazyListState(cacheWindow = ChatMessageCacheWindow)
+    var deferHeavyMessageHydration by remember(conversation?.id) { mutableStateOf(false) }
     val savedScroll = remember(conversation?.id) {
         conversation?.id?.let(viewModel::chatScrollSnapshot)
     }
@@ -643,6 +871,19 @@ fun ChatScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
     val generatingState = rememberUpdatedState(generating)
     val selectedActiveModel = remember(models, conversation?.selectedModelId) {
         models.firstOrNull { it.modelId == conversation?.selectedModelId }
+    }
+
+    LaunchedEffect(messageListState, conversation?.id) {
+        snapshotFlow { messageListState.isScrollInProgress }
+            .distinctUntilChanged()
+            .collectLatest { scrolling ->
+                if (scrolling) {
+                    deferHeavyMessageHydration = true
+                } else {
+                    delay(CHAT_SCROLL_RENDER_GRACE_MS)
+                    deferHeavyMessageHydration = false
+                }
+            }
     }
 
     LaunchedEffect(paging, conversation?.id) {
@@ -1045,6 +1286,76 @@ fun ChatScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
         }
     }
 
+    LaunchedEffect(messageListState, paging, conversation?.id) {
+        snapshotFlow {
+            val visible = messageListState.layoutInfo.visibleItemsInfo
+            val first = visible.firstOrNull()?.index ?: messageListState.firstVisibleItemIndex
+            val last = visible.lastOrNull()?.index ?: first
+            val itemCount = paging.itemCount
+            if (itemCount <= 0) {
+                emptyList()
+            } else {
+                chatDataPrewarmIndices(
+                    firstVisibleIndex = first,
+                    lastVisibleIndex = last,
+                    itemCount = itemCount,
+                    aheadCount = MESSAGE_RENDER_AHEAD_COUNT,
+                    behindCount = MESSAGE_RENDER_BEHIND_COUNT,
+                ).mapNotNull { uiIndex ->
+                    val sourceIndex = chronologicalSourceIndex(uiIndex, itemCount)
+                    paging.peek(sourceIndex)
+                        ?.takeIf { it.status != MessageStatus.STREAMING }
+                }
+            }
+        }
+            .distinctUntilChanged { old, new ->
+                old.size == new.size &&
+                    old.zip(new).all { (a, b) ->
+                        a.nodeId == b.nodeId &&
+                            a.updatedAt == b.updatedAt &&
+                            a.content.length == b.content.length &&
+                            a.reasoning.length == b.reasoning.length
+                    }
+            }
+            .conflate()
+            .collect { candidates ->
+                withContext(ChatRenderPrewarmDispatcher) {
+                    candidates.forEach { message ->
+                        currentCoroutineContext().ensureActive()
+                        val appContext = context.applicationContext
+                        viewModel.prewarmAttachments(message.nodeId)
+                        prewarmRichMessageRendering(appContext, message.nodeId, message.content)
+                        if (message.reasoning.isNotBlank()) {
+                            prewarmRichMessageRendering(
+                                appContext,
+                                "legacy-reasoning:${message.nodeId}",
+                                message.reasoning,
+                            )
+                        }
+                        val timeline = MessageTimelineDecodeCache.decode(message.nodeId, message.timelineJson)
+                        if (timeline.isNotEmpty()) {
+                            materializeTimelineContent(
+                                timeline,
+                                message.content,
+                                message.reasoning,
+                            ).forEach { event ->
+                                if (
+                                    event.content.isNotBlank() &&
+                                    event.kind in setOf("text", "reasoning")
+                                ) {
+                                    prewarmRichMessageRendering(
+                                        appContext,
+                                        "${message.nodeId}:${event.id}",
+                                        event.content,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+    }
+
     LaunchedEffect(messageListState, conversation?.id) {
         snapshotFlow { messageListState.isScrollInProgress to messageListState.canScrollForward }
             .collect { (scrolling, canScrollForward) ->
@@ -1238,14 +1549,22 @@ fun ChatScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
                                     applyMutation = applyWorkingCardMutation,
                                 )
                             }
-                            MessageCard(
-                                message = message,
-                                viewModel = viewModel,
-                                reasoningVisibility = conversation?.reasoningVisibility ?: ReasoningVisibility.SHOW_WHILE_WORKING,
-                                activeModel = selectedActiveModel,
-                                branchOptions = branchOptions,
-                                workingCardViewport = viewportController,
-                            )
+                            CompositionLocalProvider(
+                                LocalDeferRichHydration provides deferHeavyMessageHydration,
+                            ) {
+                                MessageCard(
+                                    message = message,
+                                    viewModel = viewModel,
+                                    reasoningVisibility = conversation?.reasoningVisibility ?: ReasoningVisibility.SHOW_WHILE_WORKING,
+                                    activeModel = selectedActiveModel,
+                                    branchOptions = branchOptions,
+                                    developerSettings = developerSettings,
+                                    toolFallbackSettings = toolFallbackSettings,
+                                    showHttpRequestSource =
+                                        developerSettings.enabled && developerSettings.showHttpRequestEnabled,
+                                    workingCardViewport = viewportController,
+                                )
+                            }
                         }
                     }
                 }
@@ -1273,7 +1592,7 @@ fun ChatScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
                 }
             }
             val interrupted = recoverable.firstOrNull { candidate ->
-                isRecoveryNoticeCandidate(
+                shouldShowFloatingRecoveryNotice(
                     message = candidate,
                     activeLeafNodeId = conversation?.activeLeafNodeId,
                     dismissedNoticeKey = dismissedRecoveryNoticeKey,
@@ -1337,15 +1656,42 @@ fun ChatScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
                                 TextButton(onClick = { recoveryDetailsMessage = message }) {
                                     Text("Details")
                                 }
-                                TextButton(onClick = {
-                                    dismissedRecoveryNoticeKeys = withDismissedRecoveryNotice(
-                                        dismissedRecoveryNoticeKeys,
-                                        conversation?.id,
-                                        message,
-                                    )
-                                    if (failed) viewModel.retryMessage(message) else viewModel.resume(message)
-                                }) {
-                                    Text(if (failed) "Retry" else "Continue")
+                                val fallbackProviderId = message.providerId
+                                val fallbackModelId = message.modelId
+                                val canEnableFallbackAndRetry =
+                                    failed &&
+                                        shouldOfferToolFallbackForError(message.error) &&
+                                        !fallbackProviderId.isNullOrBlank() &&
+                                        !fallbackModelId.isNullOrBlank() &&
+                                        !toolFallbackSettings.isEnabled(fallbackProviderId, fallbackModelId)
+                                if (canEnableFallbackAndRetry) {
+                                    TextButton(
+                                        onClick = {
+                                            dismissedRecoveryNoticeKeys = withDismissedRecoveryNotice(
+                                                dismissedRecoveryNoticeKeys,
+                                                conversation?.id,
+                                                message,
+                                            )
+                                            viewModel.enableToolCallFallbackForModel(
+                                                fallbackProviderId!!,
+                                                fallbackModelId!!,
+                                            )
+                                            viewModel.retryMessage(message)
+                                        },
+                                    ) {
+                                        Text("Enable fallback & retry")
+                                    }
+                                } else {
+                                    TextButton(onClick = {
+                                        dismissedRecoveryNoticeKeys = withDismissedRecoveryNotice(
+                                            dismissedRecoveryNoticeKeys,
+                                            conversation?.id,
+                                            message,
+                                        )
+                                        if (failed) viewModel.retryMessage(message) else viewModel.resume(message)
+                                    }) {
+                                        Text(if (failed) "Retry" else "Continue")
+                                    }
                                 }
                             }
                         }
@@ -1355,46 +1701,9 @@ fun ChatScreen(viewModel: ChatViewModel, openDrawer: (() -> Unit)?) {
         }
     }
     recoveryDetailsMessage?.let { message ->
-        val dialogContext = LocalContext.current
-        val fullError = message.error?.trim().orEmpty().ifBlank {
-            "No additional diagnostic text was returned by the provider."
-        }
-        TurpAlertDialog(
-            onDismissRequest = { recoveryDetailsMessage = null },
-            title = {
-                Text(if (message.status == MessageStatus.ERROR) "Request error" else "Interrupted response")
-            },
-            text = {
-                Column(
-                    Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Text(
-                        listOfNotNull(message.providerId, message.modelId).joinToString(" · ")
-                            .ifBlank { "Provider details unavailable" },
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    CodeSourcePanel(
-                        language = "text",
-                        code = fullError,
-                        title = if (message.status == MessageStatus.ERROR) "ERROR" else "DETAILS",
-                    )
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    dialogContext.getSystemService(android.content.ClipboardManager::class.java)
-                        .setPrimaryClip(android.content.ClipData.newPlainText("Turp stream error", fullError))
-                }) {
-                    Icon(Icons.Outlined.ContentCopy, null, Modifier.size(17.dp))
-                    Spacer(Modifier.width(5.dp))
-                    Text("Copy")
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { recoveryDetailsMessage = null }) { Text("Close") }
-            },
+        MessageErrorDetailsDialog(
+            message = message,
+            onDismiss = { recoveryDetailsMessage = null },
         )
     }
     if (showChatConfiguration) {
@@ -1426,9 +1735,17 @@ internal fun shouldShowOcrCompatibility(isImage: Boolean, modelSupportsVision: B
 internal fun unsupportedToolCallingNotice(
     modelSupportsTools: Boolean?,
     toolCallingRequested: Boolean,
-): String? = if (modelSupportsTools == false && toolCallingRequested) {
-    "This model doesn't support tool calling. Web, Python, and Linux tools won't run."
-} else null
+    sudoNativeAttempt: Boolean = false,
+    fallbackEnabled: Boolean = false,
+): String? = when {
+    modelSupportsTools != false || !toolCallingRequested -> null
+    fallbackEnabled ->
+        "Native tool calling is not reported for this model. Turp fallback tool calling is enabled and will use the strict fallback protocol instead."
+    sudoNativeAttempt ->
+        "Catalog metadata says this model doesn't support tool calling. Sudo will still try real native tool definitions first; the provider/API may reject them."
+    else ->
+        "Provider/catalog metadata reports native tool calling as unsupported for this model. Enable fallback to let Turp execute tools through its strict fallback protocol."
+}
 
 @Composable
 private fun EmptyConversation(
@@ -1475,6 +1792,101 @@ private fun EmptyConversation(
     }
 }
 
+internal fun developerMessageSource(
+    content: String,
+    reasoning: String,
+    role: String = "",
+    providerId: String? = null,
+    modelId: String? = null,
+    status: String = "",
+    toolTraceJson: String = "",
+    timelineJson: String = "",
+    requestSnapshotJson: String? = null,
+    providerCalls: String = "",
+    error: String? = null,
+    httpRequest: String = "",
+): String {
+    val hasDiagnostics = reasoning.isNotBlank() ||
+        role.isNotBlank() ||
+        !providerId.isNullOrBlank() ||
+        !modelId.isNullOrBlank() ||
+        status.isNotBlank() ||
+        (toolTraceJson.isNotBlank() && toolTraceJson != "[]") ||
+        (timelineJson.isNotBlank() && timelineJson != "[]") ||
+        !requestSnapshotJson.isNullOrBlank() ||
+        providerCalls.isNotBlank() ||
+        !error.isNullOrBlank() ||
+        httpRequest.isNotBlank()
+    if (!hasDiagnostics) return content
+    return buildString {
+        if (role.isNotBlank() || !providerId.isNullOrBlank() || !modelId.isNullOrBlank() || status.isNotBlank()) {
+            appendLine("[MESSAGE METADATA]")
+            if (role.isNotBlank()) append("role: ").appendLine(role)
+            providerId?.takeIf(String::isNotBlank)?.let { append("provider: ").appendLine(it) }
+            modelId?.takeIf(String::isNotBlank)?.let { append("model: ").appendLine(it) }
+            if (status.isNotBlank()) append("status: ").appendLine(status)
+            appendLine()
+        }
+        if (reasoning.isNotBlank()) {
+            appendLine("[PROVIDER REASONING]")
+            appendLine(reasoning)
+            appendLine()
+        }
+        if (toolTraceJson.isNotBlank() && toolTraceJson != "[]") {
+            appendLine("[TOOL TRACE]")
+            appendLine(toolTraceJson)
+            appendLine()
+        }
+        if (timelineJson.isNotBlank() && timelineJson != "[]") {
+            appendLine("[MESSAGE TIMELINE · RAW]")
+            appendLine(timelineJson)
+            appendLine()
+        }
+        requestSnapshotJson?.takeIf(String::isNotBlank)?.let {
+            appendLine("[REQUEST SNAPSHOT]")
+            appendLine(it)
+            appendLine()
+        }
+        if (providerCalls.isNotBlank()) {
+            appendLine("[PROVIDER CALLS]")
+            appendLine(providerCalls)
+            appendLine()
+        }
+        if (httpRequest.isNotBlank()) {
+            appendLine("[DIRECT HTTP REQUEST · REDACTED]")
+            appendLine(httpRequest)
+            appendLine()
+        }
+        error?.takeIf(String::isNotBlank)?.let {
+            appendLine("[ERROR]")
+            appendLine(it)
+            appendLine()
+        }
+        appendLine("[MESSAGE CONTENT]")
+        append(content)
+    }
+}
+
+internal fun developerProviderCallSource(usages: List<GenerationUsageEntity>): String =
+    usages.joinToString("\n\n") { usage ->
+        buildString {
+            append("call_id: ").appendLine(usage.id)
+            append("round: ").appendLine(usage.roundIndex.toString())
+            append("provider: ").appendLine(usage.providerId)
+            append("model: ").appendLine(usage.modelId)
+            append("status: ").appendLine(usage.status)
+            usage.finishReason?.takeIf(String::isNotBlank)?.let {
+                append("finish_reason: ").appendLine(it)
+            }
+            usage.error?.takeIf(String::isNotBlank)?.let {
+                append("error: ").appendLine(it)
+            }
+            append("input_tokens: ").appendLine(usage.inputTokens.toString())
+            append("output_tokens: ").appendLine(usage.outputTokens.toString())
+            append("cached_input_tokens: ").appendLine(usage.cachedInputTokens.toString())
+        }.trimEnd()
+    }
+
 @Composable
 private fun MessageCard(
     message: app.turp.chat.data.MessageEntity,
@@ -1482,17 +1894,22 @@ private fun MessageCard(
     reasoningVisibility: ReasoningVisibility,
     activeModel: ModelEntity?,
     branchOptions: List<MessageEntity>,
+    developerSettings: DeveloperSettings,
+    toolFallbackSettings: ToolCallFallbackSettings,
+    showHttpRequestSource: Boolean,
     modifier: Modifier = Modifier,
     workingCardViewport: WorkingCardViewportController,
 ) {
-    val attachments by viewModel.run { containerAttachments(message.nodeId) }
-        .collectAsStateWithLifecycle(initialValue = emptyList())
+    val attachmentFlow = remember(message.nodeId) { viewModel.observeAttachments(message.nodeId) }
+    val attachments by attachmentFlow.collectAsStateWithLifecycle(
+        initialValue = viewModel.attachmentSnapshot(message.nodeId),
+    )
     val working = message.status == MessageStatus.STREAMING
     val animateStreaming = working
     val user = message.role == MessageRole.USER
     val haptics = rememberTurpHaptics()
-    val encodedTimeline = remember(message.timelineJson) {
-        runCatching { ChatMessageJson.decodeFromString<List<MessageTimelineEvent>>(message.timelineJson) }.getOrDefault(emptyList())
+    val encodedTimeline = remember(message.nodeId, message.timelineJson) {
+        MessageTimelineDecodeCache.decode(message.nodeId, message.timelineJson)
     }
     val rawTimeline = remember(encodedTimeline, message.content, message.reasoning) {
         materializeTimelineContent(encodedTimeline, message.content, message.reasoning)
@@ -1531,11 +1948,20 @@ private fun MessageCard(
         attachments.isEmpty() &&
         !showRecoveryState
     ) return
-    val developerSettings by viewModel.developerSettings.collectAsStateWithLifecycle()
     val sourceControlsEnabled =
         developerSettings.enabled && developerSettings.showMessageSourceEnabled
     var sourceVisible by rememberSaveable("message-source-${message.nodeId}") {
         mutableStateOf(false)
+    }
+    var developerUsage by remember(message.nodeId) {
+        mutableStateOf<List<GenerationUsageEntity>>(emptyList())
+    }
+    LaunchedEffect(sourceControlsEnabled, sourceVisible, message.nodeId, message.updatedAt) {
+        developerUsage = if (sourceControlsEnabled && sourceVisible) {
+            viewModel.generationUsage(message.nodeId)
+        } else {
+            emptyList()
+        }
     }
     LaunchedEffect(sourceControlsEnabled) {
         if (!sourceControlsEnabled) sourceVisible = false
@@ -1543,6 +1969,7 @@ private fun MessageCard(
     var editing by remember(message.nodeId) { mutableStateOf(false) }
     var editedText by remember(message.nodeId) { mutableStateOf(message.content) }
     var copied by remember(message.nodeId) { mutableStateOf(false) }
+    var errorDetailsOpen by rememberSaveable("error-details-" + message.nodeId) { mutableStateOf(false) }
     val context = LocalContext.current
     Row(modifier.fillMaxWidth(), horizontalArrangement = if (user) Arrangement.End else Arrangement.Start) {
         Surface(
@@ -1600,21 +2027,71 @@ private fun MessageCard(
                                 Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.End,
                             ) {
+                                val fallbackProviderId = message.providerId
+                                val fallbackModelId = message.modelId
+                                val canEnableFallbackAndRetry =
+                                    failed &&
+                                        shouldOfferToolFallbackForError(message.error) &&
+                                        !fallbackProviderId.isNullOrBlank() &&
+                                        !fallbackModelId.isNullOrBlank() &&
+                                        !toolFallbackSettings.isEnabled(fallbackProviderId, fallbackModelId)
                                 TextButton(
-                                    onClick = {
-                                        if (failed) viewModel.retryMessage(message) else viewModel.resume(message)
-                                    },
+                                    onClick = { errorDetailsOpen = true },
                                 ) {
-                                    Text(if (failed) "Retry" else "Continue")
+                                    Text("Details")
+                                }
+                                if (canEnableFallbackAndRetry) {
+                                    TextButton(
+                                        onClick = {
+                                            viewModel.enableToolCallFallbackForModel(
+                                                fallbackProviderId!!,
+                                                fallbackModelId!!,
+                                            )
+                                            viewModel.retryMessage(message)
+                                        },
+                                    ) {
+                                        Text("Enable fallback & retry")
+                                    }
+                                } else {
+                                    TextButton(
+                                        onClick = {
+                                            if (failed) viewModel.retryMessage(message) else viewModel.resume(message)
+                                        },
+                                    ) {
+                                        Text(if (failed) "Retry" else "Continue")
+                                    }
                                 }
                             }
                         }
                     }
                 }
                 if (sourceControlsEnabled && sourceVisible) {
+                    val developerHttpTraceText = if (showHttpRequestSource) {
+                        val developerHttpTraces by viewModel.developerHttpTraces.collectAsStateWithLifecycle()
+                        developerHttpTraces[message.nodeId]
+                            .orEmpty()
+                            .joinToString("\n\n") { it.formatted() }
+                    } else {
+                        ""
+                    }
                     CodeSourcePanel(
                         language = "markdown",
-                        code = message.content,
+                        code = developerMessageSource(
+                            content = message.content,
+                            reasoning = message.reasoning,
+                            role = message.role.name,
+                            providerId = message.providerId,
+                            modelId = message.modelId,
+                            status = message.status.name,
+                            toolTraceJson = message.toolTraceJson,
+                            timelineJson = message.timelineJson,
+                            requestSnapshotJson = message.requestSnapshotJson,
+                            providerCalls = developerProviderCallSource(developerUsage),
+                            error = message.error,
+                            httpRequest = if (developerSettings.showHttpRequestEnabled) {
+                                developerHttpTraceText
+                            } else "",
+                        ),
                         title = "MESSAGE SOURCE",
                         live = animateStreaming,
                     )
@@ -1631,6 +2108,8 @@ private fun MessageCard(
                             )
                         }
                     }
+                    val showToolDiagnostics =
+                        developerSettings.enabled && developerSettings.toolDiagnosticsEnabled
                     if (timeline.isNotEmpty()) {
                         OrderedMessageTimeline(
                             messageKey = message.nodeId,
@@ -1639,6 +2118,7 @@ private fun MessageCard(
                             working = working,
                             animateStreaming = animateStreaming,
                             visibility = reasoningVisibility,
+                            showDiagnostics = showToolDiagnostics,
                             viewModel = viewModel,
                             workingCardViewport = workingCardViewport,
                         )
@@ -1648,8 +2128,11 @@ private fun MessageCard(
                             text = displayReasoning,
                             toolTraceJson = message.toolTraceJson,
                             working = working,
+                            messageStartedAt = message.createdAt,
+                            messageFinishedAt = message.updatedAt,
                             animateStreaming = animateStreaming,
                             visibility = reasoningVisibility,
+                            showDiagnostics = showToolDiagnostics,
                             viewModel = viewModel,
                             workingCardViewport = workingCardViewport,
                         )
@@ -1678,7 +2161,13 @@ private fun MessageCard(
                         displayReasoning.isBlank() &&
                         message.toolTraceJson.isBlank()
                     ) {
-                        StreamingTokenPulse(visible = true, label = "Working")
+                        StreamingTokenPulse(
+                            visible = true,
+                            label = liveWorkDurationLabel(
+                                startedAt = message.createdAt,
+                                active = true,
+                            ),
+                        )
                     }
                 }
                 Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
@@ -1746,6 +2235,12 @@ private fun MessageCard(
             }
         }
     }
+    if (errorDetailsOpen) {
+        MessageErrorDetailsDialog(
+            message = message,
+            onDismiss = { errorDetailsOpen = false },
+        )
+    }
     if (editing) TurpAlertDialog(
         onDismissRequest = { editing = false },
         title = { Text("Edit message") },
@@ -1809,6 +2304,7 @@ private fun OrderedMessageTimeline(
     working: Boolean,
     animateStreaming: Boolean,
     visibility: ReasoningVisibility,
+    showDiagnostics: Boolean,
     viewModel: ChatViewModel,
     workingCardViewport: WorkingCardViewportController,
 ) {
@@ -1860,6 +2356,7 @@ private fun OrderedMessageTimeline(
                     visibility = visibility,
                     usedSourceUrls = usedSourceUrls,
                     sourceLinks = sourceLinks,
+                    showDiagnostics = showDiagnostics,
                     viewModel = viewModel,
                     workingCardViewport = workingCardViewport,
                 )
@@ -1909,6 +2406,7 @@ private fun TimelineWorkingBlock(
     visibility: ReasoningVisibility,
     usedSourceUrls: Set<String>,
     sourceLinks: List<TimelineSourceLink>,
+    showDiagnostics: Boolean,
     viewModel: ChatViewModel,
     workingCardViewport: WorkingCardViewportController,
 ) {
@@ -1920,15 +2418,16 @@ private fun TimelineWorkingBlock(
     var previousDefaultExpanded by rememberSaveable("working-default-$stateKey") {
         mutableStateOf(defaultExpanded)
     }
-    var cardBounds by remember(stateKey) { mutableStateOf<Rect?>(null) }
+    var cardCoordinates by remember(stateKey) { mutableStateOf<LayoutCoordinates?>(null) }
+    fun currentCardBounds(): Rect? = cardCoordinates?.boundsInRoot()
     var animateVisibility by remember(stateKey) { mutableStateOf(true) }
-    val cardVisible = workingCardViewport.isVisible(cardBounds)
+    val cardVisible = workingCardViewport.isVisible(currentCardBounds())
     LaunchedEffect(defaultExpanded, cardVisible, workingCardViewport.listScrolling) {
         if (previousDefaultExpanded != defaultExpanded) {
             animateVisibility = cardVisible && !workingCardViewport.listScrolling
             workingCardViewport.applyMutation(
                 if (defaultExpanded) WorkingCardMutation.AUTO_EXPAND else WorkingCardMutation.AUTO_COLLAPSE,
-                { cardBounds },
+                { currentCardBounds() },
             ) {
                 expanded = defaultExpanded
             }
@@ -1944,14 +2443,16 @@ private fun TimelineWorkingBlock(
             animateVisibility = true
             workingCardViewport.applyMutation(
                 if (expanded) WorkingCardMutation.MANUAL_COLLAPSE else WorkingCardMutation.MANUAL_EXPAND,
-                { cardBounds },
+                { currentCardBounds() },
             ) {
                 expanded = !expanded
             }
         },
         color = MaterialTheme.colorScheme.surfaceContainer,
         shape = MaterialTheme.shapes.medium,
-        modifier = Modifier.fillMaxWidth().onGloballyPositioned { cardBounds = it.boundsInRoot() },
+        modifier = Modifier.fillMaxWidth().onGloballyPositioned { coordinates ->
+            if (cardCoordinates !== coordinates) cardCoordinates = coordinates
+        },
     ) {
         Column(Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1962,8 +2463,15 @@ private fun TimelineWorkingBlock(
                     Icon(Icons.Outlined.Check, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
                 }
                 Column(Modifier.padding(start = 9.dp).weight(1f)) {
+                    val startedAt = events.minOfOrNull(MessageTimelineEvent::startedAt) ?: 0L
+                    val finishedAt = events.mapNotNull(MessageTimelineEvent::finishedAt).maxOrNull()
+                        ?: events.maxOfOrNull(MessageTimelineEvent::startedAt)
                     Text(
-                        workingBlockHeadline(events, active),
+                        liveWorkDurationLabel(
+                            startedAt = startedAt,
+                            active = active,
+                            finishedAt = finishedAt,
+                        ),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
                     )
@@ -1998,6 +2506,7 @@ private fun TimelineWorkingBlock(
                             superseded = superseded,
                             usedSourceUrls = usedSourceUrls,
                             sourceLinks = sourceLinks,
+                            showDiagnostics = showDiagnostics,
                             viewModel = viewModel,
                             workingCardViewport = workingCardViewport,
                         )
@@ -2017,6 +2526,7 @@ private fun TimelineWorkStep(
     superseded: Boolean,
     usedSourceUrls: Set<String>,
     sourceLinks: List<TimelineSourceLink>,
+    showDiagnostics: Boolean,
     viewModel: ChatViewModel,
     workingCardViewport: WorkingCardViewportController,
 ) {
@@ -2108,6 +2618,7 @@ private fun TimelineWorkStep(
                                     event.status,
                                     usedSourceUrls,
                                     sourceLinks,
+                                    showDiagnostics,
                                     viewModel,
                                     workingCardViewport,
                                 )
@@ -2145,15 +2656,16 @@ private fun LegacyWorkingBlock(
     text: String,
     toolTraceJson: String,
     working: Boolean,
+    messageStartedAt: Long,
+    messageFinishedAt: Long,
     animateStreaming: Boolean,
     visibility: ReasoningVisibility,
+    showDiagnostics: Boolean,
     viewModel: ChatViewModel,
     workingCardViewport: WorkingCardViewportController,
 ) {
-    val developerSettings by viewModel.developerSettings.collectAsStateWithLifecycle()
-    val showDiagnostics = developerSettings.enabled && developerSettings.toolDiagnosticsEnabled
-    val traces = remember(toolTraceJson) {
-        runCatching { ChatMessageJson.decodeFromString<List<ToolTraceEvent>>(toolTraceJson) }.getOrDefault(emptyList())
+    val traces = remember(messageKey, toolTraceJson) {
+        ToolTraceDecodeCache.decode(messageKey, toolTraceJson)
     }
     val hasContent = text.isNotBlank() || traces.isNotEmpty()
     if (!hasContent) return
@@ -2164,15 +2676,16 @@ private fun LegacyWorkingBlock(
     var previousDefaultExpanded by rememberSaveable("legacy-working-default-$messageKey") {
         mutableStateOf(defaultExpanded)
     }
-    var cardBounds by remember(messageKey) { mutableStateOf<Rect?>(null) }
+    var cardCoordinates by remember(messageKey) { mutableStateOf<LayoutCoordinates?>(null) }
+    fun currentCardBounds(): Rect? = cardCoordinates?.boundsInRoot()
     var animateVisibility by remember(messageKey) { mutableStateOf(true) }
-    val cardVisible = workingCardViewport.isVisible(cardBounds)
+    val cardVisible = workingCardViewport.isVisible(currentCardBounds())
     LaunchedEffect(defaultExpanded, cardVisible, workingCardViewport.listScrolling) {
         if (previousDefaultExpanded != defaultExpanded) {
             animateVisibility = cardVisible && !workingCardViewport.listScrolling
             workingCardViewport.applyMutation(
                 if (defaultExpanded) WorkingCardMutation.AUTO_EXPAND else WorkingCardMutation.AUTO_COLLAPSE,
-                { cardBounds },
+                { currentCardBounds() },
             ) {
                 expanded = defaultExpanded
             }
@@ -2188,14 +2701,16 @@ private fun LegacyWorkingBlock(
             animateVisibility = true
             workingCardViewport.applyMutation(
                 if (expanded) WorkingCardMutation.MANUAL_COLLAPSE else WorkingCardMutation.MANUAL_EXPAND,
-                { cardBounds },
+                { currentCardBounds() },
             ) {
                 expanded = !expanded
             }
         },
         color = MaterialTheme.colorScheme.surfaceContainer,
         shape = MaterialTheme.shapes.medium,
-        modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp).onGloballyPositioned { cardBounds = it.boundsInRoot() },
+        modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp).onGloballyPositioned { coordinates ->
+            if (cardCoordinates !== coordinates) cardCoordinates = coordinates
+        },
     ) {
         Column(Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -2206,17 +2721,29 @@ private fun LegacyWorkingBlock(
                     Icon(Icons.Outlined.Check, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
                 }
                 Column(Modifier.padding(start = 9.dp).weight(1f)) {
+                    val legacyStartedAt = traces.minOfOrNull(ToolTraceEvent::startedAt)
+                        ?: messageStartedAt
+                    val legacyFinishedAt = traces.mapNotNull(ToolTraceEvent::finishedAt).maxOrNull()
+                        ?: messageFinishedAt
                     Text(
-                        when {
-                            working -> traces.lastOrNull()?.label?.takeIf(String::isNotBlank) ?: "Reasoning"
-                            traces.any { it.status == "error" } -> "Finished with an error"
-                            else -> "Work complete"
-                        },
+                        liveWorkDurationLabel(
+                            startedAt = legacyStartedAt,
+                            active = working,
+                            finishedAt = legacyFinishedAt,
+                        ),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
-                        if (working) "Running" else "${traces.size + if (text.isNotBlank()) 1 else 0} steps",
+                        if (working) {
+                            traces.lastOrNull()?.label?.takeIf(String::isNotBlank) ?: "Reasoning"
+                        } else {
+                            buildString {
+                                append(traces.size + if (text.isNotBlank()) 1 else 0).append(" steps")
+                                val errors = traces.count { it.status == "error" }
+                                if (errors > 0) append(" • ").append(errors).append(if (errors == 1) " error" else " errors")
+                            }
+                        },
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -2277,11 +2804,10 @@ private fun ToolStepDetails(
     status: String,
     usedSourceUrls: Set<String>,
     sourceLinks: List<TimelineSourceLink>,
+    showDiagnostics: Boolean,
     viewModel: ChatViewModel,
     workingCardViewport: WorkingCardViewportController,
 ) {
-    val developerSettings by viewModel.developerSettings.collectAsStateWithLifecycle()
-    val showDiagnostics = developerSettings.enabled && developerSettings.toolDiagnosticsEnabled
     val language = if (kind == "python") "python" else if (kind == "ubuntu") "bash" else "text"
     when (kind) {
         "search", "native_search" -> CompactSearchToolCard(
@@ -2324,7 +2850,12 @@ private fun ToolStepDetails(
                         val patch = runCatching { json.decodeFromString<AppliedPatchResult>(output) }.getOrNull()
                         val read = runCatching { json.decodeFromString<WorkspaceReadResult>(output) }.getOrNull()
                         when {
-                            run != null -> ScriptRunActivityCard(run, viewModel, workingCardViewport)
+                            run != null -> ScriptRunActivityCard(
+                                run,
+                                viewModel,
+                                workingCardViewport,
+                                showDiagnostics,
+                            )
                             patch != null -> GenericToolOutputCard(
                                 if (showDiagnostics) {
                                     "${patch.summary}\nRevision ${patch.revision ?: "workspace"} · ${patch.sourceSha256}"
@@ -2379,17 +2910,21 @@ private fun ToolStepDetails(
 }
 
 @Composable
-private fun ScriptRunActivityCard(initial: ScriptRunResult, viewModel: ChatViewModel, workingCardViewport: WorkingCardViewportController) {
+private fun ScriptRunActivityCard(
+    initial: ScriptRunResult,
+    viewModel: ChatViewModel,
+    workingCardViewport: WorkingCardViewportController,
+    showDiagnostics: Boolean,
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val developerSettings by viewModel.developerSettings.collectAsStateWithLifecycle()
-    val showDiagnostics = developerSettings.enabled && developerSettings.toolDiagnosticsEnabled
     var results by remember(initial.runId) { mutableStateOf(listOf(initial)) }
     var source by remember(initial.runId) { mutableStateOf<String?>(null) }
     var error by remember(initial.runId) { mutableStateOf("") }
     var rerunJob by remember(initial.runId) { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     var detailsOpen by rememberSaveable("script-details-${initial.runId}") { mutableStateOf(false) }
-    var cardBounds by remember(initial.runId) { mutableStateOf<Rect?>(null) }
+    var cardCoordinates by remember(initial.runId) { mutableStateOf<LayoutCoordinates?>(null) }
+    fun currentCardBounds(): Rect? = cardCoordinates?.boundsInRoot()
     val latest = results.last()
     val failed = latest.exitCode != 0 || latest.timedOut || latest.cancelled
     val diagnostics = latest.diagnostic.ifBlank { latest.stderrTail }.takeLast(4_000)
@@ -2397,7 +2932,9 @@ private fun ScriptRunActivityCard(initial: ScriptRunResult, viewModel: ChatViewM
         modifier = Modifier
             .fillMaxWidth()
             .noOpBringIntoView()
-            .onGloballyPositioned { cardBounds = it.boundsInRoot() },
+            .onGloballyPositioned { coordinates ->
+                if (cardCoordinates !== coordinates) cardCoordinates = coordinates
+            },
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Text(
@@ -2427,7 +2964,7 @@ private fun ScriptRunActivityCard(initial: ScriptRunResult, viewModel: ChatViewM
                     rerunJob = scope.launch {
                         runCatching { viewModel.rerunRecordedScript(initial.runId) }
                             .onSuccess { completed ->
-                                workingCardViewport.applyMutation(WorkingCardMutation.AUTO_EXPAND, { cardBounds }) {
+                                workingCardViewport.applyMutation(WorkingCardMutation.AUTO_EXPAND, { currentCardBounds() }) {
                                     results = results + completed
                                 }
                             }
@@ -2435,7 +2972,7 @@ private fun ScriptRunActivityCard(initial: ScriptRunResult, viewModel: ChatViewM
                                 if (failure !is CancellationException) {
                                     workingCardViewport.applyMutation(
                                         WorkingCardMutation.AUTO_EXPAND,
-                                        { cardBounds },
+                                        { currentCardBounds() },
                                     ) {
                                         error = failure.message.orEmpty()
                                     }
@@ -2870,8 +3407,10 @@ private fun Composer(
     val conversation by viewModel.conversation.collectAsStateWithLifecycle()
     val chromeBlurStrength by viewModel.chromeBlurStrength.collectAsStateWithLifecycle()
     val chromeEdgeSoftness by viewModel.chromeEdgeSoftness.collectAsStateWithLifecycle()
-    val chromeOverlayOpacity by viewModel.chromeOverlayOpacity.collectAsStateWithLifecycle()
+    val promptBarBackgroundStyle by viewModel.promptBarBackgroundStyle.collectAsStateWithLifecycle()
+    val promptBarBackgroundOpacity by viewModel.promptBarBackgroundOpacity.collectAsStateWithLifecycle()
     val developerSettings by viewModel.developerSettings.collectAsStateWithLifecycle()
+    val toolFallbackSettings by viewModel.toolCallFallbackSettings.collectAsStateWithLifecycle()
     val draft by viewModel.draft.collectAsState()
     val staged by viewModel.stagedAttachments.collectAsState()
     val importing by viewModel.importing.collectAsState()
@@ -2885,6 +3424,21 @@ private fun Composer(
     val imageGenerationMode = model?.supportsImageGeneration == true
     val imageGenerationBlocked = imageGenerationMode && staged.isNotEmpty()
     val hasPayload = draft.isNotBlank() && !imageGenerationBlocked || (!imageGenerationMode && staged.isNotEmpty())
+    var generationStartedAt by remember(conversation?.id) {
+        mutableStateOf<Long?>(if (generating) System.currentTimeMillis() else null)
+    }
+    LaunchedEffect(generating, conversation?.id) {
+        if (generating) {
+            if (generationStartedAt == null) generationStartedAt = System.currentTimeMillis()
+        } else {
+            generationStartedAt = null
+        }
+    }
+    val composerWorkingLabel = if (generationStartedAt != null) {
+        liveWorkDurationLabel(startedAt = generationStartedAt!!, active = generating)
+    } else {
+        "Working for 0 seconds"
+    }
 
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         uris.forEach(viewModel::import)
@@ -2909,20 +3463,7 @@ private fun Composer(
     }
 
     Box(Modifier.fillMaxWidth().imePadding()) {
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .turpBackdropBlur(
-                    state = blurState,
-                    strength = chromeBlurStrength,
-                    edgeSoftness = chromeEdgeSoftness,
-                    overlayOpacity = chromeOverlayOpacity,
-                    tint = MaterialTheme.colorScheme.surface.copy(alpha = 0.46f),
-                    edge = TurpBlurEdge.BOTTOM,
-                    panelHeight = CHAT_COMPOSER_MIN_PANEL_HEIGHT_DP.dp,
-                    expandToMeasuredHeight = true,
-                ),
-        ) {
+        Box(Modifier.fillMaxWidth()) {
             Column(Modifier.navigationBarsPadding().padding(horizontal = 10.dp, vertical = 8.dp)) {
             if (generating || pending.isNotEmpty()) {
                 Surface(
@@ -2941,8 +3482,8 @@ private fun Composer(
                         }
                         Text(
                             when {
-                                generating && pending.isNotEmpty() -> "Working · ${pending.size} queued"
-                                generating -> "Working"
+                                generating && pending.isNotEmpty() -> "$composerWorkingLabel · ${pending.size} queued"
+                                generating -> composerWorkingLabel
                                 else -> "${pending.size} queued"
                             },
                             modifier = Modifier.padding(start = 9.dp).weight(1f),
@@ -3002,34 +3543,61 @@ private fun Composer(
                         }
                     }
                 }
+                val sudoNativeAttempt =
+                    developerSettings.enabled &&
+                        developerSettings.sudoModeControlEnabled &&
+                        current.sudoModeEnabled
+                val fallbackEnabledForModel = model?.let {
+                    toolFallbackSettings.isEnabled(it.providerId, it.modelId)
+                } == true
                 if (!imageGenerationMode) unsupportedToolCallingNotice(
                     modelSupportsTools = model?.supportsTools,
                     toolCallingRequested = current.webSearchEnabled ||
                         current.deepResearchEnabled ||
                         current.agentPythonEnabled ||
                         current.agentUbuntuEnabled,
+                    sudoNativeAttempt = sudoNativeAttempt,
+                    fallbackEnabled = fallbackEnabledForModel,
                 )?.let { notice ->
+                    val canEnableFallback = !fallbackEnabledForModel && provider != null && model != null
                     Surface(
-                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = .72f),
+                        color = if (fallbackEnabledForModel) {
+                            MaterialTheme.colorScheme.secondaryContainer.copy(alpha = .72f)
+                        } else {
+                            MaterialTheme.colorScheme.errorContainer.copy(alpha = .72f)
+                        },
                         shape = MaterialTheme.shapes.large,
                         modifier = Modifier.fillMaxWidth().padding(bottom = 7.dp),
                     ) {
-                        Row(
+                        Column(
                             Modifier.padding(horizontal = 11.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
-                            Icon(
-                                Icons.Outlined.WarningAmber,
-                                null,
-                                Modifier.size(18.dp),
-                                tint = MaterialTheme.colorScheme.onErrorContainer,
-                            )
-                            Text(
-                                notice,
-                                Modifier.padding(start = 8.dp),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onErrorContainer,
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    if (fallbackEnabledForModel) Icons.Outlined.Build else Icons.Outlined.WarningAmber,
+                                    null,
+                                    Modifier.size(18.dp),
+                                )
+                                Text(
+                                    notice,
+                                    Modifier.padding(start = 8.dp).weight(1f),
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                            if (canEnableFallback) {
+                                TextButton(
+                                    onClick = {
+                                        viewModel.enableToolCallFallbackForModel(
+                                            provider!!.id,
+                                            model!!.modelId,
+                                        )
+                                    },
+                                    modifier = Modifier.align(Alignment.End),
+                                ) {
+                                    Text("Enable fallback for this model")
+                                }
+                            }
                         }
                     }
                 }
@@ -3080,65 +3648,132 @@ private fun Composer(
                 }
             }
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = {
-                    haptics.tap()
-                    plusMenu = true
-                }, enabled = !importing && providerConfigured && !imageGenerationMode) {
-                    Icon(
-                        Icons.Outlined.Add,
-                        if (imageGenerationMode) "Attachments are unavailable in image generation mode"
-                        else "Attachments and tools",
+            val promptShellShape = RoundedCornerShape(30.dp)
+            val promptShellOutline = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.72f)
+            val promptShellModifier = when (promptBarBackgroundStyle) {
+                PromptBarBackgroundStyle.BLURRED -> Modifier
+                    .fillMaxWidth()
+                    .turpBackdropBlur(
+                        state = blurState,
+                        strength = chromeBlurStrength,
+                        edgeSoftness = chromeEdgeSoftness,
+                        overlayOpacity = promptBarBackgroundOpacity,
+                        tint = MaterialTheme.colorScheme.surface,
+                        edge = TurpBlurEdge.BOTTOM,
+                        panelHeight = 64.dp,
+                        cornerRadius = 30.dp,
+                        expandToMeasuredHeight = true,
+                        floating = true,
                     )
-                }
-                OutlinedTextField(
-                    value = draft,
-                    onValueChange = viewModel::setDraft,
-                    enabled = providerConfigured,
-                    placeholder = {
-                        Text(
-                            if (generating) "Add direction…"
-                            else if (imageGenerationBlocked) "Remove attachments to generate an image"
-                            else if (imageGenerationMode) "Describe an image to generate…"
-                            else if (conversation?.deepResearchEnabled == true) "Research request…"
-                            else "Message Turp…",
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    },
-                    modifier = Modifier.weight(1f).heightIn(min = 54.dp, max = 170.dp),
-                    shape = MaterialTheme.shapes.extraLarge,
-                    maxLines = 7,
-                )
-                Spacer(Modifier.width(6.dp))
-                Surface(
-                    shape = CircleShape,
-                    color = if (providerConfigured && hasPayload && !importing) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.surfaceContainerHighest,
-                    contentColor = if (providerConfigured && hasPayload && !importing) MaterialTheme.colorScheme.onPrimary
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(48.dp).combinedClickable(
-                        enabled = providerConfigured && hasPayload && !importing,
-                        onClick = {
-                            haptics.confirm()
-                            onImmediateSend()
-                            viewModel.send(if (generating) SendMode.STEER else SendMode.SEND_NOW)
-                        },
-                        onLongClick = {
-                            haptics.longPress()
-                            sendMenu = true
-                        },
-                    ),
+                    .clip(promptShellShape)
+                    .border(1.dp, promptShellOutline, promptShellShape)
+                PromptBarBackgroundStyle.SOLID -> Modifier
+                    .fillMaxWidth()
+                    .clip(promptShellShape)
+                    .background(
+                        MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = promptBarBackgroundOpacity),
+                    )
+                    .border(1.dp, promptShellOutline, promptShellShape)
+                PromptBarBackgroundStyle.TRANSPARENT -> Modifier
+                    .fillMaxWidth()
+                    .clip(promptShellShape)
+                    .border(1.dp, promptShellOutline, promptShellShape)
+            }
+
+            Box(promptShellModifier) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(start = 4.dp, top = 4.dp, end = 5.dp, bottom = 4.dp),
+                    verticalAlignment = Alignment.Bottom,
                 ) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    IconButton(
+                        onClick = {
+                            haptics.tap()
+                            plusMenu = true
+                        },
+                        enabled = !importing && providerConfigured && !imageGenerationMode,
+                        modifier = Modifier.size(48.dp),
+                    ) {
                         Icon(
-                            if (generating) Icons.AutoMirrored.Outlined.AltRoute
-                            else if (imageGenerationMode) Icons.Outlined.Image
-                            else Icons.Filled.ArrowUpward,
-                            if (generating) "Steer current response"
-                            else if (imageGenerationMode) "Generate image"
-                            else "Send",
+                            Icons.Outlined.Add,
+                            if (imageGenerationMode) "Attachments are unavailable in image generation mode"
+                            else "Attachments and tools",
                         )
+                    }
+
+                    val promptPlaceholder = when {
+                        generating -> "Add direction…"
+                        imageGenerationBlocked -> "Remove attachments to generate an image"
+                        imageGenerationMode -> "Describe an image to generate…"
+                        conversation?.deepResearchEnabled == true -> "Research request…"
+                        else -> "Message Turp…"
+                    }
+                    BasicTextField(
+                        value = draft,
+                        onValueChange = viewModel::setDraft,
+                        enabled = providerConfigured,
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 48.dp, max = 164.dp)
+                            .padding(horizontal = 8.dp),
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(
+                            color = if (providerConfigured) MaterialTheme.colorScheme.onSurface
+                            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+                        ),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                        minLines = 1,
+                        maxLines = 7,
+                        decorationBox = { innerTextField ->
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 48.dp)
+                                    .padding(vertical = 13.dp),
+                                contentAlignment = Alignment.CenterStart,
+                            ) {
+                                if (draft.isEmpty()) {
+                                    Text(
+                                        promptPlaceholder,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        },
+                    )
+
+                    Surface(
+                        shape = CircleShape,
+                        color = if (providerConfigured && hasPayload && !importing) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.surfaceContainerHighest,
+                        contentColor = if (providerConfigured && hasPayload && !importing) MaterialTheme.colorScheme.onPrimary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(48.dp).combinedClickable(
+                            enabled = providerConfigured && hasPayload && !importing,
+                            onClick = {
+                                haptics.confirm()
+                                onImmediateSend()
+                                viewModel.send(if (generating) SendMode.STEER else SendMode.SEND_NOW)
+                            },
+                            onLongClick = {
+                                haptics.longPress()
+                                sendMenu = true
+                            },
+                        ),
+                    ) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Icon(
+                                if (generating) Icons.AutoMirrored.Outlined.AltRoute
+                                else if (imageGenerationMode) Icons.Outlined.Image
+                                else Icons.Filled.ArrowUpward,
+                                if (generating) "Steer current response"
+                                else if (imageGenerationMode) "Generate image"
+                                else "Send",
+                            )
+                        }
                     }
                 }
             }
@@ -3197,7 +3832,7 @@ private fun Composer(
                         ComposerToggleRow(
                             icon = Icons.Outlined.Security,
                             title = "Sudo mode",
-                            subtitle = "Promote the latest user turn to system priority while Sudo is enabled",
+                            subtitle = "Promote the latest user turn and force native tool attempts even when catalog metadata says unsupported",
                             checked = current.sudoModeEnabled,
                             onCheckedChange = { enabled ->
                                 viewModel.updateConversation { it.copy(sudoModeEnabled = enabled) }
@@ -3769,4 +4404,3 @@ private fun ComposerToggleRow(
     )
 }
 
-private fun ChatViewModel.containerAttachments(nodeId: String) = observeAttachments(nodeId)

@@ -9,9 +9,13 @@ import android.graphics.Paint
 import android.graphics.Typeface
 import android.graphics.RectF
 import android.graphics.Color as AndroidColor
+import android.os.Process
+import android.text.Layout
+import android.text.Selection
 import android.text.Spannable
 import android.text.SpannableString
 import android.text.Spanned
+import android.text.TextDirectionHeuristics
 import android.text.TextPaint
 import android.text.method.ArrowKeyMovementMethod
 import android.text.style.ClickableSpan
@@ -65,11 +69,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
@@ -79,6 +85,8 @@ import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.net.toUri
+import androidx.core.text.PrecomputedTextCompat
+import androidx.core.widget.TextViewCompat
 import app.turp.chat.sandbox.ExecutionResult
 import app.turp.chat.sandbox.ExecutionProgress
 import app.turp.chat.sandbox.PackageInstallResult
@@ -102,7 +110,9 @@ import io.noties.markwon.ext.strikethrough.StrikethroughPlugin
 import io.noties.markwon.ext.tables.TablePlugin
 import io.noties.markwon.ext.tasklist.TaskListPlugin
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.conflate
@@ -112,6 +122,8 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.net.URLEncoder
+import java.util.concurrent.Executors
+import java.util.LinkedHashMap
 import kotlin.math.roundToInt
 
 private val MarkdownTableStreamHint = Regex(
@@ -147,6 +159,75 @@ internal data class StableRichBlock(
     val block: RichBlock,
     val liveTail: Boolean,
 )
+
+private object CompletedRichBlockCache {
+    private data class Entry(
+        val source: String,
+        val blocks: List<StableRichBlock>,
+    )
+
+    private val entries = object : LinkedHashMap<String, Entry>(48, 0.75f, true) {
+        override fun removeEldestEntry(
+            eldest: MutableMap.MutableEntry<String, Entry>?,
+        ): Boolean = size > 48
+    }
+
+    @Synchronized
+    fun get(scope: String, source: String): List<StableRichBlock>? =
+        entries[scope]?.takeIf { it.source == source }?.blocks
+
+    fun getOrParse(scope: String, source: String): List<StableRichBlock> {
+        get(scope, source)?.let { return it }
+        val parsed = parseBlocks(source, streaming = false).mapIndexed { index, block ->
+            StableRichBlock(
+                key = "complete-$index",
+                block = block,
+                liveTail = false,
+            )
+        }
+        synchronized(this) {
+            entries[scope] = Entry(source, parsed)
+        }
+        return parsed
+    }
+}
+
+internal fun prewarmRichMessageBlocks(scope: String, source: String) {
+    if (source.isBlank()) return
+    CompletedRichBlockCache.getOrParse(scope, source)
+}
+
+internal fun prewarmRichMessageRendering(context: Context, scope: String, source: String) {
+    if (source.isBlank()) return
+    val blocks = CompletedRichBlockCache.getOrParse(scope, source)
+    val markwon = TurpMarkwonCache.get(context.applicationContext)
+    blocks.forEach { stable ->
+        when (val block = stable.block) {
+            is RichBlock.Markdown -> {
+                val rendered = renderMarkdownLinksLiterally(block.text)
+                RenderedMarkdownCache.getOrRender(markwon, rendered)
+            }
+            is RichBlock.Table -> {
+                // Native tables otherwise parse rows/cells as they cross into view.
+                // Do that work in the existing background message-prewarm pass.
+                if (block.text.length <= CompletedTablePreviewMaxChars) {
+                    val rows = MarkdownTableRowsCache.getOrParse(block.text)
+                    rows.asSequence()
+                        .flatten()
+                        .take(256)
+                        .forEach { cell ->
+                            RenderedMarkdownCache.getOrRender(markwon, cell)
+                        }
+                }
+            }
+            is RichBlock.Code -> {
+                if (block.complete && block.code.length <= 256_000) {
+                    prewarmSyntaxHighlight(block.language, block.code)
+                }
+            }
+        }
+    }
+}
 
 /**
  * Append-only parser state for a single streamed response. Completed Markdown
@@ -288,7 +369,15 @@ internal fun RichMessage(
     }
 
     val incrementalParser = remember(operationScope) { IncrementalRichTextParser() }
-    var blocks by remember(operationScope) { mutableStateOf<List<StableRichBlock>>(emptyList()) }
+    var blocks by remember(operationScope) {
+        mutableStateOf(
+            if (!streaming && !staticContent) {
+                CompletedRichBlockCache.get(operationScope, text).orEmpty()
+            } else {
+                emptyList()
+            },
+        )
+    }
     // LaunchedEffect itself is intentionally keyed only by the message scope so
     // one serial parser survives the entire response. The values consumed by
     // snapshotFlow must be State objects, though: closing over the plain String
@@ -305,14 +394,19 @@ internal fun RichMessage(
                 // obsolete token snapshots while guaranteeing that the newest
                 // table state and any Markdown after it are eventually applied.
                 blocks = withContext(Dispatchers.Default) {
-                    incrementalParser.update(source, active)
+                    if (active) {
+                        incrementalParser.update(source, streaming = true)
+                    } else {
+                        CompletedRichBlockCache.getOrParse(operationScope, source)
+                    }
                 }
             }
     }
     val staticBlocks = remember(operationScope, renderedText, staticContent) {
-        if (!staticContent) emptyList()
-        else parseBlocks(renderedText, streaming = false).mapIndexed { index, block ->
-            StableRichBlock("static-$index", block, liveTail = false)
+        if (!staticContent) {
+            emptyList()
+        } else {
+            CompletedRichBlockCache.getOrParse(operationScope, renderedText)
         }
     }
     val visibleBlocks = if (staticContent) staticBlocks else blocks
@@ -356,7 +450,14 @@ internal fun RichMessage(
                     ) {
                         val operationKey = "$operationScope:${parsed.key}"
                         if (!shouldExecuteRichCodeBlock(displayOnly, block.complete)) {
-                            CodeBlock(block.language, block.code, onRunPython, onRunUbuntu, executable = false)
+                            CodeBlock(
+                                block.language,
+                                block.code,
+                                onRunPython,
+                                onRunUbuntu,
+                                executable = false,
+                                streaming = live,
+                            )
                         } else when (block.language.lowercase()) {
                             "mermaid", "graph", "diagram", "dot", "graphviz",
                             "chart", "turp-chart", "bar-chart", "barchart", "line-chart", "pie-chart",
@@ -418,7 +519,13 @@ internal fun RichMessage(
                                     )
                                 },
                             )
-                            else -> CodeBlock(block.language, block.code, onRunPython, onRunUbuntu)
+                            else -> CodeBlock(
+                                block.language,
+                                block.code,
+                                onRunPython,
+                                onRunUbuntu,
+                                streaming = live,
+                            )
                         }
                     }
                 }
@@ -790,6 +897,7 @@ internal fun MarkdownBlock(
                 selectionColor = selectionColor,
                 onReference = { pendingReference = it },
                 modifier = Modifier.fillMaxWidth(),
+                precompute = !streaming,
             )
         }
     }
@@ -1041,6 +1149,34 @@ internal fun parseMarkdownTableRows(markdown: String): List<List<String>> =
         .filter { it.isNotEmpty() }
         .toList()
 
+private object MarkdownTableRowsCache {
+    private data class Entry(
+        val source: String,
+        val rows: List<List<String>>,
+    )
+
+    private val entries = object : LinkedHashMap<Int, Entry>(48, 0.75f, true) {
+        override fun removeEldestEntry(
+            eldest: MutableMap.MutableEntry<Int, Entry>?,
+        ): Boolean = size > 48
+    }
+
+    @Synchronized
+    fun get(markdown: String): List<List<String>>? {
+        val key = (markdown.hashCode() * 31) + markdown.length
+        return entries[key]?.takeIf { it.source == markdown }?.rows
+    }
+
+    @Synchronized
+    fun getOrParse(markdown: String): List<List<String>> {
+        val key = (markdown.hashCode() * 31) + markdown.length
+        entries[key]?.takeIf { it.source == markdown }?.let { return it.rows }
+        val rows = parseMarkdownTableRows(markdown)
+        entries[key] = Entry(markdown, rows)
+        return rows
+    }
+}
+
 internal fun markdownTableColumnWidthsDp(
     rows: List<List<String>>,
     viewportDp: Int,
@@ -1084,7 +1220,14 @@ private fun NativeMarkdownTable(
     markdown: String,
     onReference: (LinkReferencePreview) -> Unit,
 ) {
-    val rows = remember(markdown) { parseMarkdownTableRows(markdown) }
+    val deferRichHydration = LocalDeferRichHydration.current
+    val rows = remember(markdown, deferRichHydration) {
+        if (deferRichHydration) {
+            MarkdownTableRowsCache.get(markdown).orEmpty()
+        } else {
+            MarkdownTableRowsCache.getOrParse(markdown)
+        }
+    }
     if (rows.isEmpty()) {
         LightweightTableText(markdown = markdown, streaming = false)
         return
@@ -1317,8 +1460,8 @@ private fun LightweightTableText(
                 setLineSpacing(0f, 1.04f)
             }
         },
-        onReset = { it.resetForReuse() },
-        onRelease = { it.resetForReuse() },
+        onReset = { it.prepareForReuse() },
+        onRelease = { it.resetForRelease() },
         update = { view ->
             val appearanceKey = ((color * 31) + selectionColor) * 31 + textSizeSp.toBits()
             if (view.appliedStyleKey != appearanceKey) {
@@ -1387,8 +1530,8 @@ internal fun StreamingPlainText(
                 setLineSpacing(0f, 1.08f)
             }
         },
-        onReset = { it.resetForReuse() },
-        onRelease = { it.resetForReuse() },
+        onReset = { it.prepareForReuse() },
+        onRelease = { it.resetForRelease() },
         update = { view ->
             val appearanceKey = ((color * 31) + selectionColor) * 31 + textSizeSp.toBits()
             if (view.appliedStyleKey != appearanceKey) {
@@ -1406,10 +1549,131 @@ internal fun StreamingPlainText(
     )
 }
 
+internal val LocalDeferRichHydration = staticCompositionLocalOf { false }
+
+internal val ChatRenderPrewarmDispatcher: CoroutineDispatcher by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+    Executors.newSingleThreadExecutor { worker ->
+        Thread(
+            {
+                Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
+                worker.run()
+            },
+            "Turp-Chat-Render",
+        ).apply {
+            isDaemon = true
+            priority = Thread.MIN_PRIORITY
+        }
+    }.asCoroutineDispatcher()
+}
+
 private data class ParsedMarkdownSource(
     val source: String,
     val spanned: Spanned,
 )
+
+private data class PreparedMarkdownSource(
+    val source: String,
+    val spanned: Spanned,
+    val precomputed: PrecomputedTextCompat?,
+)
+
+private object PreparedMarkdownCache {
+    private data class CacheKey(
+        val hash: Int,
+        val length: Int,
+        val metricsKey: Int,
+        val linkColor: Int,
+        val pillBackground: Int,
+        val pillForeground: Int,
+    )
+
+    private val entries = object : LinkedHashMap<CacheKey, PreparedMarkdownSource>(64, 0.75f, true) {
+        override fun removeEldestEntry(
+            eldest: MutableMap.MutableEntry<CacheKey, PreparedMarkdownSource>?,
+        ): Boolean = size > 64
+    }
+
+    private fun key(
+        source: String,
+        metricsKey: Int,
+        linkColor: Int,
+        pillBackground: Int,
+        pillForeground: Int,
+    ) = CacheKey(
+        hash = source.hashCode(),
+        length = source.length,
+        metricsKey = metricsKey,
+        linkColor = linkColor,
+        pillBackground = pillBackground,
+        pillForeground = pillForeground,
+    )
+
+    @Synchronized
+    fun get(
+        source: String,
+        metricsKey: Int,
+        linkColor: Int,
+        pillBackground: Int,
+        pillForeground: Int,
+    ): PreparedMarkdownSource? =
+        entries[key(source, metricsKey, linkColor, pillBackground, pillForeground)]
+            ?.takeIf { it.source == source }
+
+    @Synchronized
+    fun put(
+        source: String,
+        metricsKey: Int,
+        linkColor: Int,
+        pillBackground: Int,
+        pillForeground: Int,
+        prepared: PreparedMarkdownSource,
+    ) {
+        entries[key(source, metricsKey, linkColor, pillBackground, pillForeground)] = prepared
+    }
+}
+
+private fun markdownTextMetricsParams(context: Context): PrecomputedTextCompat.Params {
+    val metrics = context.resources.displayMetrics
+    val paint = TextPaint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
+        textSize = 16f * metrics.scaledDensity
+        typeface = Typeface.DEFAULT
+    }
+    return PrecomputedTextCompat.Params.Builder(paint)
+        .setBreakStrategy(Layout.BREAK_STRATEGY_HIGH_QUALITY)
+        .setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NORMAL)
+        .setTextDirection(TextDirectionHeuristics.FIRSTSTRONG_LTR)
+        .build()
+}
+
+private object RenderedMarkdownCache {
+    private data class CacheKey(
+        val hash: Int,
+        val length: Int,
+    )
+
+    private val entries = object : LinkedHashMap<CacheKey, ParsedMarkdownSource>(64, 0.75f, true) {
+        override fun removeEldestEntry(
+            eldest: MutableMap.MutableEntry<CacheKey, ParsedMarkdownSource>?,
+        ): Boolean = size > 64
+    }
+
+    @Synchronized
+    fun get(source: String): ParsedMarkdownSource? {
+        val key = CacheKey(source.hashCode(), source.length)
+        return entries[key]?.takeIf { it.source == source }
+    }
+
+    @Synchronized
+    fun getOrRender(markwon: Markwon, source: String): ParsedMarkdownSource {
+        get(source)?.let { return it }
+        val parsed = ParsedMarkdownSource(
+            source = source,
+            spanned = renderMarkdownSafely(markwon, source),
+        )
+        entries[CacheKey(source.hashCode(), source.length)] = parsed
+        return parsed
+    }
+}
 
 /**
  * Last-resort text for a renderer failure. Tables remain visually tabular rather
@@ -1448,31 +1712,121 @@ private fun MarkdownAndroidView(
     selectionColor: Int,
     onReference: (LinkReferencePreview) -> Unit,
     modifier: Modifier,
+    precompute: Boolean = true,
 ) {
-    var parsedMarkdown by remember(markwon, markdown) { mutableStateOf<ParsedMarkdownSource?>(null) }
-    LaunchedEffect(markwon, markdown) {
-        val spanned = withContext(Dispatchers.Default) {
-            renderMarkdownSafely(markwon, markdown)
+    val context = LocalContext.current
+    val deferRichHydration = LocalDeferRichHydration.current
+    val configuration = LocalConfiguration.current
+    val localeTags = configuration.locales.toLanguageTags()
+    val scaledDensity = context.resources.displayMetrics.scaledDensity
+    val metricsKey = remember(scaledDensity, localeTags) {
+        (scaledDensity.toBits() * 31) + localeTags.hashCode()
+    }
+    val metricsParams = remember(metricsKey) {
+        markdownTextMetricsParams(context.applicationContext)
+    }
+
+    // Completed Markdown does both Markwon rendering and Android paragraph
+    // precomputation off the UI thread. Prefetched LazyColumn rows therefore
+    // arrive with their expensive text metrics already prepared.
+    var preparedMarkdown by remember(
+        markwon,
+        markdown,
+        metricsKey,
+        precompute,
+        linkColor,
+        pillBackground,
+        pillForeground,
+    ) {
+        mutableStateOf<PreparedMarkdownSource?>(
+            if (!precompute) {
+                RenderedMarkdownCache.get(markdown)?.let {
+                    PreparedMarkdownSource(it.source, it.spanned, null)
+                }
+            } else {
+                PreparedMarkdownCache.get(
+                    source = markdown,
+                    metricsKey = metricsKey,
+                    linkColor = linkColor,
+                    pillBackground = pillBackground,
+                    pillForeground = pillForeground,
+                )
+            },
+        )
+    }
+    LaunchedEffect(
+        markwon,
+        markdown,
+        precompute,
+        metricsKey,
+        linkColor,
+        pillBackground,
+        pillForeground,
+        deferRichHydration,
+    ) {
+        val prepared = withContext(ChatRenderPrewarmDispatcher) {
+            if (precompute) {
+                PreparedMarkdownCache.get(
+                    source = markdown,
+                    metricsKey = metricsKey,
+                    linkColor = linkColor,
+                    pillBackground = pillBackground,
+                    pillForeground = pillForeground,
+                )?.let { return@withContext it }
+            }
+            val parsed = RenderedMarkdownCache.getOrRender(markwon, markdown)
+            if (!precompute) {
+                PreparedMarkdownSource(parsed.source, parsed.spanned, null)
+            } else {
+                val decorated = decorateReferenceSpans(
+                    source = parsed.spanned,
+                    linkColor = linkColor,
+                    pillBackground = pillBackground,
+                    pillForeground = pillForeground,
+                )
+                val precomputed = runCatching {
+                    PrecomputedTextCompat.create(decorated, metricsParams)
+                }.getOrNull()
+                PreparedMarkdownSource(parsed.source, decorated, precomputed).also { prepared ->
+                    PreparedMarkdownCache.put(
+                        source = markdown,
+                        metricsKey = metricsKey,
+                        linkColor = linkColor,
+                        pillBackground = pillBackground,
+                        pillForeground = pillForeground,
+                        prepared = prepared,
+                    )
+                }
+            }
         }
-        parsedMarkdown = ParsedMarkdownSource(markdown, spanned)
+        if (!deferRichHydration) {
+            preparedMarkdown = prepared
+        }
     }
     AndroidView(
-        factory = { context ->
-            TurpMarkdownTextView(context).apply {
+        factory = { viewContext ->
+            TurpMarkdownTextView(viewContext).apply {
                 setTextIsSelectable(true)
                 setTextClassifier(TextClassifier.NO_OP)
                 setBackgroundColor(AndroidColor.TRANSPARENT)
-                textSize = 16f
                 includeFontPadding = false
                 linksClickable = true
                 movementMethod = selectableLinkMovementMethod
                 setLineSpacing(0f, 1.08f)
+                TextViewCompat.setTextMetricsParams(this, metricsParams)
+                appliedMetricsKey = metricsKey
             }
         },
-        onReset = { it.resetForReuse() },
-        onRelease = { it.resetForReuse() },
+        onReset = { it.prepareForReuse() },
+        onRelease = { it.resetForRelease() },
         update = { view ->
             val styleKey = ((((textColor * 31) + linkColor) * 31 + pillBackground) * 31 + pillForeground) * 31 + selectionColor
+            val renderKey = (styleKey * 31) + metricsKey
+            view.onReference = onReference
+            if (view.appliedMetricsKey != metricsKey) {
+                TextViewCompat.setTextMetricsParams(view, metricsParams)
+                view.appliedMetricsKey = metricsKey
+            }
             if (view.appliedStyleKey != styleKey) {
                 view.setTextColor(textColor)
                 view.setLinkTextColor(linkColor)
@@ -1480,32 +1834,38 @@ private fun MarkdownAndroidView(
                 view.setHorizontallyScrolling(false)
                 view.appliedStyleKey = styleKey
             }
-            val ready = parsedMarkdown
+            val ready = preparedMarkdown
             if (ready == null) {
-                if (view.renderedSource != markdown || !view.renderedAsFallback || view.renderedStyleKey != styleKey) {
+                if (view.renderedSource != markdown || !view.renderedAsFallback || view.renderedStyleKey != renderKey) {
                     view.setText(markdownRenderFallbackText(markdown), TextView.BufferType.SPANNABLE)
                     view.renderedSource = markdown
-                    view.renderedStyleKey = styleKey
+                    view.renderedStyleKey = renderKey
                     view.renderedAsFallback = true
                 }
             } else if (
                 view.renderedSource != ready.source ||
-                view.renderedStyleKey != styleKey ||
+                view.renderedStyleKey != renderKey ||
                 view.renderedAsFallback
             ) {
                 try {
-                    markwon.setParsedMarkdown(view, ready.spanned)
-                    installReferenceSpans(
-                        view = view,
-                        linkColor = linkColor,
-                        pillBackground = pillBackground,
-                        pillForeground = pillForeground,
-                        onClick = onReference,
-                    )
+                    if (ready.precomputed != null) {
+                        // Completed rows are already Markwon-rendered, reference-decorated,
+                        // and paragraph-measured off the UI thread. Attach that prepared
+                        // text directly so scrolling never performs a second Markwon bind.
+                        TextViewCompat.setPrecomputedText(view, ready.precomputed)
+                        view.movementMethod = view.selectableLinkMovementMethod
+                    } else {
+                        markwon.setParsedMarkdown(view, ready.spanned)
+                        installReferenceSpans(
+                            view = view,
+                            linkColor = linkColor,
+                            pillBackground = pillBackground,
+                            pillForeground = pillForeground,
+                            onClick = onReference,
+                        )
+                    }
                     view.renderedAsFallback = false
                 } catch (_: Exception) {
-                    // Rendering can also fail while Android applies/measures spans,
-                    // so guard the UI hand-off as well as parse/render above.
                     view.setText(
                         markdownRenderFallbackText(ready.source),
                         TextView.BufferType.SPANNABLE,
@@ -1513,7 +1873,7 @@ private fun MarkdownAndroidView(
                     view.renderedAsFallback = true
                 }
                 view.renderedSource = ready.source
-                view.renderedStyleKey = styleKey
+                view.renderedStyleKey = renderKey
             }
         },
         modifier = modifier,
@@ -1525,20 +1885,35 @@ private class TurpMarkdownTextView(context: Context) : TextView(context) {
     var renderedSource: String = ""
     var renderedStyleKey: Int = 0
     var appliedStyleKey: Int = 0
+    var appliedMetricsKey: Int = 0
     var renderedAsFallback: Boolean = false
+    var onReference: ((LinkReferencePreview) -> Unit)? = null
     val selectableLinkMovementMethod = SelectableLinkMovementMethod()
 
-    fun resetForReuse() {
+    fun prepareForReuse() {
+        selectableLinkMovementMethod.resetGestureState()
+        clearFocus()
+        (text as? Spannable)?.let(Selection::removeSelection)
+    }
+
+    fun resetForRelease() {
+        prepareForReuse()
         text = null
         renderedSource = ""
         renderedStyleKey = 0
         appliedStyleKey = 0
+        appliedMetricsKey = 0
         renderedAsFallback = false
+        onReference = null
     }
 }
 
 private class SelectableLinkMovementMethod : ArrowKeyMovementMethod() {
     private var pressedSpan: ClickableSpan? = null
+
+    fun resetGestureState() {
+        pressedSpan = null
+    }
     private var downX = 0f
     private var downY = 0f
 
@@ -1596,14 +1971,12 @@ private class SelectableLinkMovementMethod : ArrowKeyMovementMethod() {
     }
 }
 
-private fun installReferenceSpans(
-    view: TextView,
+private fun decorateReferenceSpans(
+    source: Spanned,
     linkColor: Int,
     pillBackground: Int,
     pillForeground: Int,
-    onClick: (LinkReferencePreview) -> Unit,
-) {
-    val source = view.text as? Spanned ?: return
+): SpannableString {
     val text = SpannableString(source)
     text.getSpans(0, text.length, URLSpan::class.java).forEach { span ->
         val start = text.getSpanStart(span)
@@ -1619,18 +1992,15 @@ private fun installReferenceSpans(
         val target = if (kind == LinkReferenceKind.LINK) raw else parsed.getQueryParameter("target").orEmpty()
         val label = text.subSequence(start, end).toString()
         text.removeSpan(span)
-        val clickableSpan = PreviewClickableSpan(linkColor) { widget ->
-            onClick(
-                LinkReferencePreview(
-                    kind = kind,
-                    label = label,
-                    target = target,
-                    anchorBoundsInWindow = spanBoundsInWindow(widget as? TextView, start, end),
-                ),
-            )
-        }
         text.setSpan(
-            clickableSpan,
+            PreviewClickableSpan(
+                color = linkColor,
+                kind = kind,
+                label = label,
+                target = target,
+                start = start,
+                end = end,
+            ),
             start,
             end,
             Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
@@ -1648,6 +2018,24 @@ private fun installReferenceSpans(
             )
         }
     }
+    return text
+}
+
+private fun installReferenceSpans(
+    view: TextView,
+    linkColor: Int,
+    pillBackground: Int,
+    pillForeground: Int,
+    onClick: (LinkReferencePreview) -> Unit,
+) {
+    val source = view.text as? Spanned ?: return
+    val text = decorateReferenceSpans(
+        source = source,
+        linkColor = linkColor,
+        pillBackground = pillBackground,
+        pillForeground = pillForeground,
+    )
+    (view as? TurpMarkdownTextView)?.onReference = onClick
     view.text = text
     view.movementMethod = (view as? TurpMarkdownTextView)?.selectableLinkMovementMethod
         ?: ArrowKeyMovementMethod.getInstance()
@@ -1655,9 +2043,24 @@ private fun installReferenceSpans(
 
 private class PreviewClickableSpan(
     private val color: Int,
-    private val click: (View) -> Unit,
+    private val kind: LinkReferenceKind,
+    private val label: String,
+    private val target: String,
+    private val start: Int,
+    private val end: Int,
 ) : ClickableSpan() {
-    override fun onClick(widget: View) = click(widget)
+    override fun onClick(widget: View) {
+        val textView = widget as? TurpMarkdownTextView ?: return
+        textView.onReference?.invoke(
+            LinkReferencePreview(
+                kind = kind,
+                label = label,
+                target = target,
+                anchorBoundsInWindow = spanBoundsInWindow(textView, start, end),
+            ),
+        )
+    }
+
     override fun updateDrawState(ds: TextPaint) {
         ds.color = color
         ds.isUnderlineText = false
@@ -1785,6 +2188,7 @@ private fun CodeBlock(
     onRunPython: suspend (String, suspend (ExecutionProgress) -> Unit) -> ExecutionResult,
     onRunUbuntu: suspend (String, suspend (ExecutionProgress) -> Unit) -> UbuntuExecutionResult,
     executable: Boolean = true,
+    streaming: Boolean = false,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -1846,13 +2250,28 @@ private fun CodeBlock(
                         .width(codeContentWidthDp.dp)
                         .padding(horizontal = 14.dp, vertical = 10.dp),
                 ) {
-                    HighlightedCodeText(
-                        language = language,
-                        code = code,
-                        modifier = Modifier.fillMaxWidth(),
-                        style = MaterialTheme.typography.bodyMedium,
-                        softWrap = false,
-                    )
+                    if (streaming) {
+                        // Syntax spans can change across the entire unfinished token
+                        // stream (for example while a quote/comment is still open).
+                        // Keep live code visually stable and highlight it once complete.
+                        SelectionContainer {
+                            MaterialText(
+                                code,
+                                modifier = Modifier.fillMaxWidth(),
+                                fontFamily = FontFamily.Monospace,
+                                style = MaterialTheme.typography.bodyMedium,
+                                softWrap = false,
+                            )
+                        }
+                    } else {
+                        HighlightedCodeText(
+                            language = language,
+                            code = code,
+                            modifier = Modifier.fillMaxWidth(),
+                            style = MaterialTheme.typography.bodyMedium,
+                            softWrap = false,
+                        )
+                    }
                 }
             }
             AnimatedVisibility(running, enter = streamingFadeIn(), exit = streamingFadeOut()) {

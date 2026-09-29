@@ -24,6 +24,37 @@ internal enum class SyntaxKind {
 
 internal data class SyntaxSpan(val start: Int, val endExclusive: Int, val kind: SyntaxKind)
 
+private object SyntaxSpanCache {
+    private data class Key(
+        val language: String,
+        val hash: Int,
+        val length: Int,
+    )
+
+    private data class Entry(
+        val code: String,
+        val spans: List<SyntaxSpan>,
+    )
+
+    private val entries = object : LinkedHashMap<Key, Entry>(96, 0.75f, true) {
+        override fun removeEldestEntry(
+            eldest: MutableMap.MutableEntry<Key, Entry>?,
+        ): Boolean = size > 96
+    }
+
+    private fun key(language: String, code: String) =
+        Key(language.lowercase().trim(), code.hashCode(), code.length)
+
+    @Synchronized
+    fun get(language: String, code: String): List<SyntaxSpan>? =
+        entries[key(language, code)]?.takeIf { it.code == code }?.spans
+
+    @Synchronized
+    fun put(language: String, code: String, spans: List<SyntaxSpan>) {
+        entries[key(language, code)] = Entry(code, spans)
+    }
+}
+
 private enum class SyntaxFamily { PYTHON, SHELL, C_LIKE, JSON, MARKUP, SQL, YAML, PLAIN }
 
 private val pythonKeywords = setOf(
@@ -193,6 +224,15 @@ internal fun syntaxSpans(language: String, code: String): List<SyntaxSpan> {
     return result
 }
 
+internal fun cachedSyntaxSpans(language: String, code: String): List<SyntaxSpan> {
+    SyntaxSpanCache.get(language, code)?.let { return it }
+    return syntaxSpans(language, code).also { SyntaxSpanCache.put(language, code, it) }
+}
+
+internal fun prewarmSyntaxHighlight(language: String, code: String) {
+    if (code.isNotBlank()) cachedSyntaxSpans(language, code)
+}
+
 private data class SyntaxPalette(
     val keyword: Color,
     val string: Color,
@@ -225,9 +265,10 @@ private fun renderHighlightedCode(
     language: String,
     code: String,
     palette: SyntaxPalette,
+    spans: List<SyntaxSpan> = cachedSyntaxSpans(language, code),
 ): AnnotatedString = buildAnnotatedString {
     append(code)
-    syntaxSpans(language, code).forEach { span ->
+    spans.forEach { span ->
         val color = when (span.kind) {
             SyntaxKind.KEYWORD -> palette.keyword
             SyntaxKind.STRING -> palette.string
@@ -253,7 +294,15 @@ private fun renderHighlightedCode(
 @Composable
 internal fun highlightedCode(language: String, code: String): AnnotatedString {
     val palette = rememberSyntaxPalette()
-    return remember(language, code, palette) { renderHighlightedCode(language, code, palette) }
+    val deferRichHydration = LocalDeferRichHydration.current
+    return remember(language, code, palette, deferRichHydration) {
+        val cached = SyntaxSpanCache.get(language, code)
+        when {
+            cached != null -> renderHighlightedCode(language, code, palette, cached)
+            deferRichHydration -> AnnotatedString(code)
+            else -> renderHighlightedCode(language, code, palette)
+        }
+    }
 }
 
 @Composable

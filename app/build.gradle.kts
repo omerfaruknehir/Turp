@@ -224,8 +224,8 @@ android {
         applicationId = "app.turp.chat"
         minSdk = 26
         targetSdk = 36
-        versionCode = 220
-        versionName = "0.25.0"
+        versionCode = 221
+        versionName = "0.25.1"
         buildConfigField("String", "SOURCE_REPOSITORY", "\"$sourceRepository\"")
         buildConfigField("String", "SOURCE_COMMIT", "\"$sourceCommit\"")
         buildConfigField("String", "MICROSOFT_CLIENT_ID", "\"$microsoftClientId\"")
@@ -313,7 +313,7 @@ chaquopy {
 }
 
 dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2025.04.01")
+    val composeBom = platform("androidx.compose:compose-bom:2025.09.01")
     implementation(composeBom)
     androidTestImplementation(composeBom)
 

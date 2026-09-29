@@ -21,15 +21,15 @@ class WorkingTimelineUiTest {
     }
 
     @Test
-    fun activeWorkNamesTheCurrentActionInsteadOfOnlySayingWorking() {
+    fun activeWorkShowsElapsedTimeAndKeepsCurrentActionInSummary() {
         val search = event(
             kind = "search",
             label = "Searching the web",
             status = "running",
         )
 
-        assertEquals("Searching the web", workingBlockHeadline(listOf(search), active = true))
-        assertEquals("Running", workingBlockSummary(listOf(search), active = true))
+        assertEquals("Working for 2 seconds", workingBlockHeadline(active = true, elapsedMs = 2_400))
+        assertEquals("Searching the web • Running", workingBlockSummary(listOf(search), active = true))
         assertEquals("Web search", workEventTitle(search.copy(label = "")))
     }
 
@@ -40,8 +40,8 @@ class WorkingTimelineUiTest {
             status = "complete",
         )
 
-        assertEquals("Reasoning", workingBlockHeadline(listOf(reasoning), active = true))
-        assertEquals("Thinking", workingBlockSummary(listOf(reasoning), active = true))
+        assertEquals("Working for 1 second", workingBlockHeadline(active = true, elapsedMs = 1_900))
+        assertEquals("Reasoning • Thinking", workingBlockSummary(listOf(reasoning), active = true))
     }
 
     @Test
@@ -49,7 +49,7 @@ class WorkingTimelineUiTest {
         val complete = event("reasoning", status = "complete", finishedAt = 125)
         val failed = event("script", label = "Running Python", status = "error", finishedAt = 350)
 
-        assertEquals("Finished with an error", workingBlockHeadline(listOf(complete, failed), active = false))
+        assertEquals("Worked for 3 seconds", workingBlockHeadline(active = false, elapsedMs = 3_800))
         assertEquals("2 steps • 1 error", workingBlockSummary(listOf(complete, failed), active = false))
         assertEquals("Failed", workEventStateLabel(failed))
     }
@@ -59,7 +59,8 @@ class WorkingTimelineUiTest {
         val chat = java.io.File("src/main/java/app/turp/chat/ui/ChatScreen.kt").readText()
         val composer = chat.substringAfter("private fun Composer(").substringBefore("private fun StagedAttachmentPreview")
 
-        assertTrue(composer.contains("generating -> \"Working\""))
+        assertTrue(composer.contains("generating -> composerWorkingLabel"))
+        assertTrue(composer.contains("Working for 0 seconds"))
         assertTrue(composer.contains("viewModel.send(if (generating) SendMode.STEER else SendMode.SEND_NOW)"))
         assertTrue(composer.contains("Queue this message"))
         assertTrue(composer.contains("Stop current response"))
@@ -85,6 +86,17 @@ class WorkingTimelineUiTest {
         assertEquals("640 ms", formatExecutionDuration(640))
         assertEquals("1.2 s", formatExecutionDuration(1_240))
         assertEquals("12 s", formatExecutionDuration(12_400))
+    }
+
+    @Test
+    fun workDurationsUseSecondsThenMinutes() {
+        assertEquals("0 seconds", formatWorkDuration(0))
+        assertEquals("1 second", formatWorkDuration(1_999))
+        assertEquals("59 seconds", formatWorkDuration(59_999))
+        assertEquals("1 minute", formatWorkDuration(60_000))
+        assertEquals("1 minute 12 seconds", formatWorkDuration(72_999))
+        assertEquals("2 minutes 1 second", formatWorkDuration(121_000))
+        assertEquals("1 hour 2 minutes 3 seconds", formatWorkDuration(3_723_000))
     }
 
     @Test
@@ -122,7 +134,7 @@ class WorkingTimelineUiTest {
         assertTrue(step.contains("mutableStateOf(active)"))
         assertTrue(step.contains("expanded = active"))
         assertFalse(step.contains("active || event.status == \"error\""))
-        assertTrue(toolDetails.contains("developerSettings.enabled && developerSettings.toolDiagnosticsEnabled"))
+        assertTrue(chat.contains("developerSettings.enabled && developerSettings.toolDiagnosticsEnabled"))
         assertTrue(toolDetails.contains("if (showDiagnostics && input.isNotBlank())"))
         assertTrue(toolDetails.contains("if (showDiagnostics && detailsOpen)"))
         assertFalse(toolDetails.contains("Text(\"Copy path\")"))

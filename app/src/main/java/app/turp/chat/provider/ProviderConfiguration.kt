@@ -21,6 +21,13 @@ enum class ProviderEndpointKey(val wireName: String) {
     INFO("info"),
     PROVIDERS("providers"),
     GENERATE("generate"),
+    OCR("ocr"),
+    AUDIO_TRANSCRIPTIONS("audioTranscriptions"),
+    EMBEDDINGS("embeddings"),
+    RERANK("rerank"),
+    TERMS_STATUS("termsStatus"),
+    TERMS_TEXT("termsText"),
+    TERMS_ACCEPT("termsAccept"),
 }
 
 val ProviderEntity.effectiveProtocol: ProviderProtocol
@@ -57,6 +64,7 @@ fun providerProfileLabel(value: ProviderProfile): String = when (value) {
     ProviderProfile.GENERIC -> "Generic"
     ProviderProfile.OPENAI -> "OpenAI"
     ProviderProfile.OPENROUTER -> "OpenRouter"
+    ProviderProfile.EVREN -> "EVREN"
     ProviderProfile.OPENCODE_V2 -> "OpenCode V2"
     ProviderProfile.OPENCODE_GO -> "OpenCode Go"
     ProviderProfile.OPENCODE_ZEN -> "OpenCode Zen"
@@ -86,7 +94,7 @@ object ProviderEndpointResolver {
         val expanded = variables.entries.fold(value) { result, (name, replacement) ->
             result.replace("{$name}", replacement)
         }
-        require(!Regex("""\{[A-Za-z][A-Za-z0-9_]*}""").containsMatchIn(expanded)) {
+        require(!Regex("""\{[A-Za-z][A-Za-z0-9_]*\}""").containsMatchIn(expanded)) {
             "Endpoint ${key.wireName} still contains an unresolved template variable"
         }
         return resolveAgainstBase(provider.baseUrl, expanded)
@@ -125,6 +133,14 @@ object ProviderEndpointResolver {
                     ProviderProfile.OPENCODE_GO -> "usage"
                     else -> null
                 }
+                ProviderEndpointKey.OCR -> if (provider.effectiveProfile == ProviderProfile.EVREN) "ocr" else null
+                ProviderEndpointKey.AUDIO_TRANSCRIPTIONS ->
+                    if (provider.effectiveProfile == ProviderProfile.EVREN) "audio/transcriptions" else null
+                ProviderEndpointKey.EMBEDDINGS -> "embeddings"
+                ProviderEndpointKey.RERANK -> if (provider.effectiveProfile == ProviderProfile.EVREN) "rerank" else null
+                ProviderEndpointKey.TERMS_STATUS -> if (provider.effectiveProfile == ProviderProfile.EVREN) "terms/status" else null
+                ProviderEndpointKey.TERMS_TEXT -> if (provider.effectiveProfile == ProviderProfile.EVREN) "terms/text" else null
+                ProviderEndpointKey.TERMS_ACCEPT -> if (provider.effectiveProfile == ProviderProfile.EVREN) "terms/accept" else null
                 else -> null
             }
             ProviderProtocol.ANTHROPIC -> when (key) {
@@ -155,6 +171,8 @@ private fun inferLegacyProfile(provider: ProviderEntity): ProviderProfile {
     return when {
         ModelRequestPolicy.matchesPresetId(id, "openrouter") || ModelRequestPolicy.isOpenRouterBaseUrl(provider.baseUrl) ->
             ProviderProfile.OPENROUTER
+        ModelRequestPolicy.matchesPresetId(id, "evren") || ModelRequestPolicy.isEvrenBaseUrl(provider.baseUrl) ->
+            ProviderProfile.EVREN
         ModelRequestPolicy.matchesPresetId(id, "opencode-go") || ModelRequestPolicy.isOpenCodeGoBaseUrl(provider.baseUrl) ->
             ProviderProfile.OPENCODE_GO
         ModelRequestPolicy.matchesPresetId(id, "opencode-zen") || ModelRequestPolicy.isOpenCodeZenBaseUrl(provider.baseUrl) ->

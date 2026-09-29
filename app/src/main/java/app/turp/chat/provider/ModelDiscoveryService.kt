@@ -6,9 +6,18 @@ import app.turp.chat.data.ProviderProfile
 import app.turp.chat.data.ProviderProtocol
 import app.turp.chat.data.ThinkingEffort
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
@@ -44,6 +53,7 @@ data class DiscoveredModel(
     val reasoningMandatory: Boolean = false,
     val reasoningSupportsMaxTokens: Boolean = false,
     val metadataSource: String = "",
+    val task: String? = null,
 )
 
 class ModelDiscoveryService(
@@ -170,10 +180,33 @@ class ModelDiscoveryService(
         val distinct = mergeDiscoveredModels(collected)
             .sortedBy { it.displayName.lowercase() }
             .take(MAX_MODELS)
+        val detailed = if (
+            kind == ProviderKind.OPENAI_COMPATIBLE &&
+            !openRouter &&
+            !officialOpenAi &&
+            !openCodeGo &&
+            !openCodeZen &&
+            !qwenCloud
+        ) {
+            enrichOpenAiCompatibleModelDetails(
+                models = distinct,
+                modelListUrl = modelListUrl,
+                baseUrlForParsing = baseUrl,
+                apiKey = apiKey,
+                customHeaders = customHeaders,
+            )
+        } else {
+            distinct
+        }
+        val chatEligible = if (kind == ProviderKind.OPENAI_COMPATIBLE) {
+            detailed.filter(::isChatSelectableModel)
+        } else {
+            detailed
+        }
         val merged = if (kind == ProviderKind.OPENAI_COMPATIBLE) {
             val withOfficialOpenAi = ModelRequestPolicy.mergeOfficialOpenAiCatalog(
                 baseUrl,
-                distinct,
+                chatEligible,
                 force = officialOpenAi,
             )
             val withOpenCodeMetadata = if (openCodeGo || openCodeZen) {
@@ -192,8 +225,8 @@ class ModelDiscoveryService(
             } else {
                 withOpenCodeMetadata
             }
-        } else distinct
-        merged.ifEmpty { throw IllegalStateException("The provider returned no usable models") }
+        } else chatEligible
+        merged.ifEmpty { throw IllegalStateException("The provider returned no usable chat models") }
     }
 
     private suspend fun discoverOpenCodeV2(
@@ -292,6 +325,115 @@ class ModelDiscoveryService(
             )
         }
 
+    private suspend fun enrichOpenAiCompatibleModelDetails(
+        models: List<DiscoveredModel>,
+        modelListUrl: String,
+        baseUrlForParsing: String,
+        apiKey: String,
+        customHeaders: Map<String, String>,
+    ): List<DiscoveredModel> {
+        if (models.isEmpty()) return models
+        val listEndpoint = runCatching { modelListUrl.toHttpUrl() }.getOrNull() ?: return models
+        if (!listEndpoint.pathSegments.lastOrNull().orEmpty().equals("models", ignoreCase = true)) return models
+
+        val limiter = Semaphore(MODEL_DETAIL_CONCURRENCY)
+        return coroutineScope {
+            models.map { base ->
+                async {
+                    limiter.withPermit {
+                        val endpoint = listEndpoint.newBuilder()
+                            .addPathSegment(base.id)
+                            .build()
+                        val root = fetchModelDetailWithRetry(
+                            endpoint = endpoint,
+                            apiKey = apiKey,
+                            customHeaders = customHeaders,
+                        ) ?: return@withPermit base
+                        val detailObjects = when (val data = root["data"]) {
+                            is JsonObject -> listOf(data)
+                            is JsonArray -> data.mapNotNull { it as? JsonObject }
+                            else -> listOf(root)
+                        }
+                        val parsedDetails = parseDataModels(
+                            JsonArray(detailObjects),
+                            baseUrlForParsing,
+                            openRouterOverride = false,
+                            officialOpenAiOverride = false,
+                        )
+                        val detail = parsedDetails.firstOrNull { it.id == base.id }
+                            ?: parsedDetails.firstOrNull()
+                            ?: return@withPermit base
+                        mergeAuthoritativeModelDetail(base, detail)
+                    }
+                }
+            }.awaitAll()
+        }
+    }
+
+    private suspend fun fetchModelDetailWithRetry(
+        endpoint: HttpUrl,
+        apiKey: String,
+        customHeaders: Map<String, String>,
+    ): JsonObject? {
+        repeat(MODEL_DETAIL_ATTEMPTS) { attempt ->
+            try {
+                return fetchPage(
+                    kind = ProviderKind.OPENAI_COMPATIBLE,
+                    endpoint = endpoint,
+                    apiKey = apiKey,
+                    customHeaders = customHeaders,
+                )
+            } catch (error: ProviderHttpException) {
+                val retryable = error.status == 429 || error.status in 500..599
+                if (!retryable || attempt == MODEL_DETAIL_ATTEMPTS - 1) return null
+            } catch (_: java.io.IOException) {
+                currentCoroutineContext().ensureActive()
+                if (attempt == MODEL_DETAIL_ATTEMPTS - 1) return null
+            }
+            delay(MODEL_DETAIL_RETRY_BASE_DELAY_MS * (attempt + 1L))
+        }
+        return null
+    }
+
+    private fun mergeAuthoritativeModelDetail(
+        base: DiscoveredModel,
+        detail: DiscoveredModel,
+    ): DiscoveredModel = base.copy(
+        displayName = base.displayName.ifBlank { detail.displayName },
+        task = detail.task ?: base.task,
+        contextWindow = detail.contextWindow ?: base.contextWindow,
+        maxOutputTokens = detail.maxOutputTokens ?: base.maxOutputTokens,
+        supportsThinking = detail.supportsThinking ?: base.supportsThinking,
+        supportsVision = detail.supportsVision ?: base.supportsVision,
+        supportsFiles = detail.supportsFiles ?: base.supportsFiles,
+        supportsTools = detail.supportsTools ?: base.supportsTools,
+        supportsImageGeneration = detail.supportsImageGeneration ?: base.supportsImageGeneration,
+        description = detail.description.ifBlank { base.description },
+        createdAtEpochSeconds = detail.createdAtEpochSeconds.takeIf { it > 0 } ?: base.createdAtEpochSeconds,
+        inputCacheHitUsdPerMillion = detail.inputCacheHitUsdPerMillion ?: base.inputCacheHitUsdPerMillion,
+        inputCacheMissUsdPerMillion = detail.inputCacheMissUsdPerMillion ?: base.inputCacheMissUsdPerMillion,
+        outputUsdPerMillion = detail.outputUsdPerMillion ?: base.outputUsdPerMillion,
+        reasoningMetadataAvailable = detail.reasoningMetadataAvailable || base.reasoningMetadataAvailable,
+        reasoningEfforts = if (detail.reasoningMetadataAvailable) detail.reasoningEfforts else base.reasoningEfforts,
+        reasoningDefaultEffort = if (detail.reasoningMetadataAvailable) {
+            detail.reasoningDefaultEffort
+        } else {
+            base.reasoningDefaultEffort
+        },
+        reasoningDefaultEnabled = if (detail.reasoningMetadataAvailable) {
+            detail.reasoningDefaultEnabled
+        } else {
+            base.reasoningDefaultEnabled
+        },
+        reasoningMandatory = if (detail.reasoningMetadataAvailable) detail.reasoningMandatory else base.reasoningMandatory,
+        reasoningSupportsMaxTokens = if (detail.reasoningMetadataAvailable) {
+            detail.reasoningSupportsMaxTokens
+        } else {
+            base.reasoningSupportsMaxTokens
+        },
+        metadataSource = "Provider model detail",
+    )
+
     private fun mergeDiscoveredModels(models: List<DiscoveredModel>): List<DiscoveredModel> {
         fun mergeCapability(base: Boolean?, candidate: Boolean?): Boolean? = when {
             base == true || candidate == true -> true
@@ -303,6 +445,7 @@ class ModelDiscoveryService(
             val base = merged[candidate.id]
             merged[candidate.id] = if (base == null) candidate else base.copy(
                 displayName = base.displayName.ifBlank { candidate.displayName },
+                task = base.task ?: candidate.task,
                 contextWindow = base.contextWindow ?: candidate.contextWindow,
                 maxOutputTokens = base.maxOutputTokens ?: candidate.maxOutputTokens,
                 supportsThinking = mergeCapability(base.supportsThinking, candidate.supportsThinking),
@@ -376,28 +519,124 @@ class ModelDiscoveryService(
             ?: humanize(id)
         val openRouter = openRouterOverride ?: ModelRequestPolicy.isOpenRouterBaseUrl(baseUrlForParsing)
         val architecture = model["architecture"] as? JsonObject
+        val advertisedModalities = model.stringSet("modalities")
         val inputModalities = architecture.stringSet("input_modalities")
         val outputModalities = architecture.stringSet("output_modalities")
         if (openRouter && outputModalities.isNotEmpty() && outputModalities.none { it == "text" || it == "image" }) return@mapNotNull null
         val supportedParameters = model.stringSet("supported_parameters")
         val topProvider = model["top_provider"] as? JsonObject
         val pricing = model["pricing"] as? JsonObject
-        val reasoning = model["reasoning"] as? JsonObject
-        val efforts = reasoning?.stringSet("supported_efforts").orEmpty().mapNotNull(::parseThinkingEffort)
+        val capabilities = model["capabilities"] as? JsonObject
+        val reasoningValue = model["reasoning"]
+        val reasoning = reasoningValue as? JsonObject
+        val scalarReasoning = (reasoningValue as? JsonPrimitive)?.let { primitive ->
+            primitive.booleanOrNull ?: primitive.contentOrNull
+                ?.trim()
+                ?.lowercase()
+                ?.let { value ->
+                    when (value) {
+                        "true", "enabled", "on", "yes", "reasoning", "thinking" -> true
+                        "false", "disabled", "off", "no", "none" -> false
+                        else -> null
+                    }
+                }
+        }
+        val advertisedReasoning = model.booleanCapability(
+            "supports_reasoning",
+            "supportsReasoning",
+            "supports_thinking",
+            "supportsThinking",
+            "thinking",
+        )
+        val advertisedReasoningEffort = capabilities?.get("reasoning_effort")
+            ?.jsonPrimitive
+            ?.booleanOrNull
+        val efforts = (
+            reasoning?.stringSet("supported_efforts").orEmpty() +
+                capabilities.stringSet("reasoning_effort_values")
+            ).mapNotNull(::parseThinkingEffort).distinct()
         DiscoveredModel(
             id = id,
             displayName = name,
-            contextWindow = model.int("context_length", "inputTokenLimit") ?: topProvider?.int("context_length"),
-            maxOutputTokens = model.int("outputTokenLimit") ?: topProvider?.int("max_completion_tokens"),
+            task = model["task"]?.jsonPrimitive?.contentOrNull
+                ?.trim()
+                ?.lowercase()
+                ?.takeIf { it.isNotBlank() },
+            contextWindow = model.int(
+                "context_length",
+                "context_window",
+                "contextWindow",
+                "inputTokenLimit",
+                "max_model_len",
+                "max_sequence_length",
+            ) ?: capabilities?.int(
+                "context_length",
+                "context_window",
+                "contextWindow",
+                "max_model_len",
+            ) ?: topProvider?.int("context_length", "context_window"),
+            maxOutputTokens = model.int(
+                "outputTokenLimit",
+                "max_output_tokens",
+                "maxOutputTokens",
+                "max_completion_tokens",
+                "default_max_output_tokens",
+                "defaultMaxOutputTokens",
+            ) ?: capabilities?.int(
+                "outputTokenLimit",
+                "max_output_tokens",
+                "maxOutputTokens",
+                "max_completion_tokens",
+                "default_max_output_tokens",
+                "defaultMaxOutputTokens",
+            ) ?: topProvider?.int(
+                "max_completion_tokens",
+                "max_output_tokens",
+                "default_max_output_tokens",
+            ),
             supportsThinking = when {
-                reasoning != null || "reasoning" in supportedParameters -> true
-                else -> model["thinking"]?.jsonPrimitive?.booleanOrNull
+                reasoning != null -> true
+                scalarReasoning != null -> scalarReasoning
+                advertisedReasoning == true || advertisedReasoningEffort == true -> true
+                advertisedReasoning != null -> advertisedReasoning
+                "reasoning" in supportedParameters ||
+                    "reasoning_effort" in supportedParameters ||
+                    "thinking" in supportedParameters -> true
+                else -> null
             },
-            supportsVision = if (openRouter) "image" in inputModalities else model.booleanCapability("supports_vision", "supportsVision", "vision"),
-            supportsFiles = if (openRouter) "file" in inputModalities else model.booleanCapability("supports_files", "supportsFiles", "files"),
-            supportsTools = if (openRouter) "tools" in supportedParameters else model.booleanCapability("supports_tools", "supportsTools", "tools"),
+            supportsVision = if (openRouter) {
+                "image" in inputModalities
+            } else {
+                model.booleanCapability("supports_vision", "supportsVision", "vision", "vision_enabled")
+                    ?: ("image" in inputModalities || "image" in advertisedModalities)
+                        .takeIf { inputModalities.isNotEmpty() || advertisedModalities.isNotEmpty() }
+            },
+            supportsFiles = if (openRouter) {
+                "file" in inputModalities
+            } else {
+                model.booleanCapability("supports_files", "supportsFiles", "files", "file_uploads")
+                    ?: ("file" in inputModalities || "file" in advertisedModalities)
+                        .takeIf { inputModalities.isNotEmpty() || advertisedModalities.isNotEmpty() }
+            },
+            supportsTools = if (openRouter) {
+                "tools" in supportedParameters
+            } else {
+                model.booleanCapability(
+                    "supports_tools",
+                    "supportsTools",
+                    "tools",
+                    "tool_calling",
+                    "function_calling",
+                ) ?: (
+                    "tools" in supportedParameters ||
+                        "tool_choice" in supportedParameters ||
+                        "function_calling" in supportedParameters ||
+                        "functions" in supportedParameters
+                    ).takeIf { supportedParameters.isNotEmpty() }
+            },
             supportsImageGeneration = model.booleanCapability("supports_image_generation", "supportsImageGeneration", "image_generation") ?: when {
                 openRouter -> "image" in outputModalities
+                outputModalities.isNotEmpty() -> "image" in outputModalities
                 (officialOpenAiOverride ?: ModelRequestPolicy.isOfficialOpenAiBaseUrl(baseUrlForParsing)) -> imageGenerationModelHeuristic(id)
                 else -> null
             },
@@ -406,7 +645,8 @@ class ModelDiscoveryService(
             inputCacheHitUsdPerMillion = pricing.pricePerMillion("input_cache_read"),
             inputCacheMissUsdPerMillion = pricing.pricePerMillion("prompt"),
             outputUsdPerMillion = pricing.pricePerMillion("completion"),
-            reasoningMetadataAvailable = reasoning != null,
+            reasoningMetadataAvailable = reasoningValue != null || advertisedReasoning != null ||
+                advertisedReasoningEffort != null || efforts.isNotEmpty(),
             reasoningEfforts = efforts,
             reasoningDefaultEffort = reasoning?.get("default_effort")?.jsonPrimitive?.contentOrNull?.let(::parseThinkingEffort),
             reasoningDefaultEnabled = reasoning?.get("default_enabled")?.jsonPrimitive?.booleanOrNull ?: false,
@@ -414,6 +654,23 @@ class ModelDiscoveryService(
             reasoningSupportsMaxTokens = reasoning?.get("supports_max_tokens")?.jsonPrimitive?.booleanOrNull ?: false,
             metadataSource = if (openRouter) "OpenRouter" else "",
         )
+    }
+
+    private fun isChatSelectableModel(model: DiscoveredModel): Boolean {
+        val task = model.task
+            ?.trim()
+            ?.lowercase()
+            ?.replace('_', '-')
+            ?.takeIf { it.isNotBlank() }
+            ?: return true
+        return when {
+            task in NON_CHAT_MODEL_TASKS -> false
+            task.contains("embedding") -> false
+            task.contains("rerank") -> false
+            task.contains("ocr") -> false
+            task.contains("transcription") -> false
+            else -> true
+        }
     }
 
     internal fun parseGeminiModels(values: JsonArray?): List<DiscoveredModel> = values.orEmpty().mapNotNull { element ->
@@ -495,9 +752,27 @@ class ModelDiscoveryService(
     }
 
     private companion object {
+        val NON_CHAT_MODEL_TASKS = setOf(
+            "embedding",
+            "embeddings",
+            "rerank",
+            "reranker",
+            "ocr",
+            "asr",
+            "speech",
+            "transcription",
+            "audio-transcription",
+            "moderation",
+            "guard",
+            "safety",
+            "classification",
+        )
         const val TOKENS_PER_MILLION = 1_000_000.0
         const val MAX_MODELS = 1_000
         const val MAX_PAGES = 10
+        const val MODEL_DETAIL_CONCURRENCY = 4
+        const val MODEL_DETAIL_ATTEMPTS = 3
+        const val MODEL_DETAIL_RETRY_BASE_DELAY_MS = 150L
         const val MAX_DISCOVERY_BYTES = 2L * 1024 * 1024
         const val MAX_OPENROUTER_DISCOVERY_BYTES = 12L * 1024 * 1024
     }

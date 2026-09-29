@@ -121,6 +121,37 @@ class TurpSliderTest {
     }
 
     @Test
+    fun promptBarUsesAConfigurableBackgroundShell() {
+        val chat = java.io.File("src/main/java/app/turp/chat/ui/ChatScreen.kt").readText()
+        val composer = chat.substringAfter("private fun Composer(").substringBefore("private fun StagedAttachmentPreview")
+        val settings = java.io.File("src/main/java/app/turp/chat/ui/SettingsScreen.kt").readText()
+
+        assertTrue(composer.contains("val promptShellShape = RoundedCornerShape(30.dp)"))
+        assertTrue(composer.contains("PromptBarBackgroundStyle.BLURRED"))
+        assertTrue(composer.contains("PromptBarBackgroundStyle.SOLID"))
+        assertTrue(composer.contains("PromptBarBackgroundStyle.TRANSPARENT"))
+        assertTrue(composer.contains("Box(promptShellModifier)"))
+        assertTrue(composer.contains("BasicTextField("))
+        val promptShell = composer.substringAfter("Box(promptShellModifier)").substringBefore("if (plusMenu)")
+        assertFalse(promptShell.contains("OutlinedTextField("))
+        assertTrue(promptShell.contains("IconButton("))
+        assertTrue(promptShell.contains("Surface("))
+        assertTrue(composer.contains("overlayOpacity = promptBarBackgroundOpacity"))
+        assertTrue(composer.contains("floating = true"))
+        assertTrue(composer.contains("verticalAlignment = Alignment.Bottom"))
+        assertTrue(composer.contains("modifier = Modifier.size(48.dp)"))
+        val blur = java.io.File("src/main/java/app/turp/chat/ui/BackdropBlur.kt").readText()
+        assertTrue(blur.contains("floating -> measuredHeightPx"))
+        assertTrue(blur.contains("val corner = if (floating)"))
+        assertTrue(blur.contains("roundedFloatingPanelMask("))
+        assertTrue(settings.contains("\"Prompt bar\""))
+        assertTrue(settings.contains("\"Blurred\""))
+        assertTrue(settings.contains("\"Solid\""))
+        assertTrue(settings.contains("\"Transparent\""))
+        assertTrue(settings.contains("label = \"Prompt shell opacity\""))
+    }
+
+    @Test
     fun opaqueTintExplainsWhyBlurCannotBeVisible() {
         val settings = java.io.File("src/main/java/app/turp/chat/ui/SettingsScreen.kt").readText()
 

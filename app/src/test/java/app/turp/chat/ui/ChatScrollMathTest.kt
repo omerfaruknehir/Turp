@@ -1,6 +1,7 @@
 package app.turp.chat.ui
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -149,6 +150,200 @@ class ChatScrollMathTest {
                 viewportTopPx = 100f,
                 viewportBottomPx = 800f,
             ),
+        )
+    }
+
+    @Test
+    fun messageBoundaryScrollAvoidsCompositionChurn() {
+        val chat = java.io.File("src/main/java/app/turp/chat/ui/ChatScreen.kt").readText()
+        val viewModel = java.io.File("src/main/java/app/turp/chat/ui/ChatViewModel.kt").readText()
+        val messageRendering = chat
+            .substringAfter("private fun MessageCard(")
+            .substringBefore("private fun Composer(")
+
+        assertFalse(chat.contains("cardBounds by remember"))
+        assertFalse(chat.contains("cardBounds = it.boundsInRoot()"))
+        assertFalse(messageRendering.contains("developerSettings.collectAsStateWithLifecycle()"))
+        assertFalse(messageRendering.contains("toolCallFallbackSettings.collectAsStateWithLifecycle()"))
+        assertTrue(messageRendering.contains("MessageTimelineDecodeCache.decode"))
+        assertTrue(messageRendering.contains("ToolTraceDecodeCache.decode"))
+        assertTrue(messageRendering.contains("remember(message.nodeId) { viewModel.observeAttachments(message.nodeId) }"))
+        assertTrue(messageRendering.contains("initialValue = viewModel.attachmentSnapshot(message.nodeId)"))
+        assertTrue(chat.contains("viewModel.prewarmAttachments(message.nodeId)"))
+        assertTrue(viewModel.contains("attachmentSnapshotCache"))
+        assertTrue(viewModel.contains("attachmentFlowCache"))
+        assertTrue(chat.contains("if (cardCoordinates !== coordinates) cardCoordinates = coordinates"))
+        assertTrue(chat.contains("MESSAGE_RENDER_AHEAD_COUNT = 5"))
+        assertTrue(chat.contains("MESSAGE_RENDER_BEHIND_COUNT = 2"))
+        assertTrue(chat.contains("ChatFollowSeekMinSpeedPxPerSecond = 9_000f"))
+        assertTrue(chat.contains("ChatFollowSeekMaxSpeedPxPerSecond = 36_000f"))
+        assertTrue(chat.contains("ChatFollowSeekMaxFrameStepPx = 320f"))
+        assertTrue(chat.contains("prewarmRichMessageRendering("))
+        assertTrue(chat.contains("ChatMessageCacheWindow"))
+        assertTrue(chat.contains("CHAT_CACHE_AHEAD_VIEWPORTS = 5f"))
+        assertTrue(chat.contains("CHAT_CACHE_BEHIND_VIEWPORTS = 3f"))
+        assertTrue(chat.contains("rememberLazyListState(cacheWindow = ChatMessageCacheWindow)"))
+        assertTrue(chat.contains("CHAT_SCROLL_RENDER_GRACE_MS = 120L"))
+        assertTrue(chat.contains("LocalDeferRichHydration provides deferHeavyMessageHydration"))
+        assertTrue(chat.contains("withContext(ChatRenderPrewarmDispatcher)"))
+        assertFalse(chat.contains("private class ChatMessagePrefetchStrategy"))
+        assertTrue(chat.contains("chatDataPrewarmIndices("))
+        assertTrue(chat.contains(".conflate()"))
+        assertTrue(chat.contains(".collect { candidates ->"))
+        assertFalse(
+            chat.substringBefore("private fun MessageCard(")
+                .contains("developerHttpTraces by viewModel.developerHttpTraces.collectAsStateWithLifecycle()"),
+        )
+        assertTrue(
+            messageRendering.contains(
+                "developerHttpTraces by viewModel.developerHttpTraces.collectAsStateWithLifecycle()",
+            ),
+        )
+    }
+
+    @Test
+    fun scrollFirstHydrationDefersHeavyUpgrades() {
+        val chat = java.io.File("src/main/java/app/turp/chat/ui/ChatScreen.kt").readText()
+        val rich = java.io.File("src/main/java/app/turp/chat/ui/RichMessage.kt").readText()
+        val syntax = java.io.File("src/main/java/app/turp/chat/ui/SyntaxHighlight.kt").readText()
+
+        assertTrue(chat.contains("deferHeavyMessageHydration = true"))
+        assertTrue(chat.contains("delay(CHAT_SCROLL_RENDER_GRACE_MS)"))
+        assertTrue(chat.contains("deferHeavyMessageHydration = false"))
+        assertTrue(rich.contains("Process.THREAD_PRIORITY_BACKGROUND"))
+        assertTrue(rich.contains("Executors.newSingleThreadExecutor"))
+        assertTrue(rich.contains("withContext(ChatRenderPrewarmDispatcher)"))
+        assertTrue(rich.contains("if (!deferRichHydration)"))
+        assertTrue(rich.contains("MarkdownTableRowsCache.get(markdown).orEmpty()"))
+        assertTrue(syntax.contains("deferRichHydration -> AnnotatedString(code)"))
+    }
+
+    @Test
+    fun retainedCacheWindowCoversMultipleViewports() {
+        assertEquals(3_000, chatCacheWindowPx(viewportPx = 1_000, viewportMultiplier = 3f))
+        assertEquals(2_000, chatCacheWindowPx(viewportPx = 1_000, viewportMultiplier = 2f))
+        assertEquals(1_000, chatCacheWindowPx(viewportPx = 1_000, viewportMultiplier = 0.5f))
+        assertEquals(0, chatCacheWindowPx(viewportPx = 0, viewportMultiplier = 3f))
+        assertEquals(0, chatCacheWindowPx(viewportPx = 1_000, viewportMultiplier = 0f))
+    }
+
+    @Test
+    fun messageBoundaryPrefetchTargetsOnlyOffscreenNeighbors() {
+        assertEquals(
+            listOf(6, 1, 7, 0, 8, 9),
+            chatComposePrefetchIndices(
+                firstVisibleIndex = 2,
+                lastVisibleIndex = 5,
+                itemCount = 10,
+                aheadCount = 4,
+                behindCount = 2,
+            ),
+        )
+        assertEquals(
+            listOf(3, 4),
+            chatComposePrefetchIndices(
+                firstVisibleIndex = 0,
+                lastVisibleIndex = 2,
+                itemCount = 5,
+                aheadCount = 4,
+                behindCount = 2,
+            ),
+        )
+        assertTrue(
+            chatComposePrefetchIndices(
+                firstVisibleIndex = 3,
+                lastVisibleIndex = 2,
+                itemCount = 10,
+            ).isEmpty(),
+        )
+    }
+
+    @Test
+    fun gesturePrefetchRunsBeforeTheVisibleSetChanges() {
+        assertEquals(
+            listOf(8, 9, 10, 11, 12, 13),
+            chatGesturePrefetchIndices(
+                delta = -24f,
+                firstVisibleIndex = 4,
+                lastVisibleIndex = 7,
+                itemCount = 20,
+            ),
+        )
+        assertEquals(
+            listOf(3, 2, 1, 0),
+            chatGesturePrefetchIndices(
+                delta = 24f,
+                firstVisibleIndex = 4,
+                lastVisibleIndex = 7,
+                itemCount = 20,
+            ),
+        )
+        assertTrue(
+            chatGesturePrefetchIndices(
+                delta = 0f,
+                firstVisibleIndex = 4,
+                lastVisibleIndex = 7,
+                itemCount = 20,
+            ).isEmpty(),
+        )
+    }
+
+    @Test
+    fun prefetchRetentionKeepsRowsAsTheyEnterViewport() {
+        val retained = chatPrefetchRetentionIndices(
+            firstVisibleIndex = 10,
+            lastVisibleIndex = 14,
+            itemCount = 40,
+            aheadCount = 10,
+            behindCount = 8,
+        )
+        assertTrue(14 in retained)
+        assertTrue(15 in retained)
+        assertTrue(24 in retained)
+        assertTrue(2 in retained)
+        assertFalse(1 in retained)
+        assertFalse(25 in retained)
+
+        val afterBoundaryCross = chatPrefetchRetentionIndices(
+            firstVisibleIndex = 11,
+            lastVisibleIndex = 15,
+            itemCount = 40,
+            aheadCount = 10,
+            behindCount = 8,
+        )
+        assertTrue(15 in afterBoundaryCross)
+        assertTrue(14 in afterBoundaryCross)
+    }
+
+    @Test
+    fun dataPrewarmDoesNotRepeatVisibleRows() {
+        val indices = chatDataPrewarmIndices(
+            firstVisibleIndex = 4,
+            lastVisibleIndex = 7,
+            itemCount = 20,
+            aheadCount = 5,
+            behindCount = 2,
+        )
+        assertTrue(indices.none { it in 4..7 })
+        assertEquals(listOf(8, 3, 9, 2, 10, 11, 12), indices)
+    }
+
+    @Test
+    fun markdownAndroidViewsPreserveLayoutWhilePooled() {
+        val rich = java.io.File("src/main/java/app/turp/chat/ui/RichMessage.kt").readText()
+        assertTrue(rich.contains("onReset = { it.prepareForReuse() }"))
+        assertTrue(rich.contains("onRelease = { it.resetForRelease() }"))
+        assertTrue(rich.contains("fun prepareForReuse()"))
+        assertTrue(rich.contains("fun resetForRelease()"))
+        assertFalse(
+            rich.substringAfter("fun prepareForReuse()")
+                .substringBefore("fun resetForRelease()")
+                .contains("text = null"),
+        )
+        assertTrue(
+            rich.substringAfter("fun resetForRelease()")
+                .substringBefore("private class SelectableLinkMovementMethod")
+                .contains("text = null"),
         )
     }
 

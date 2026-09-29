@@ -14,6 +14,40 @@ import kotlinx.serialization.json.jsonPrimitive
 object TurpNativeTools {
     private val json = Json { ignoreUnknownKeys = true }
 
+    private val sudoQuotedName = Regex("""["\'`]([A-Za-z_][A-Za-z0-9_-]{0,63})["\'`]""")
+    private val sudoToolContext = Regex("""(?i)\b(tool|function|tool-call|function-call|call|invoke)\b""")
+    private val sudoUnquotedName = Regex("""(?i)\b(?:tool|function)(?:[- ]?call)?\s+(?:for\s+|named\s+|called\s+)?((?!(?:call|for|named|called)\b)[A-Za-z_][A-Za-z0-9_-]{0,63})\b""")
+
+    fun sudoSyntheticDefinitions(
+        latestUserText: String,
+        existingToolNames: Set<String> = emptySet(),
+    ): List<NativeToolDefinition> {
+        if (latestUserText.isBlank()) return emptyList()
+        val existing = existingToolNames.mapTo(HashSet()) { it.lowercase() }
+        val candidates = buildList {
+            sudoUnquotedName.findAll(latestUserText).forEach { match -> add(match.groupValues[1]) }
+            sudoQuotedName.findAll(latestUserText).forEach { match ->
+                val nearbyStart = (match.range.first - 96).coerceAtLeast(0)
+                val nearbyEnd = (match.range.last + 96).coerceAtMost(latestUserText.lastIndex)
+                val nearby = latestUserText.substring(nearbyStart, nearbyEnd + 1)
+                if (sudoToolContext.containsMatchIn(nearby)) add(match.groupValues[1])
+            }
+        }
+        return candidates.asSequence()
+            .filter { it.lowercase() !in existing }
+            .distinctBy(String::lowercase)
+            .take(4)
+            .map { name ->
+                NativeToolDefinition(
+                    name = name,
+                    description = "Sudo-only synthetic native function explicitly requested by the user. Turp has no executable implementation for this function. Emit a real provider-native call when the user asks for it; Turp will preserve the call and return an error tool result rather than executing it.",
+                    parametersJson = """{"type":"object","properties":{},"additionalProperties":true}""",
+                )
+            }
+            .toList()
+    }
+
+
     fun definitions(conversation: ConversationEntity, memoryEnabled: Boolean = false): List<NativeToolDefinition> = buildList {
         add(tool(
             name = "compile_widget",

@@ -30,6 +30,16 @@ fun CodeSourcePanel(
     title: String = language.ifBlank { "code" }.uppercase(),
     live: Boolean = false,
 ) {
+    val renderedCode = if (live) {
+        rememberBatchedStreamingText(
+            text = code,
+            streaming = true,
+            intervalNanos = 33_000_000L,
+            maxStepChars = 96,
+        )
+    } else {
+        code
+    }
     Surface(color = MaterialTheme.colorScheme.surfaceContainerLowest, shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth()) {
         Column {
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -38,12 +48,23 @@ fun CodeSourcePanel(
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             LowSensitivityHorizontalScroll(Modifier.padding(12.dp)) {
-                HighlightedCodeText(
-                    language = language,
-                    code = code,
-                    style = MaterialTheme.typography.bodySmall,
-                    softWrap = false,
-                )
+                if (live) {
+                    SelectionContainer {
+                        MaterialText(
+                            renderedCode,
+                            fontFamily = FontFamily.Monospace,
+                            style = MaterialTheme.typography.bodySmall,
+                            softWrap = false,
+                        )
+                    }
+                } else {
+                    HighlightedCodeText(
+                        language = language,
+                        code = renderedCode,
+                        style = MaterialTheme.typography.bodySmall,
+                        softWrap = false,
+                    )
+                }
             }
         }
     }

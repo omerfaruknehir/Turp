@@ -57,12 +57,42 @@ internal fun chromeEdgeCornerTransition(value: Float): Float {
 
 enum class ColorPalette { TURP, ARBOR, SYSTEM, GRAPHITE, OCEAN, VIOLET, SUNSET }
 
+enum class PromptBarBackgroundStyle { BLURRED, SOLID, TRANSPARENT }
+
 enum class PerformanceOverlayPosition { TOP_START, TOP_END, BOTTOM_START, BOTTOM_END }
+
+enum class ModelToolFallbackOverride { INHERIT, ENABLED, DISABLED }
+
+data class ToolCallFallbackSettings(
+    val enabledByDefault: Boolean = false,
+    val enabledModelKeys: Set<String> = emptySet(),
+    val disabledModelKeys: Set<String> = emptySet(),
+) {
+    fun overrideFor(providerId: String, modelId: String): ModelToolFallbackOverride {
+        val key = toolFallbackModelKey(providerId, modelId)
+        val interimKey = modelPreferenceKey(providerId, modelId)
+        return when {
+            key in enabledModelKeys || interimKey in enabledModelKeys ->
+                ModelToolFallbackOverride.ENABLED
+            key in disabledModelKeys || interimKey in disabledModelKeys ->
+                ModelToolFallbackOverride.DISABLED
+            else -> ModelToolFallbackOverride.INHERIT
+        }
+    }
+
+    fun isEnabled(providerId: String, modelId: String): Boolean =
+        when (overrideFor(providerId, modelId)) {
+            ModelToolFallbackOverride.ENABLED -> true
+            ModelToolFallbackOverride.DISABLED -> false
+            ModelToolFallbackOverride.INHERIT -> enabledByDefault
+        }
+}
 
 data class DeveloperSettings(
     val enabled: Boolean = false,
     val demoModeEnabled: Boolean = false,
     val showMessageSourceEnabled: Boolean = false,
+    val showHttpRequestEnabled: Boolean = false,
     val sudoModeControlEnabled: Boolean = false,
     val toolDiagnosticsEnabled: Boolean = false,
     val performanceOverlayEnabled: Boolean = false,
@@ -75,6 +105,7 @@ data class DeveloperSettings(
     val performanceOverlayScale: Float = 1f,
     val blurBoundaryDebugEnabled: Boolean = false,
     val blurBoundaryDebugThicknessDp: Float = 3f,
+    val topBlurOffsetDp: Float = 0f,
 ) {
     fun normalized() = copy(
         demoModeEnabled = BuildConfig.DEBUG && demoModeEnabled,
@@ -83,6 +114,7 @@ data class DeveloperSettings(
         performanceOverlayTextOpacity = performanceOverlayTextOpacity.coerceIn(0f, 1f),
         performanceOverlayScale = performanceOverlayScale.coerceIn(0.60f, 2.00f),
         blurBoundaryDebugThicknessDp = blurBoundaryDebugThicknessDp.coerceIn(1f, 8f),
+        topBlurOffsetDp = topBlurOffsetDp.coerceIn(-120f, 120f),
     )
 }
 
@@ -174,12 +206,20 @@ class AppPreferences(context: Context) {
     private val _chromeBlurStrength = MutableStateFlow(readChromeBlurStrength())
     private val _chromeEdgeSoftness = MutableStateFlow(readChromeEdgeSoftness())
     private val _chromeOverlayOpacity = MutableStateFlow(preferences.getFloat(KEY_CHROME_OVERLAY_OPACITY, 1f).coerceIn(0f, 1f))
+    private val _promptBarBackgroundStyle = MutableStateFlow(
+        enumValue(KEY_PROMPT_BAR_BACKGROUND_STYLE, PromptBarBackgroundStyle.BLURRED),
+    )
+    private val _promptBarBackgroundOpacity = MutableStateFlow(
+        preferences.getFloat(KEY_PROMPT_BAR_BACKGROUND_OPACITY, DEFAULT_PROMPT_BAR_BACKGROUND_OPACITY).coerceIn(0f, 1f),
+    )
     private val _lessEmojiEnabled = MutableStateFlow(preferences.getBoolean(KEY_LESS_EMOJI_ENABLED, true))
     private val _automaticUpdateChecks = MutableStateFlow(preferences.getBoolean(KEY_AUTOMATIC_UPDATE_CHECKS, true))
     private val _webSearchSettings = MutableStateFlow(readWebSearchSettings())
     private val _newChatDefaults = MutableStateFlow(readNewChatDefaults())
     private val _generatedRepairMaxAttempts = MutableStateFlow(preferences.getInt(KEY_GENERATED_REPAIR_ATTEMPTS, 3).coerceIn(1, 5))
     private val _developerSettings = MutableStateFlow(readDeveloperSettings())
+    private val _developerPromptOverrides = MutableStateFlow(readDeveloperPromptOverrides())
+    private val _toolCallFallbackSettings = MutableStateFlow(readToolCallFallbackSettings())
     private val _favoriteModels = MutableStateFlow(
         preferences.getStringSet(KEY_FAVORITE_MODELS, emptySet()).orEmpty().toSet(),
     )
@@ -195,12 +235,16 @@ class AppPreferences(context: Context) {
     val chromeBlurStrength: StateFlow<Float> = _chromeBlurStrength.asStateFlow()
     val chromeEdgeSoftness: StateFlow<Float> = _chromeEdgeSoftness.asStateFlow()
     val chromeOverlayOpacity: StateFlow<Float> = _chromeOverlayOpacity.asStateFlow()
+    val promptBarBackgroundStyle: StateFlow<PromptBarBackgroundStyle> = _promptBarBackgroundStyle.asStateFlow()
+    val promptBarBackgroundOpacity: StateFlow<Float> = _promptBarBackgroundOpacity.asStateFlow()
     val lessEmojiEnabled: StateFlow<Boolean> = _lessEmojiEnabled.asStateFlow()
     val automaticUpdateChecks: StateFlow<Boolean> = _automaticUpdateChecks.asStateFlow()
     val webSearchSettings: StateFlow<WebSearchSettings> = _webSearchSettings.asStateFlow()
     val newChatDefaults: StateFlow<NewChatDefaults> = _newChatDefaults.asStateFlow()
     val generatedRepairMaxAttempts: StateFlow<Int> = _generatedRepairMaxAttempts.asStateFlow()
     val developerSettings: StateFlow<DeveloperSettings> = _developerSettings.asStateFlow()
+    val developerPromptOverrides: StateFlow<DeveloperPromptOverrides> = _developerPromptOverrides.asStateFlow()
+    val toolCallFallbackSettings: StateFlow<ToolCallFallbackSettings> = _toolCallFallbackSettings.asStateFlow()
     val favoriteModels: StateFlow<Set<String>> = _favoriteModels.asStateFlow()
     val recentModels: StateFlow<List<String>> = _recentModels.asStateFlow()
     val hasNewChatDefaults: Boolean get() = preferences.getBoolean(KEY_DEFAULTS_INITIALIZED, false)
@@ -291,6 +335,17 @@ class AppPreferences(context: Context) {
         preferences.edit { putFloat(KEY_CHROME_OVERLAY_OPACITY, normalized) }
     }
 
+    fun setPromptBarBackgroundStyle(value: PromptBarBackgroundStyle) {
+        _promptBarBackgroundStyle.value = value
+        preferences.edit { putString(KEY_PROMPT_BAR_BACKGROUND_STYLE, value.name) }
+    }
+
+    fun setPromptBarBackgroundOpacity(value: Float) {
+        val normalized = value.coerceIn(0f, 1f)
+        _promptBarBackgroundOpacity.value = normalized
+        preferences.edit { putFloat(KEY_PROMPT_BAR_BACKGROUND_OPACITY, normalized) }
+    }
+
     fun setLessEmojiEnabled(enabled: Boolean) {
         _lessEmojiEnabled.value = enabled
         preferences.edit { putBoolean(KEY_LESS_EMOJI_ENABLED, enabled) }
@@ -338,6 +393,40 @@ class AppPreferences(context: Context) {
         preferences.edit { putString(KEY_RECENT_MODELS, updated.joinToString("\n")) }
     }
 
+    fun setToolCallFallbackEnabledByDefault(enabled: Boolean) {
+        _toolCallFallbackSettings.value = _toolCallFallbackSettings.value.copy(enabledByDefault = enabled)
+        preferences.edit { putBoolean(KEY_TOOL_CALL_FALLBACK_ENABLED_BY_DEFAULT, enabled) }
+    }
+
+    fun setModelToolFallbackOverride(
+        providerId: String,
+        modelId: String,
+        override: ModelToolFallbackOverride,
+    ) {
+        val key = toolFallbackModelKey(providerId, modelId)
+        val interimKey = modelPreferenceKey(providerId, modelId)
+        val current = _toolCallFallbackSettings.value
+        val enabledModels = current.enabledModelKeys.toMutableSet().apply {
+            remove(interimKey)
+            if (override == ModelToolFallbackOverride.ENABLED) add(key) else remove(key)
+        }.toSet()
+        val disabledModels = current.disabledModelKeys.toMutableSet().apply {
+            remove(interimKey)
+            if (override == ModelToolFallbackOverride.DISABLED) add(key) else remove(key)
+        }.toSet()
+        _toolCallFallbackSettings.value = current.copy(
+            enabledModelKeys = enabledModels,
+            disabledModelKeys = disabledModels,
+        )
+        preferences.edit {
+            putStringSet(KEY_TOOL_CALL_FALLBACK_ENABLED_MODELS, enabledModels)
+            putStringSet(KEY_TOOL_CALL_FALLBACK_DISABLED_MODELS, disabledModels)
+        }
+    }
+
+    fun toolCallFallbackEnabled(providerId: String, modelId: String): Boolean =
+        _toolCallFallbackSettings.value.isEnabled(providerId, modelId)
+
     fun setDeveloperSettings(value: DeveloperSettings) {
         val normalized = value.normalized()
         _developerSettings.value = normalized
@@ -345,6 +434,7 @@ class AppPreferences(context: Context) {
             putBoolean(KEY_DEVELOPER_ENABLED, normalized.enabled)
             putBoolean(KEY_DEMO_MODE_ENABLED, normalized.demoModeEnabled)
             putBoolean(KEY_SHOW_MESSAGE_SOURCE_ENABLED, normalized.showMessageSourceEnabled)
+            putBoolean(KEY_SHOW_HTTP_REQUEST_ENABLED, normalized.showHttpRequestEnabled)
             putBoolean(KEY_SUDO_MODE_CONTROL_ENABLED, normalized.sudoModeControlEnabled)
             putBoolean(KEY_TOOL_DIAGNOSTICS_ENABLED, normalized.toolDiagnosticsEnabled)
             putBoolean(KEY_PERFORMANCE_OVERLAY_ENABLED, normalized.performanceOverlayEnabled)
@@ -357,11 +447,76 @@ class AppPreferences(context: Context) {
             putFloat(KEY_PERFORMANCE_OVERLAY_SCALE, normalized.performanceOverlayScale)
             putBoolean(KEY_BLUR_BOUNDARY_DEBUG_ENABLED, normalized.blurBoundaryDebugEnabled)
             putFloat(KEY_BLUR_BOUNDARY_DEBUG_THICKNESS_DP, normalized.blurBoundaryDebugThicknessDp)
+            putFloat(KEY_TOP_BLUR_OFFSET_DP, normalized.topBlurOffsetDp)
         }
     }
 
     fun updateDeveloperSettings(transform: (DeveloperSettings) -> DeveloperSettings) =
         setDeveloperSettings(transform(_developerSettings.value))
+
+    fun setDeveloperPromptOverride(key: DeveloperPromptKey, value: String?) {
+        val current = _developerPromptOverrides.value
+        val updatedValues = current.values.toMutableMap().apply {
+            if (value == null) remove(key.id) else put(key.id, value)
+        }.toMap()
+        val active = updatedValues.isNotEmpty() || current.disabledIds.isNotEmpty()
+        _developerPromptOverrides.value = current.copy(
+            enabled = active,
+            values = updatedValues,
+        )
+        preferences.edit {
+            val storageKey = KEY_DEVELOPER_PROMPT_OVERRIDE_PREFIX + key.id
+            if (value == null) remove(storageKey) else putString(storageKey, value)
+            putBoolean(KEY_DEVELOPER_PROMPT_OVERRIDES_ENABLED, active)
+        }
+    }
+
+    fun setDeveloperPromptDisabled(key: DeveloperPromptKey, disabled: Boolean) {
+        val current = _developerPromptOverrides.value
+        val updatedDisabled = current.disabledIds.toMutableSet().apply {
+            if (disabled) add(key.id) else remove(key.id)
+        }.toSet()
+        val active = current.values.isNotEmpty() || updatedDisabled.isNotEmpty()
+        _developerPromptOverrides.value = current.copy(
+            enabled = active,
+            disabledIds = updatedDisabled,
+        )
+        preferences.edit {
+            putStringSet(KEY_DEVELOPER_PROMPT_DISABLED_IDS, updatedDisabled)
+            putBoolean(KEY_DEVELOPER_PROMPT_OVERRIDES_ENABLED, active)
+        }
+    }
+
+    fun resetDeveloperPromptCustomization(key: DeveloperPromptKey) {
+        val current = _developerPromptOverrides.value
+        val updatedValues = current.values - key.id
+        val updatedDisabled = current.disabledIds - key.id
+        val active = updatedValues.isNotEmpty() || updatedDisabled.isNotEmpty()
+        _developerPromptOverrides.value = current.copy(
+            enabled = active,
+            values = updatedValues,
+            disabledIds = updatedDisabled,
+        )
+        preferences.edit {
+            remove(KEY_DEVELOPER_PROMPT_OVERRIDE_PREFIX + key.id)
+            putStringSet(KEY_DEVELOPER_PROMPT_DISABLED_IDS, updatedDisabled)
+            putBoolean(KEY_DEVELOPER_PROMPT_OVERRIDES_ENABLED, active)
+        }
+    }
+
+    fun resetDeveloperPromptOverrides() {
+        val keys = preferences.all.keys.filter { it.startsWith(KEY_DEVELOPER_PROMPT_OVERRIDE_PREFIX) }
+        preferences.edit {
+            keys.forEach(::remove)
+            remove(KEY_DEVELOPER_PROMPT_DISABLED_IDS)
+            putBoolean(KEY_DEVELOPER_PROMPT_OVERRIDES_ENABLED, false)
+        }
+        _developerPromptOverrides.value = _developerPromptOverrides.value.copy(
+            enabled = false,
+            values = emptyMap(),
+            disabledIds = emptySet(),
+        )
+    }
 
     fun setNewChatDefaults(value: NewChatDefaults) {
         val normalized = value.copy(
@@ -406,10 +561,53 @@ class AppPreferences(context: Context) {
         searxngEndpoint = preferences.getString(KEY_SEARXNG_ENDPOINT, "").orEmpty(),
     ).normalized()
 
+    private fun readToolCallFallbackSettings(): ToolCallFallbackSettings {
+        val enabledModels = preferences
+            .getStringSet(KEY_TOOL_CALL_FALLBACK_ENABLED_MODELS, emptySet())
+            .orEmpty()
+            .toSet()
+        val disabledModels = preferences
+            .getStringSet(KEY_TOOL_CALL_FALLBACK_DISABLED_MODELS, emptySet())
+            .orEmpty()
+            .toSet() - enabledModels
+        return ToolCallFallbackSettings(
+            enabledByDefault = preferences.getBoolean(KEY_TOOL_CALL_FALLBACK_ENABLED_BY_DEFAULT, false),
+            enabledModelKeys = enabledModels,
+            disabledModelKeys = disabledModels,
+        )
+    }
+
+    private fun readDeveloperPromptOverrides(): DeveloperPromptOverrides {
+        val rawValues = DeveloperPromptKey.entries.mapNotNull { key ->
+            val storageKey = KEY_DEVELOPER_PROMPT_OVERRIDE_PREFIX + key.id
+            if (!preferences.contains(storageKey)) null
+            else key.id to preferences.getString(storageKey, "").orEmpty()
+        }.toMap()
+        // 0.25.1 pre-direct-editor builds represented a disabled component as
+        // an empty override. Keep those installs working, but migrate the
+        // runtime model to an independent disabled set so edits can be preserved.
+        val legacyDisabled = rawValues.filterValues(String::isEmpty).keys
+        val disabled = preferences
+            .getStringSet(KEY_DEVELOPER_PROMPT_DISABLED_IDS, emptySet())
+            .orEmpty()
+            .toSet() + legacyDisabled
+        val values = rawValues.filterValues(String::isNotEmpty)
+        val active = values.isNotEmpty() || disabled.isNotEmpty()
+        if (preferences.getBoolean(KEY_DEVELOPER_PROMPT_OVERRIDES_ENABLED, false) != active) {
+            preferences.edit { putBoolean(KEY_DEVELOPER_PROMPT_OVERRIDES_ENABLED, active) }
+        }
+        return DeveloperPromptOverrides(
+            enabled = active,
+            values = values,
+            disabledIds = disabled,
+        )
+    }
+
     private fun readDeveloperSettings() = DeveloperSettings(
         enabled = preferences.getBoolean(KEY_DEVELOPER_ENABLED, false),
         demoModeEnabled = BuildConfig.DEBUG && preferences.getBoolean(KEY_DEMO_MODE_ENABLED, false),
         showMessageSourceEnabled = preferences.getBoolean(KEY_SHOW_MESSAGE_SOURCE_ENABLED, false),
+        showHttpRequestEnabled = preferences.getBoolean(KEY_SHOW_HTTP_REQUEST_ENABLED, false),
         sudoModeControlEnabled = preferences.getBoolean(KEY_SUDO_MODE_CONTROL_ENABLED, false),
         toolDiagnosticsEnabled = preferences.getBoolean(KEY_TOOL_DIAGNOSTICS_ENABLED, false),
         performanceOverlayEnabled = preferences.getBoolean(KEY_PERFORMANCE_OVERLAY_ENABLED, false),
@@ -422,6 +620,7 @@ class AppPreferences(context: Context) {
         performanceOverlayScale = preferences.getFloat(KEY_PERFORMANCE_OVERLAY_SCALE, 1f),
         blurBoundaryDebugEnabled = preferences.getBoolean(KEY_BLUR_BOUNDARY_DEBUG_ENABLED, false),
         blurBoundaryDebugThicknessDp = preferences.getFloat(KEY_BLUR_BOUNDARY_DEBUG_THICKNESS_DP, 3f),
+        topBlurOffsetDp = preferences.getFloat(KEY_TOP_BLUR_OFFSET_DP, 0f),
     ).normalized()
 
     private fun readNewChatDefaults() = NewChatDefaults(
@@ -457,6 +656,9 @@ class AppPreferences(context: Context) {
         const val KEY_CHROME_EDGE_SOFTNESS = "chrome_edge_softness"
         const val KEY_CHROME_EDGE_CONTROL_REVISION = "chrome_edge_control_revision"
         const val KEY_CHROME_OVERLAY_OPACITY = "chrome_overlay_opacity"
+        const val KEY_PROMPT_BAR_BACKGROUND_STYLE = "prompt_bar_background_style"
+        const val KEY_PROMPT_BAR_BACKGROUND_OPACITY = "prompt_bar_background_opacity"
+        const val DEFAULT_PROMPT_BAR_BACKGROUND_OPACITY = 0.76f
         const val KEY_LESS_EMOJI_ENABLED = "less_emoji_enabled"
         const val KEY_AUTOMATIC_UPDATE_CHECKS = "automatic_update_checks"
         const val KEY_WEB_SEARCH_ROUTE = "web_search_route"
@@ -487,8 +689,15 @@ class AppPreferences(context: Context) {
         const val KEY_DEVELOPER_ENABLED = "developer_settings_enabled"
         const val KEY_DEMO_MODE_ENABLED = "demo_mode_enabled"
         const val KEY_SHOW_MESSAGE_SOURCE_ENABLED = "show_message_source_enabled"
+        const val KEY_SHOW_HTTP_REQUEST_ENABLED = "show_http_request_enabled"
         const val KEY_SUDO_MODE_CONTROL_ENABLED = "sudo_mode_control_enabled"
         const val KEY_TOOL_DIAGNOSTICS_ENABLED = "tool_diagnostics_enabled"
+        const val KEY_TOOL_CALL_FALLBACK_ENABLED_BY_DEFAULT = "tool_call_fallback_enabled_by_default"
+        const val KEY_TOOL_CALL_FALLBACK_ENABLED_MODELS = "tool_call_fallback_enabled_models"
+        const val KEY_TOOL_CALL_FALLBACK_DISABLED_MODELS = "tool_call_fallback_disabled_models"
+        const val KEY_DEVELOPER_PROMPT_OVERRIDES_ENABLED = "developer_prompt_overrides_enabled"
+        const val KEY_DEVELOPER_PROMPT_OVERRIDE_PREFIX = "developer_prompt_override_"
+        const val KEY_DEVELOPER_PROMPT_DISABLED_IDS = "developer_prompt_disabled_ids"
         const val KEY_PERFORMANCE_OVERLAY_ENABLED = "performance_overlay_enabled"
         const val KEY_DIAGNOSTIC_PROFILER_ENABLED = "diagnostic_profiler_enabled"
         const val KEY_PERFORMANCE_OVERLAY_DETAILED = "performance_overlay_detailed"
@@ -499,6 +708,7 @@ class AppPreferences(context: Context) {
         const val KEY_PERFORMANCE_OVERLAY_SCALE = "performance_overlay_scale"
         const val KEY_BLUR_BOUNDARY_DEBUG_ENABLED = "blur_boundary_debug_enabled"
         const val KEY_BLUR_BOUNDARY_DEBUG_THICKNESS_DP = "blur_boundary_debug_thickness_dp"
+        const val KEY_TOP_BLUR_OFFSET_DP = "top_blur_offset_dp"
         const val KEY_FAVORITE_MODELS = "favorite_models"
         const val KEY_RECENT_MODELS = "recent_models"
         const val MAX_RECENT_MODELS = 12
@@ -506,3 +716,5 @@ class AppPreferences(context: Context) {
 }
 
 fun modelPreferenceKey(providerId: String, modelId: String): String = "$providerId::$modelId"
+
+fun toolFallbackModelKey(providerId: String, modelId: String): String = providerId + "\u0000" + modelId

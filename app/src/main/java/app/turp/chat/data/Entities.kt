@@ -18,6 +18,7 @@ enum class SendMode { SEND_NOW, QUEUE, STEER }
     GENERIC,
     OPENAI,
     OPENROUTER,
+    EVREN,
     OPENCODE_V2,
     OPENCODE_GO,
     OPENCODE_ZEN,

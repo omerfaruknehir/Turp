@@ -54,7 +54,7 @@ class BackdropBlurTest {
         assertEquals(1f, chromeEdgeCornerTransition(.20f), 0f)
         assertEquals(0f, edgeSoftnessActivation(.20f), 0f)
         assertTrue(edgeSoftnessActivation(.21f) > 0f)
-        assertEquals(68f, calculateMergeDistanceDp(1f), .0001f)
+        assertEquals(136f, calculateMergeDistanceDp(1f), .0001f)
     }
 
     @Test fun blurUsesTheDeviceProvenDirectRuntimeShaderChain() {
@@ -145,7 +145,11 @@ class BackdropBlurTest {
         assertTrue(source.contains("smoothstep(end - 1.0, end + 1.0, coord.y)"))
         assertTrue(source.contains("private const val DEFAULT_EDGE_HIGHLIGHT = 0f"))
         assertTrue(source.contains("TurpBackdropDebugOverlay"))
+        assertTrue(source.contains("color = Color.Yellow"))
         assertTrue(source.contains("color = Color.Red"))
+        assertTrue(source.contains("val gradientStart = boundary - halfFeather"))
+        assertTrue(source.contains("val gradientEnd = boundary + halfFeather"))
+        assertTrue(source.contains("TurpBackdropDebugOverlay.topOffsetDp"))
     }
 
     @Test fun profilerRemainsWiredToTheDirectRenderer() {

@@ -33,6 +33,7 @@ import app.turp.chat.data.PackageTransactionEntity
 import app.turp.chat.provider.ProviderCredentialPolicy
 import app.turp.chat.provider.ProviderEndpointPolicy
 import app.turp.chat.provider.ProviderEndpointResolver
+import app.turp.chat.provider.DeveloperHttpTraceStore
 import app.turp.chat.provider.ModelRequestPolicy
 import app.turp.chat.provider.defaultThinkingEffort
 import app.turp.chat.provider.effectiveThinkingEnabled
@@ -61,6 +62,7 @@ import app.turp.chat.sandbox.ScriptRunResult
 import app.turp.chat.sandbox.WorkspaceReadResult
 import app.turp.chat.agent.AgentToolRequest
 import app.turp.chat.settings.NewChatDefaults
+import app.turp.chat.settings.ModelToolFallbackOverride
 import app.turp.chat.settings.LauncherIconManager
 import app.turp.chat.settings.PersistentUiStateStore
 import app.turp.chat.transfer.ArchiveOptions
@@ -81,6 +83,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -93,6 +96,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -103,6 +107,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import java.util.LinkedHashMap
 
 data class PythonRunState(
     val startedAt: Long,
@@ -128,6 +133,16 @@ data class LinuxRunState(
 @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 class ChatViewModel(private val container: AppContainer, savedStateHandle: SavedStateHandle) : ViewModel() {
     private val toolResultJson = Json { ignoreUnknownKeys = true }
+    private val attachmentSnapshotCache = object : LinkedHashMap<String, List<AttachmentEntity>>(128, 0.75f, true) {
+        override fun removeEldestEntry(
+            eldest: MutableMap.MutableEntry<String, List<AttachmentEntity>>?,
+        ): Boolean = size > 128
+    }
+    private val attachmentFlowCache = object : LinkedHashMap<String, Flow<List<AttachmentEntity>>>(128, 0.75f, true) {
+        override fun removeEldestEntry(
+            eldest: MutableMap.MutableEntry<String, Flow<List<AttachmentEntity>>>?,
+        ): Boolean = size > 128
+    }
     private val restoredUiState = container.persistentUiState.restore()
     val conversations = container.repository.conversations.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val archivedConversations = container.repository.archivedConversations.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -167,6 +182,10 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
     val importing = MutableStateFlow(false)
     val screen = savedStateHandle.getMutableStateFlow("screen", restoredUiState.screen)
     val settingsRoute = savedStateHandle.getMutableStateFlow("settings_route", restoredUiState.settingsRoute)
+    val developerPromptEditorKey = savedStateHandle.getMutableStateFlow<String?>(
+        "developer_prompt_editor_key",
+        null,
+    )
     val settingsPageRevisions = MutableStateFlow<Map<SettingsRoute, Long>>(emptyMap())
     val searchQuery = savedStateHandle.getMutableStateFlow("search_query", restoredUiState.searchQuery)
     val focusedMessageNodeId = savedStateHandle.getMutableStateFlow<String?>(
@@ -205,10 +224,16 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
     val chromeBlurStrength: StateFlow<Float> = container.appPreferences.chromeBlurStrength
     val chromeEdgeSoftness: StateFlow<Float> = container.appPreferences.chromeEdgeSoftness
     val chromeOverlayOpacity: StateFlow<Float> = container.appPreferences.chromeOverlayOpacity
+    val promptBarBackgroundStyle = container.appPreferences.promptBarBackgroundStyle
+    val promptBarBackgroundOpacity = container.appPreferences.promptBarBackgroundOpacity
     val lessEmojiEnabled: StateFlow<Boolean> = container.appPreferences.lessEmojiEnabled
     val automaticUpdateChecks: StateFlow<Boolean> = container.appPreferences.automaticUpdateChecks
     val generatedRepairMaxAttempts: StateFlow<Int> = container.appPreferences.generatedRepairMaxAttempts
     val developerSettings: StateFlow<app.turp.chat.settings.DeveloperSettings> = container.appPreferences.developerSettings
+    val developerPromptOverrides: StateFlow<app.turp.chat.settings.DeveloperPromptOverrides> =
+        container.appPreferences.developerPromptOverrides
+    val toolCallFallbackSettings = container.appPreferences.toolCallFallbackSettings
+    val developerHttpTraces = DeveloperHttpTraceStore.traces
     val palette = container.appPreferences.palette
     val themeMode = container.appPreferences.themeMode
     val matchLauncherIconToPalette = container.appPreferences.matchLauncherIconToPalette
@@ -570,6 +595,20 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
         }
         container.persistentUiState.saveSettingsScroll(route, 0)
         settingsRoute.value = route
+    }
+
+    fun openDeveloperPrompts() {
+        openSettingsRoute(SettingsRoute.DEVELOPER_PROMPTS)
+    }
+
+    fun openDeveloperPromptEditor(key: app.turp.chat.settings.DeveloperPromptKey) {
+        developerPromptEditorKey.value = key.name
+        openSettingsRoute(SettingsRoute.PROMPT_EDITOR)
+    }
+
+    fun closeDeveloperPromptEditor() {
+        developerPromptEditorKey.value = null
+        openSettingsRoute(SettingsRoute.DEVELOPER_PROMPTS)
     }
 
     fun openSettingsHome() {
@@ -1182,7 +1221,30 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
         notices.emit("Removed ${provider.displayName} credentials")
     }
 
-    fun observeAttachments(nodeId: String) = container.repository.observeAttachments(nodeId)
+    fun attachmentSnapshot(nodeId: String): List<AttachmentEntity> =
+        synchronized(attachmentSnapshotCache) {
+            attachmentSnapshotCache[nodeId].orEmpty()
+        }
+
+    suspend fun prewarmAttachments(nodeId: String) {
+        if (synchronized(attachmentSnapshotCache) { attachmentSnapshotCache.containsKey(nodeId) }) return
+        val attachments = container.repository.attachments(nodeId)
+        synchronized(attachmentSnapshotCache) {
+            attachmentSnapshotCache[nodeId] = attachments
+        }
+    }
+
+    fun observeAttachments(nodeId: String): Flow<List<AttachmentEntity>> =
+        synchronized(attachmentFlowCache) {
+            attachmentFlowCache[nodeId]
+                ?: container.repository.observeAttachments(nodeId)
+                    .onEach { attachments ->
+                        synchronized(attachmentSnapshotCache) {
+                            attachmentSnapshotCache[nodeId] = attachments
+                        }
+                    }
+                    .also { attachmentFlowCache[nodeId] = it }
+        }
 
     fun useProvider(providerId: String) = launchAction {
         val firstModel = container.repository.observeModels(providerId).first().firstOrNull() ?: return@launchAction
@@ -1490,9 +1552,40 @@ class ChatViewModel(private val container: AppContainer, savedStateHandle: Saved
     fun setChromeBlurStrength(value: Float) = container.appPreferences.setChromeBlurStrength(value)
     fun setChromeEdgeSoftness(value: Float) = container.appPreferences.setChromeEdgeSoftness(value)
     fun setChromeOverlayOpacity(value: Float) = container.appPreferences.setChromeOverlayOpacity(value)
+    fun setPromptBarBackgroundStyle(value: app.turp.chat.settings.PromptBarBackgroundStyle) =
+        container.appPreferences.setPromptBarBackgroundStyle(value)
+    fun setPromptBarBackgroundOpacity(value: Float) =
+        container.appPreferences.setPromptBarBackgroundOpacity(value)
     fun setGeneratedRepairMaxAttempts(value: Int) = container.appPreferences.setGeneratedRepairMaxAttempts(value)
     fun updateDeveloperSettings(transform: (app.turp.chat.settings.DeveloperSettings) -> app.turp.chat.settings.DeveloperSettings) =
         container.appPreferences.updateDeveloperSettings(transform)
+
+    fun setToolCallFallbackEnabledByDefault(enabled: Boolean) =
+        container.appPreferences.setToolCallFallbackEnabledByDefault(enabled)
+
+    fun setModelToolFallbackOverride(
+        providerId: String,
+        modelId: String,
+        override: ModelToolFallbackOverride,
+    ) = container.appPreferences.setModelToolFallbackOverride(providerId, modelId, override)
+
+    fun enableToolCallFallbackForModel(providerId: String, modelId: String) =
+        setModelToolFallbackOverride(providerId, modelId, ModelToolFallbackOverride.ENABLED)
+
+    fun setDeveloperPromptOverride(key: app.turp.chat.settings.DeveloperPromptKey, value: String?) =
+        container.appPreferences.setDeveloperPromptOverride(key, value)
+
+    fun setDeveloperPromptDisabled(key: app.turp.chat.settings.DeveloperPromptKey, disabled: Boolean) =
+        container.appPreferences.setDeveloperPromptDisabled(key, disabled)
+
+    fun resetDeveloperPromptCustomization(key: app.turp.chat.settings.DeveloperPromptKey) =
+        container.appPreferences.resetDeveloperPromptCustomization(key)
+
+    fun resetDeveloperPromptOverrides() =
+        container.appPreferences.resetDeveloperPromptOverrides()
+
+    suspend fun generationUsage(assistantId: String) =
+        container.repository.generationUsage(assistantId)
 
     fun setDemoModeEnabled(enabled: Boolean, openWalkthrough: Boolean = false) = launchAction {
         if (!BuildConfig.DEBUG) return@launchAction

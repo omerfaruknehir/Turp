@@ -153,7 +153,7 @@ class AppContainer(val application: Application, val crashReporter: CrashReporte
     val providers = ProviderRegistry(openAiOAuth)
     val modelDiscovery = AlibabaCloudModelDiscoveryService(openAiOAuth)
     val tokenCounter = HybridTokenCounter()
-    val auxiliaryModels = AuxiliaryModelService(repository, providers, secureStore)
+    val auxiliaryModels = AuxiliaryModelService(repository, providers, secureStore, appPreferences)
     val attachmentStore = AttachmentStore(application, database.attachmentDao())
     val ocrEngine = OcrEngine(application, database.attachmentDao())
     val pythonSandbox = PythonSandbox(application)

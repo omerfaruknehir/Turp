@@ -17,10 +17,7 @@ class AttachmentStore(
     private val attachmentDao: AttachmentDao,
 ) {
     companion object {
-        const val MAX_FILE_BYTES = 64L * 1024 * 1024
-        const val MAX_CHAT_ATTACHMENT_BYTES = 512L * 1024 * 1024
         const val MAX_STAGED_ATTACHMENTS = 12
-        const val MAX_APP_ATTACHMENT_BYTES = 2L * 1024 * 1024 * 1024
         private const val MIN_FREE_BYTES = 64L * 1024 * 1024
         private const val MAX_EXTRACTED_TEXT_CHARS = 64_000
     }
@@ -42,17 +39,13 @@ class AttachmentStore(
                 declaredSize = cursor.getLong(1)
             }
         }
-        require(declaredSize < 0 || declaredSize <= MAX_FILE_BYTES) { "Files are limited to 64 MB" }
         val existing = attachmentDao.forConversation(conversationId)
         require(existing.count { it.messageNodeId == null } < MAX_STAGED_ATTACHMENTS) { "Attach at most $MAX_STAGED_ATTACHMENTS files at a time" }
-        require(existing.sumOf { it.sizeBytes.coerceAtLeast(0) } + declaredSize.coerceAtLeast(0) <= MAX_CHAT_ATTACHMENT_BYTES) {
-            "This chat has reached its 512 MB attachment limit"
-        }
-        val attachmentsRoot = File(context.filesDir, "attachments")
-        val appBytes = attachmentsRoot.walkTopDown().filter(File::isFile).sumOf(File::length)
-        require(appBytes + declaredSize.coerceAtLeast(0) <= MAX_APP_ATTACHMENT_BYTES) { "Turp's 2 GB attachment storage limit has been reached" }
         val available = StatFs(context.filesDir.absolutePath).availableBytes
-        require(declaredSize < 0 || available > declaredSize * 2 + MIN_FREE_BYTES) { "Not enough free storage to attach this file and make its workspace copy" }
+        require(
+            declaredSize < 0 ||
+                declaredSize <= (available - MIN_FREE_BYTES).coerceAtLeast(0L) / 2L,
+        ) { "Not enough free storage to attach this file and make its workspace copy" }
         val id = UUID.randomUUID().toString()
         val safeName = displayName.replace(Regex("[^A-Za-z0-9._() -]"), "_").take(160).ifBlank { "attachment" }
         val directory = File(context.filesDir, "attachments/$id").also { it.mkdirs() }
@@ -61,7 +54,11 @@ class AttachmentStore(
         try {
             resolver.openInputStream(uri).use { input ->
                 requireNotNull(input) { "Unable to open $displayName" }
-                file.outputStream().use { output -> copyWithLimit(input, output, MAX_FILE_BYTES) }
+                file.outputStream().use { output -> input.copyTo(output, 128 * 1024) }
+            }
+            val workspaceAvailable = StatFs(context.filesDir.absolutePath).availableBytes
+            require(file.length() <= (workspaceAvailable - MIN_FREE_BYTES).coerceAtLeast(0L)) {
+                "Not enough free storage to make this file's workspace copy"
             }
             workspaceCopy.parentFile?.mkdirs()
             file.copyTo(workspaceCopy, overwrite = true)
@@ -107,14 +104,8 @@ class AttachmentStore(
         description: String? = null,
     ): AttachmentEntity = withContext(Dispatchers.IO) {
         require(bytes.isNotEmpty()) { "Generated image was empty" }
-        require(bytes.size.toLong() <= MAX_FILE_BYTES) { "Generated images are limited to 64 MB" }
-        val existing = attachmentDao.forConversation(conversationId)
-        require(existing.sumOf { it.sizeBytes.coerceAtLeast(0) } + bytes.size <= MAX_CHAT_ATTACHMENT_BYTES) {
-            "This chat has reached its 512 MB attachment limit"
-        }
-        val appBytes = File(context.filesDir, "attachments").walkTopDown().filter(File::isFile).sumOf(File::length)
-        require(appBytes + bytes.size <= MAX_APP_ATTACHMENT_BYTES) { "Turp's 2 GB attachment storage limit has been reached" }
-        require(StatFs(context.filesDir.absolutePath).availableBytes > bytes.size * 2L + MIN_FREE_BYTES) {
+        val available = StatFs(context.filesDir.absolutePath).availableBytes
+        require(bytes.size.toLong() <= (available - MIN_FREE_BYTES).coerceAtLeast(0L)) {
             "Not enough free storage to save the generated image"
         }
         val id = UUID.randomUUID().toString()
@@ -147,9 +138,9 @@ class AttachmentStore(
     suspend fun importWorkspaceOutput(conversationId: String, messageNodeId: String, relativePath: String): AttachmentEntity? = withContext(Dispatchers.IO) {
         val workspace = File(context.filesDir, "workspaces/$conversationId").canonicalFile
         val source = File(workspace, relativePath).canonicalFile
-        if (!source.isFile || !source.path.startsWith(workspace.path + File.separator) || source.length() > MAX_FILE_BYTES) return@withContext null
-        val existing = attachmentDao.forConversation(conversationId)
-        if (existing.sumOf { it.sizeBytes.coerceAtLeast(0) } + source.length() > MAX_CHAT_ATTACHMENT_BYTES) return@withContext null
+        if (!source.isFile || !source.path.startsWith(workspace.path + File.separator)) return@withContext null
+        val available = StatFs(context.filesDir.absolutePath).availableBytes
+        if (source.length() > (available - MIN_FREE_BYTES).coerceAtLeast(0L)) return@withContext null
         val id = UUID.randomUUID().toString()
         val safeName = source.name.replace(Regex("[^A-Za-z0-9._() -]"), "_").take(160).ifBlank { "output" }
         val destination = File(context.filesDir, "attachments/$id/$safeName")
@@ -212,18 +203,6 @@ class AttachmentStore(
             "tar" -> "application/x-tar"
             "gz" -> "application/gzip"
             else -> "application/octet-stream"
-        }
-    }
-
-    private fun copyWithLimit(input: java.io.InputStream, output: java.io.OutputStream, limit: Long) {
-        val buffer = ByteArray(128 * 1024)
-        var total = 0L
-        while (true) {
-            val count = input.read(buffer)
-            if (count < 0) break
-            total += count
-            require(total <= limit) { "Files are limited to 64 MB" }
-            output.write(buffer, 0, count)
         }
     }
 
