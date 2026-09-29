@@ -1162,6 +1162,12 @@ private object MarkdownTableRowsCache {
     }
 
     @Synchronized
+    fun get(markdown: String): List<List<String>>? {
+        val key = (markdown.hashCode() * 31) + markdown.length
+        return entries[key]?.takeIf { it.source == markdown }?.rows
+    }
+
+    @Synchronized
     fun getOrParse(markdown: String): List<List<String>> {
         val key = (markdown.hashCode() * 31) + markdown.length
         entries[key]?.takeIf { it.source == markdown }?.let { return it.rows }
@@ -1214,7 +1220,14 @@ private fun NativeMarkdownTable(
     markdown: String,
     onReference: (LinkReferencePreview) -> Unit,
 ) {
-    val rows = remember(markdown) { MarkdownTableRowsCache.getOrParse(markdown) }
+    val deferRichHydration = LocalDeferRichHydration.current
+    val rows = remember(markdown, deferRichHydration) {
+        if (deferRichHydration) {
+            MarkdownTableRowsCache.get(markdown).orEmpty()
+        } else {
+            MarkdownTableRowsCache.getOrParse(markdown)
+        }
+    }
     if (rows.isEmpty()) {
         LightweightTableText(markdown = markdown, streaming = false)
         return
