@@ -9,6 +9,7 @@ import android.graphics.Paint
 import android.graphics.Typeface
 import android.graphics.RectF
 import android.graphics.Color as AndroidColor
+import android.os.Process
 import android.text.Layout
 import android.text.Selection
 import android.text.Spannable
@@ -68,6 +69,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
@@ -108,7 +110,9 @@ import io.noties.markwon.ext.strikethrough.StrikethroughPlugin
 import io.noties.markwon.ext.tables.TablePlugin
 import io.noties.markwon.ext.tasklist.TaskListPlugin
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.conflate
@@ -118,6 +122,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.net.URLEncoder
+import java.util.concurrent.Executors
 import java.util.LinkedHashMap
 import kotlin.math.roundToInt
 
@@ -1531,6 +1536,23 @@ internal fun StreamingPlainText(
     )
 }
 
+internal val LocalDeferRichHydration = staticCompositionLocalOf { false }
+
+internal val ChatRenderPrewarmDispatcher: CoroutineDispatcher by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+    Executors.newSingleThreadExecutor { worker ->
+        Thread(
+            {
+                Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
+                worker.run()
+            },
+            "Turp-Chat-Render",
+        ).apply {
+            isDaemon = true
+            priority = Thread.MIN_PRIORITY
+        }
+    }.asCoroutineDispatcher()
+}
+
 private data class ParsedMarkdownSource(
     val source: String,
     val spanned: Spanned,
@@ -1680,6 +1702,7 @@ private fun MarkdownAndroidView(
     precompute: Boolean = true,
 ) {
     val context = LocalContext.current
+    val deferRichHydration = LocalDeferRichHydration.current
     val configuration = LocalConfiguration.current
     val localeTags = configuration.locales.toLanguageTags()
     val scaledDensity = context.resources.displayMetrics.scaledDensity
@@ -1726,8 +1749,9 @@ private fun MarkdownAndroidView(
         linkColor,
         pillBackground,
         pillForeground,
+        deferRichHydration,
     ) {
-        preparedMarkdown = withContext(Dispatchers.Default) {
+        val prepared = withContext(ChatRenderPrewarmDispatcher) {
             if (precompute) {
                 PreparedMarkdownCache.get(
                     source = markdown,
@@ -1761,6 +1785,9 @@ private fun MarkdownAndroidView(
                     )
                 }
             }
+        }
+        if (!deferRichHydration || preparedMarkdown != null) {
+            preparedMarkdown = prepared
         }
     }
     AndroidView(
