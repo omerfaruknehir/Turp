@@ -179,9 +179,11 @@ class ChatScrollMathTest {
         assertTrue(chat.contains("ChatFollowSeekMaxSpeedPxPerSecond = 36_000f"))
         assertTrue(chat.contains("ChatFollowSeekMaxFrameStepPx = 320f"))
         assertTrue(chat.contains("prewarmRichMessageRendering("))
-        assertTrue(chat.contains("ChatMessagePrefetchStrategy"))
-        assertTrue(chat.contains("rememberLazyListState(prefetchStrategy = messagePrefetchStrategy)"))
-        assertTrue(chat.contains("schedulePrefetch(index)"))
+        assertTrue(chat.contains("ChatMessageCacheWindow"))
+        assertTrue(chat.contains("CHAT_CACHE_AHEAD_VIEWPORTS = 3f"))
+        assertTrue(chat.contains("CHAT_CACHE_BEHIND_VIEWPORTS = 2f"))
+        assertTrue(chat.contains("rememberLazyListState(cacheWindow = ChatMessageCacheWindow)"))
+        assertFalse(chat.contains("private class ChatMessagePrefetchStrategy"))
         assertTrue(chat.contains("chatDataPrewarmIndices("))
         assertTrue(chat.contains(".conflate()"))
         assertTrue(chat.contains(".collect { candidates ->"))
@@ -194,6 +196,15 @@ class ChatScrollMathTest {
                 "developerHttpTraces by viewModel.developerHttpTraces.collectAsStateWithLifecycle()",
             ),
         )
+    }
+
+    @Test
+    fun retainedCacheWindowCoversMultipleViewports() {
+        assertEquals(3_000, chatCacheWindowPx(viewportPx = 1_000, viewportMultiplier = 3f))
+        assertEquals(2_000, chatCacheWindowPx(viewportPx = 1_000, viewportMultiplier = 2f))
+        assertEquals(1_000, chatCacheWindowPx(viewportPx = 1_000, viewportMultiplier = 0.5f))
+        assertEquals(0, chatCacheWindowPx(viewportPx = 0, viewportMultiplier = 3f))
+        assertEquals(0, chatCacheWindowPx(viewportPx = 1_000, viewportMultiplier = 0f))
     }
 
     @Test
