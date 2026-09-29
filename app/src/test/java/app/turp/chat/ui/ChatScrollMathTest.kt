@@ -180,9 +180,12 @@ class ChatScrollMathTest {
         assertTrue(chat.contains("ChatFollowSeekMaxFrameStepPx = 320f"))
         assertTrue(chat.contains("prewarmRichMessageRendering("))
         assertTrue(chat.contains("ChatMessageCacheWindow"))
-        assertTrue(chat.contains("CHAT_CACHE_AHEAD_VIEWPORTS = 3f"))
-        assertTrue(chat.contains("CHAT_CACHE_BEHIND_VIEWPORTS = 2f"))
+        assertTrue(chat.contains("CHAT_CACHE_AHEAD_VIEWPORTS = 5f"))
+        assertTrue(chat.contains("CHAT_CACHE_BEHIND_VIEWPORTS = 3f"))
         assertTrue(chat.contains("rememberLazyListState(cacheWindow = ChatMessageCacheWindow)"))
+        assertTrue(chat.contains("CHAT_SCROLL_RENDER_GRACE_MS = 120L"))
+        assertTrue(chat.contains("LocalDeferRichHydration provides deferHeavyMessageHydration"))
+        assertTrue(chat.contains("withContext(ChatRenderPrewarmDispatcher)"))
         assertFalse(chat.contains("private class ChatMessagePrefetchStrategy"))
         assertTrue(chat.contains("chatDataPrewarmIndices("))
         assertTrue(chat.contains(".conflate()"))
@@ -196,6 +199,23 @@ class ChatScrollMathTest {
                 "developerHttpTraces by viewModel.developerHttpTraces.collectAsStateWithLifecycle()",
             ),
         )
+    }
+
+    @Test
+    fun scrollFirstHydrationDefersHeavyUpgrades() {
+        val chat = java.io.File("src/main/java/app/turp/chat/ui/ChatScreen.kt").readText()
+        val rich = java.io.File("src/main/java/app/turp/chat/ui/RichMessage.kt").readText()
+        val syntax = java.io.File("src/main/java/app/turp/chat/ui/SyntaxHighlight.kt").readText()
+
+        assertTrue(chat.contains("deferHeavyMessageHydration = true"))
+        assertTrue(chat.contains("delay(CHAT_SCROLL_RENDER_GRACE_MS)"))
+        assertTrue(chat.contains("deferHeavyMessageHydration = false"))
+        assertTrue(rich.contains("Process.THREAD_PRIORITY_BACKGROUND"))
+        assertTrue(rich.contains("Executors.newSingleThreadExecutor"))
+        assertTrue(rich.contains("withContext(ChatRenderPrewarmDispatcher)"))
+        assertTrue(rich.contains("if (!deferRichHydration)"))
+        assertTrue(rich.contains("MarkdownTableRowsCache.get(markdown).orEmpty()"))
+        assertTrue(syntax.contains("deferRichHydration -> AnnotatedString(code)"))
     }
 
     @Test
