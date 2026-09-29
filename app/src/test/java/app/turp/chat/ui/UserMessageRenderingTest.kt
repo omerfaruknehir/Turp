@@ -39,7 +39,7 @@ class UserMessageRenderingTest {
         assertTrue(rich.contains("PrecomputedTextCompat.create(decorated, metricsParams)"))
         assertTrue(rich.contains("TextViewCompat.setPrecomputedText(view, ready.precomputed)"))
         assertTrue(rich.contains("precompute = !streaming"))
-        assertTrue(rich.contains("withContext(Dispatchers.Default)"))
+        assertTrue(rich.contains("withContext(ChatRenderPrewarmDispatcher)"))
         assertTrue(rich.contains("decorateReferenceSpans("))
         assertTrue(rich.contains("private object PreparedMarkdownCache"))
         assertTrue(rich.contains("PreparedMarkdownCache.get("))
